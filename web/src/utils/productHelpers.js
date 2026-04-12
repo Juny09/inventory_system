@@ -9,9 +9,9 @@ export const markupPresets = [
 ]
 
 export const pricingRuleTemplates = [
-  { ruleName: 'Retail', markupPercentage: 30, description: '门店常规零售价' },
-  { ruleName: 'Wholesale', markupPercentage: 18, description: '批发合作价' },
-  { ruleName: 'VIP', markupPercentage: 12, description: '会员或老客户价格' },
+  { ruleName: 'Retail', channelKey: 'retail', markupPercentage: 30, description: '门店常规零售价' },
+  { ruleName: 'Wholesale', channelKey: 'wholesale', markupPercentage: 18, description: '批发合作价' },
+  { ruleName: 'VIP', channelKey: 'vip', markupPercentage: 12, description: '会员或老客户价格' },
 ]
 
 export function generateLocalProductCode() {
@@ -36,6 +36,7 @@ export function buildDefaultPricingRules(costPrice = 0) {
 export function syncPricingRules(costPrice, rules) {
   return rules.map((rule, index) => ({
     ...rule,
+    channelKey: rule.channelKey || rule.ruleName?.toLowerCase() || `rule-${index + 1}`,
     isDefault: Boolean(rule.isDefault) || index === 0,
     sortOrder: Number(rule.sortOrder ?? index),
     suggestedPrice: calculateSuggestedPrice(costPrice, rule.markupPercentage),

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import AppLayout from '../layouts/AppLayout.vue'
 import api from '../services/api'
@@ -29,6 +29,7 @@ const loading = ref(true)
 const errorMessage = ref('')
 const qrPreview = ref('')
 const costPasscode = ref('')
+const pricingChannel = ref(localStorage.getItem('inventory_pricing_channel') || 'retail')
 
 const markupSummary = computed(() => Number(product.value?.markup_percentage || 0))
 
@@ -44,7 +45,11 @@ async function loadDetail() {
   loading.value = true
 
   try {
-    const { data } = await api.get(`/products/${route.params.id}`)
+    const { data } = await api.get(`/products/${route.params.id}`, {
+      params: {
+        pricingChannel: pricingChannel.value || undefined,
+      },
+    })
     product.value = data.product
     images.value = data.images || data.product.images || []
     pricingRules.value = data.pricingRules || data.product.pricing_rules || []
@@ -98,6 +103,11 @@ async function printLabel() {
 }
 
 onMounted(loadDetail)
+
+watch(pricingChannel, (value) => {
+  localStorage.setItem('inventory_pricing_channel', value)
+  loadDetail()
+})
 </script>
 
 <template>
@@ -217,6 +227,14 @@ onMounted(loadDetail)
                       <h3 class="text-lg font-semibold text-slate-900">Pricing</h3>
                       <p class="mt-1 text-sm text-slate-500">成本、建议售价与实际售价会集中展示在这里。</p>
                     </div>
+                    <select
+                      v-model="pricingChannel"
+                      class="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm outline-none focus:border-brand-500"
+                    >
+                      <option value="retail">Retail</option>
+                      <option value="wholesale">Wholesale</option>
+                      <option value="vip">VIP</option>
+                    </select>
                     <button
                       v-if="costAccessStore.isUnlocked"
                       type="button"
@@ -253,7 +271,9 @@ onMounted(loadDetail)
                     </div>
                     <div class="rounded-2xl bg-slate-50 px-4 py-3">
                       <p class="text-xs text-slate-400">Suggested</p>
-                      <p class="mt-1 font-semibold text-slate-900">{{ formatCurrency(product.suggested_price || product.selling_price) }}</p>
+                      <p class="mt-1 font-semibold text-slate-900">
+                        {{ formatCurrency(product.active_suggested_price ?? product.suggested_price ?? product.selling_price) }}
+                      </p>
                     </div>
                     <div class="rounded-2xl bg-slate-50 px-4 py-3">
                       <p class="text-xs text-slate-400">Selling</p>

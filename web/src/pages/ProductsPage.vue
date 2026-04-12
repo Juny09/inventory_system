@@ -30,6 +30,7 @@ const imageProcessing = ref(false)
 const searchKeyword = ref('')
 const costPasscode = ref('')
 const selectedProductIds = ref([])
+const pricingChannel = ref(localStorage.getItem('inventory_pricing_channel') || 'retail')
 const filters = reactive({
   categoryId: '',
   status: 'all',
@@ -67,6 +68,10 @@ const dragImageIndex = ref(-1)
 
 function formatCurrency(value) {
   return `$${Number(value || 0).toFixed(2)}`
+}
+
+function getSuggestedPrice(product) {
+  return product.active_suggested_price ?? product.suggested_price ?? product.selling_price
 }
 
 function displayCost(value) {
@@ -168,6 +173,7 @@ async function loadPageData(page = pagination.value.page) {
           categoryId: filters.categoryId || undefined,
           status: filters.status,
           hasBarcode: filters.hasBarcode,
+          pricingChannel: pricingChannel.value || undefined,
           page,
           pageSize: pagination.value.pageSize,
         },
@@ -194,10 +200,15 @@ async function loadPageData(page = pagination.value.page) {
 
 async function editProduct(productId) {
   try {
-    const { data } = await api.get(`/products/${productId}`)
+    const { data } = await api.get(`/products/${productId}`, {
+      params: {
+        pricingChannel: pricingChannel.value || undefined,
+      },
+    })
     const pricingRules = data.pricingRules?.length
       ? data.pricingRules.map((rule, index) => ({
           ruleName: rule.rule_name,
+          channelKey: rule.channel_key || String(rule.rule_name || '').toLowerCase(),
           markupPercentage: Number(rule.markup_percentage || 0),
           suggestedPrice: Number(rule.suggested_price || 0),
           isDefault: rule.is_default,
@@ -520,6 +531,11 @@ function resetFilters() {
 onMounted(() => {
   recalculatePricingRules()
   loadPageData()
+})
+
+watch(pricingChannel, (value) => {
+  localStorage.setItem('inventory_pricing_channel', value)
+  loadPageData(1)
 })
 
 watch(
@@ -881,6 +897,14 @@ watch(
               <p class="mt-1 text-sm text-slate-500">支持名称、分类、状态、产品码、条码和二维码内容组合筛选，并支持批量打印标签。</p>
             </div>
             <div class="flex flex-wrap gap-3">
+              <select
+                v-model="pricingChannel"
+                class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-brand-500"
+              >
+                <option value="retail">Retail</option>
+                <option value="wholesale">Wholesale</option>
+                <option value="vip">VIP</option>
+              </select>
               <input
                 v-model="searchKeyword"
                 type="text"
@@ -1008,7 +1032,7 @@ watch(
               <p class="mt-3 text-sm text-slate-500">Category: {{ product.category_name || '—' }}</p>
               <p class="mt-1 text-sm text-slate-500">Cost {{ displayCost(product.cost_price) }}</p>
               <p class="mt-1 text-sm text-slate-500">
-                Suggested {{ formatCurrency(product.suggested_price || product.selling_price) }} · Selling {{ formatCurrency(product.selling_price) }}
+                Suggested {{ formatCurrency(getSuggestedPrice(product)) }} · Selling {{ formatCurrency(product.selling_price) }}
               </p>
               <div class="mt-4 flex flex-wrap gap-2">
                 <RouterLink
@@ -1064,7 +1088,7 @@ watch(
                   <td class="px-3 py-3">{{ product.category_name || '—' }}</td>
                   <td class="px-3 py-3">
                     <p>Cost: {{ displayCost(product.cost_price) }}</p>
-                    <p>Suggested: {{ formatCurrency(product.suggested_price || product.selling_price) }}</p>
+                    <p>Suggested: {{ formatCurrency(getSuggestedPrice(product)) }}</p>
                     <p>Selling: {{ formatCurrency(product.selling_price) }}</p>
                   </td>
                   <td class="px-3 py-3">

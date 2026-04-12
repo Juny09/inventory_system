@@ -86,12 +86,18 @@ CREATE TABLE IF NOT EXISTS product_pricing_rules (
   id SERIAL PRIMARY KEY,
   product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   rule_name VARCHAR(120) NOT NULL,
+  channel_key VARCHAR(80),
   markup_percentage NUMERIC(8, 2) NOT NULL DEFAULT 0,
   suggested_price NUMERIC(12, 2) NOT NULL DEFAULT 0,
   is_default BOOLEAN NOT NULL DEFAULT FALSE,
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE product_pricing_rules ADD COLUMN IF NOT EXISTS channel_key VARCHAR(80);
+UPDATE product_pricing_rules
+SET channel_key = LOWER(rule_name)
+WHERE channel_key IS NULL;
 
 INSERT INTO product_pricing_rules (product_id, rule_name, markup_percentage, suggested_price, is_default, sort_order)
 SELECT products.id, 'Retail', products.markup_percentage, products.suggested_price, TRUE, 0

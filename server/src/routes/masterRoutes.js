@@ -37,6 +37,7 @@ function buildDefaultPricingRules(costPrice, markupPercentage, suggestedPrice) {
   return [
     {
       ruleName: 'Retail',
+      channelKey: 'retail',
       markupPercentage: Number(markupPercentage || 0),
       suggestedPrice: resolveSuggestedPrice(costPrice, markupPercentage, suggestedPrice),
       isDefault: true,
@@ -53,6 +54,7 @@ function normalizePricingRules(rules, costPrice, markupPercentage, suggestedPric
 
   return sourceRules.map((rule, index) => ({
     ruleName: String(rule.ruleName || rule.name || `Rule ${index + 1}`).trim(),
+    channelKey: String(rule.channelKey || rule.channel_key || rule.channel || rule.ruleKey || '').trim() || String(rule.ruleName || rule.name || `rule-${index + 1}`).trim().toLowerCase(),
     markupPercentage: Number(rule.markupPercentage || 0),
     suggestedPrice: resolveSuggestedPrice(costPrice, rule.markupPercentage, rule.suggestedPrice),
     isDefault: Boolean(rule.isDefault) || index === 0,
@@ -63,6 +65,26 @@ function normalizePricingRules(rules, costPrice, markupPercentage, suggestedPric
 function getDefaultPricingRule(pricingRules, costPrice, markupPercentage, suggestedPrice) {
   const normalizedRules = normalizePricingRules(pricingRules, costPrice, markupPercentage, suggestedPrice)
   return normalizedRules.find((rule) => rule.isDefault) || normalizedRules[0]
+}
+
+function resolveActivePricingRule(pricingRules, pricingChannel) {
+  if (!pricingRules.length) {
+    return null
+  }
+
+  const normalizedChannel = String(pricingChannel || '').trim().toLowerCase()
+
+  if (normalizedChannel) {
+    const matched =
+      pricingRules.find((rule) => String(rule.channel_key || '').toLowerCase() === normalizedChannel) ||
+      pricingRules.find((rule) => String(rule.rule_name || '').toLowerCase() === normalizedChannel)
+
+    if (matched) {
+      return matched
+    }
+  }
+
+  return pricingRules.find((rule) => rule.is_default) || pricingRules[0]
 }
 
 function getCostAccessToken(req) {
@@ -138,7 +160,7 @@ async function loadPricingRulesMap(productIds) {
 
   const result = await query(
     `
-      SELECT id, product_id, rule_name, markup_percentage, suggested_price, is_default, sort_order, created_at
+      SELECT id, product_id, rule_name, channel_key, markup_percentage, suggested_price, is_default, sort_order, created_at
       FROM product_pricing_rules
       WHERE product_id = ANY($1::int[])
       ORDER BY sort_order ASC, created_at ASC
@@ -197,11 +219,11 @@ async function savePricingRules(productId, pricingRules, costPrice, markupPercen
   for (const rule of normalizedRules) {
     const result = await query(
       `
-        INSERT INTO product_pricing_rules (product_id, rule_name, markup_percentage, suggested_price, is_default, sort_order)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO product_pricing_rules (product_id, rule_name, channel_key, markup_percentage, suggested_price, is_default, sort_order)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING *
       `,
-      [productId, rule.ruleName, rule.markupPercentage, rule.suggestedPrice, rule.isDefault, rule.sortOrder],
+      [productId, rule.ruleName, rule.channelKey, rule.markupPercentage, rule.suggestedPrice, rule.isDefault, rule.sortOrder],
     )
 
     insertedItems.push(result.rows[0])
@@ -221,12 +243,15 @@ async function attachProductRelations(products, options = {}) {
     const images = imagesMap.get(product.id) || []
     const pricingRules = pricingRulesMap.get(product.id) || []
     const primaryImage = images.find((item) => item.is_primary) || images[0]
+    const activePricingRule = resolveActivePricingRule(pricingRules, options.pricingChannel)
 
     return {
       ...maskProductCosts(product, options.allowCostAccess),
       image_data: primaryImage?.image_data || product.image_data || null,
       images,
       pricing_rules: maskPricingRules(pricingRules, options.allowCostAccess),
+      active_pricing_rule: activePricingRule || null,
+      active_suggested_price: activePricingRule ? activePricingRule.suggested_price : product.suggested_price,
     }
   })
 }
@@ -563,6 +588,7 @@ router.get('/products', async (req, res) => {
     categoryId = '',
     status = 'all',
     hasBarcode = 'all',
+    pricingChannel = '',
   } = req.query
   const searchPattern = getSearchPattern(search)
   const resolvedStatus = status === 'all' ? (activeOnly === 'true' ? 'active' : 'all') : status
@@ -604,7 +630,7 @@ router.get('/products', async (req, res) => {
         [searchPattern, categoryId || null, resolvedStatus, hasBarcode],
       )
 
-      const items = await attachProductRelations(result.rows, { allowCostAccess })
+      const items = await attachProductRelations(result.rows, { allowCostAccess, pricingChannel })
 
       return res.json({
         items,
@@ -675,7 +701,7 @@ router.get('/products', async (req, res) => {
       ),
     ])
 
-    const items = await attachProductRelations(itemsResult.rows, { allowCostAccess })
+    const items = await attachProductRelations(itemsResult.rows, { allowCostAccess, pricingChannel })
 
     return res.json({
       items,
@@ -719,6 +745,7 @@ router.post('/products/cost-access', authorizeRoles('ADMIN', 'MANAGER'), async (
 router.get('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
   try {
     const allowCostAccess = canViewCost(req)
+    const pricingChannel = req.query.pricingChannel || ''
     const [productResult, stockResult, movementResult, alertResult, imagesMap, pricingRulesMap] = await Promise.all([
       query(
         `
@@ -799,11 +826,11 @@ router.get('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
       return res.status(404).json({ message: 'Product not found.' })
     }
 
-    const product = (await attachProductRelations([productResult.rows[0]], { allowCostAccess }))[0]
+    const resolvedProduct = (await attachProductRelations([productResult.rows[0]], { allowCostAccess, pricingChannel }))[0]
 
     return res.json({
-      product,
-      images: imagesMap.get(Number(req.params.id)) || product.images || [],
+      product: resolvedProduct,
+      images: imagesMap.get(Number(req.params.id)) || resolvedProduct.images || [],
       pricingRules: maskPricingRules(pricingRulesMap.get(Number(req.params.id)) || [], allowCostAccess),
       stockLevels: stockResult.rows,
       recentMovements: movementResult.rows,
