@@ -47,6 +47,14 @@ const movementColumns = [
   { key: 'created_at', label: '时间' },
 ]
 
+function formatStockValue(value) {
+  if (value === null || value === undefined) {
+    return '******'
+  }
+
+  return `$${Number(value).toFixed(2)}`
+}
+
 async function loadReports(
   inventoryPage = inventoryPagination.value.page,
   movementPage = movementPagination.value.page,
@@ -248,7 +256,7 @@ onMounted(loadReports)
                 <div class="rounded-2xl bg-slate-50 px-3 py-3">仓库：{{ row.warehouse_name }}</div>
                 <div class="rounded-2xl bg-slate-50 px-3 py-3">数量：{{ row.quantity }}</div>
                 <div class="rounded-2xl bg-slate-50 px-3 py-3">补货线：{{ row.reorder_level }}</div>
-                <div class="rounded-2xl bg-slate-50 px-3 py-3">金额：${{ Number(row.stock_value).toFixed(2) }}</div>
+                <div class="rounded-2xl bg-slate-50 px-3 py-3">金额：{{ formatStockValue(row.stock_value) }}</div>
               </div>
             </article>
           </div>
@@ -272,7 +280,7 @@ onMounted(loadReports)
                   <td class="px-4 py-4">{{ row.warehouse_name }}</td>
                   <td class="px-4 py-4">{{ row.quantity }}</td>
                   <td class="px-4 py-4">{{ row.reorder_level }}</td>
-                  <td class="px-4 py-4">${{ Number(row.stock_value).toFixed(2) }}</td>
+                  <td class="px-4 py-4">{{ formatStockValue(row.stock_value) }}</td>
                 </tr>
               </tbody>
             </table>

@@ -3,6 +3,7 @@ const { pool, query } = require('../config/db')
 const { authenticateToken, authorizeRoles } = require('../middleware/auth')
 const { ensureStockRow, getStockQuantity, updateStock } = require('../utils/inventoryService')
 const { getPaginationParams, buildPagination } = require('../utils/pagination')
+const { canViewCost } = require('../utils/costAccess')
 
 const router = express.Router()
 
@@ -19,6 +20,7 @@ router.get('/', async (req, res) => {
   const { page, pageSize, offset } = getPaginationParams(req.query)
   const searchPattern = getSearchPattern(search)
   const onlyLowStock = lowStockOnly === 'true'
+  const allowCostAccess = canViewCost(req)
 
   try {
     if (loadAll) {
@@ -61,7 +63,10 @@ router.get('/', async (req, res) => {
       )
 
       return res.json({
-        items: result.rows,
+        items: result.rows.map((row) => ({
+          ...row,
+          cost_price: allowCostAccess ? row.cost_price : null,
+        })),
         pagination: buildPagination(result.rows.length, 1, result.rows.length || 1),
       })
     }
@@ -130,7 +135,10 @@ router.get('/', async (req, res) => {
     ])
 
     return res.json({
-      items: itemsResult.rows,
+      items: itemsResult.rows.map((row) => ({
+        ...row,
+        cost_price: allowCostAccess ? row.cost_price : null,
+      })),
       pagination: buildPagination(totalResult.rows[0].total, page, pageSize),
     })
   } catch (error) {

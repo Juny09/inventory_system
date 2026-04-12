@@ -2,6 +2,7 @@ const express = require('express')
 const { query } = require('../config/db')
 const { authenticateToken } = require('../middleware/auth')
 const { getPaginationParams, buildPagination } = require('../utils/pagination')
+const { canViewCost } = require('../utils/costAccess')
 
 const router = express.Router()
 
@@ -17,6 +18,7 @@ router.get('/inventory', async (req, res) => {
   const loadAll = all === 'true'
   const { page, pageSize, offset } = getPaginationParams(req.query)
   const searchPattern = getSearchPattern(search)
+  const allowCostAccess = canViewCost(req)
 
   try {
     if (loadAll) {
@@ -49,7 +51,11 @@ router.get('/inventory', async (req, res) => {
       )
 
       return res.json({
-        items: result.rows,
+        items: result.rows.map((row) => ({
+          ...row,
+          cost_price: allowCostAccess ? row.cost_price : null,
+          stock_value: allowCostAccess ? row.stock_value : null,
+        })),
         pagination: buildPagination(result.rows.length, 1, result.rows.length || 1),
       })
     }
@@ -104,7 +110,11 @@ router.get('/inventory', async (req, res) => {
     ])
 
     return res.json({
-      items: itemsResult.rows,
+      items: itemsResult.rows.map((row) => ({
+        ...row,
+        cost_price: allowCostAccess ? row.cost_price : null,
+        stock_value: allowCostAccess ? row.stock_value : null,
+      })),
       pagination: buildPagination(totalResult.rows[0].total, page, pageSize),
     })
   } catch (error) {
