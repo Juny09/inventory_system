@@ -62,6 +62,7 @@ const form = reactive({
   isActive: true,
 })
 const qrPreview = ref('')
+const dragImageIndex = ref(-1)
 
 function formatCurrency(value) {
   return `$${Number(value || 0).toFixed(2)}`
@@ -371,6 +372,28 @@ function setPrimaryImage(index) {
     ...image,
     isPrimary: itemIndex === index,
   }))
+}
+
+function startDragImage(index) {
+  dragImageIndex.value = index
+}
+
+function dropImage(targetIndex) {
+  if (dragImageIndex.value < 0 || dragImageIndex.value === targetIndex) {
+    dragImageIndex.value = -1
+    return
+  }
+
+  const nextImages = [...form.images]
+  const [moved] = nextImages.splice(dragImageIndex.value, 1)
+  nextImages.splice(targetIndex, 0, moved)
+
+  form.images = nextImages.map((image, index) => ({
+    ...image,
+    sortOrder: index,
+  }))
+
+  dragImageIndex.value = -1
 }
 
 async function downloadQrCode() {
@@ -770,6 +793,10 @@ watch(
                       v-for="(image, index) in form.images"
                       :key="`${image.sortOrder}-${index}`"
                       class="rounded-2xl border border-slate-200 bg-white p-3"
+                      draggable="true"
+                      @dragstart="startDragImage(index)"
+                      @dragover.prevent
+                      @drop="dropImage(index)"
                     >
                       <img :src="image.imageData" alt="Product gallery preview" class="h-32 w-full rounded-2xl object-cover" />
                       <div class="mt-3 flex gap-2">
