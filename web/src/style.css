@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 基础页面样式，让 Tailwind 更像“后台系统”而不是空白页 */
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900;
+}
+
+* {
+  @apply box-border;
+}
