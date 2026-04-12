@@ -105,6 +105,65 @@ export function printMultipleProductLabels(items) {
   )
 }
 
+export async function exportQrLabelsToPdf(filename, items) {
+  const [{ default: jsPDF }] = await Promise.all([import('jspdf')])
+
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'pt',
+    format: 'a4',
+  })
+
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const margin = 32
+  const columnGap = 24
+  const columns = 2
+  const labelWidth = (pageWidth - margin * 2 - columnGap) / columns
+  const labelHeight = 240
+  const qrSize = 140
+  const rowGap = 24
+  const labelsPerRow = columns
+  const labelsPerPage = Math.max(1, Math.floor((pageHeight - margin * 2 + rowGap) / (labelHeight + rowGap)) * labelsPerRow)
+
+  doc.setFontSize(10)
+
+  items.forEach((item, index) => {
+    const pageIndex = Math.floor(index / labelsPerPage)
+    const indexInPage = index % labelsPerPage
+    const rowIndex = Math.floor(indexInPage / labelsPerRow)
+    const colIndex = indexInPage % labelsPerRow
+
+    if (pageIndex > 0 && indexInPage === 0) {
+      doc.addPage()
+    }
+
+    const x = margin + colIndex * (labelWidth + columnGap)
+    const y = margin + rowIndex * (labelHeight + rowGap)
+
+    doc.setDrawColor(203, 213, 225)
+    doc.roundedRect(x, y, labelWidth, labelHeight, 12, 12, 'S')
+
+    doc.setFont(undefined, 'bold')
+    doc.text(String(item.name || ''), x + 16, y + 28, { maxWidth: labelWidth - 32 })
+    doc.setFont(undefined, 'normal')
+    doc.text(`SKU: ${item.sku || '—'}`, x + 16, y + 48, { maxWidth: labelWidth - 32 })
+    doc.text(`Code: ${item.productCode || '—'}`, x + 16, y + 66, { maxWidth: labelWidth - 32 })
+
+    const imageX = x + (labelWidth - qrSize) / 2
+    const imageY = y + 84
+    doc.addImage(item.qrDataUrl, 'PNG', imageX, imageY, qrSize, qrSize)
+
+    if (item.barcode) {
+      doc.setFontSize(9)
+      doc.text(`Barcode: ${item.barcode}`, x + 16, y + labelHeight - 20, { maxWidth: labelWidth - 32 })
+      doc.setFontSize(10)
+    }
+  })
+
+  doc.save(filename)
+}
+
 export async function processProductImage(file) {
   const dataUrl = await new Promise((resolve, reject) => {
     const reader = new FileReader()

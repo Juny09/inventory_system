@@ -8,6 +8,7 @@ import { useToastStore } from '../stores/toast'
 import {
   buildDefaultPricingRules,
   buildProductQrDataUrl,
+  exportQrLabelsToPdf,
   downloadDataUrl,
   generateLocalProductCode,
   markupPresets,
@@ -468,6 +469,39 @@ async function batchPrintSelected() {
   printMultipleProductLabels(labelItems)
 }
 
+async function batchDownloadSelectedPng() {
+  const selectedProducts = products.value.filter((product) => selectedProductIds.value.includes(product.id))
+
+  if (!selectedProducts.length) {
+    return
+  }
+
+  for (const product of selectedProducts) {
+    const qrDataUrl = await buildProductQrDataUrl(product.product_code)
+    downloadDataUrl(`${product.product_code}.png`, qrDataUrl)
+  }
+}
+
+async function batchDownloadSelectedPdf() {
+  const selectedProducts = products.value.filter((product) => selectedProductIds.value.includes(product.id))
+
+  if (!selectedProducts.length) {
+    return
+  }
+
+  const labelItems = await Promise.all(
+    selectedProducts.map(async (product) => ({
+      name: product.name,
+      sku: product.sku,
+      productCode: product.product_code,
+      barcode: product.barcode,
+      qrDataUrl: await buildProductQrDataUrl(product.product_code),
+    })),
+  )
+
+  await exportQrLabelsToPdf(`product-labels-${Date.now()}.pdf`, labelItems)
+}
+
 function handleSearch() {
   loadPageData(1)
 }
@@ -854,6 +888,22 @@ watch(
                 class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500 md:w-80"
                 @input="handleSearch"
               />
+              <button
+                type="button"
+                class="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                :disabled="selectedProductIds.length === 0"
+                @click="batchDownloadSelectedPng"
+              >
+                批量下载 PNG
+              </button>
+              <button
+                type="button"
+                class="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                :disabled="selectedProductIds.length === 0"
+                @click="batchDownloadSelectedPdf"
+              >
+                批量下载 PDF
+              </button>
               <button
                 type="button"
                 class="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
