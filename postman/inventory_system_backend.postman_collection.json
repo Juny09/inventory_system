@@ -1,0 +1,584 @@
+{
+  "info": {
+    "_postman_id": "b6c2d3a4-1f21-4b6a-ae9c-0a0c2b7a9b5a",
+    "name": "Inventory System Backend API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:4000/api" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login (sets token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (e) {}",
+                  "if (json && json.token) {",
+                  "  pm.environment.set('token', json.token);",
+                  "  pm.collectionVariables.set('token', json.token);",
+                  "}",
+                  "if (json && json.user && json.user.role) {",
+                  "  pm.environment.set('user_role', json.user.role);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@inventory.local\",\n  \"password\": \"Admin@123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{base_url}}/auth/me",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "me"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cost Access",
+      "item": [
+        {
+          "name": "Unlock Cost (sets cost_access_token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (e) {}",
+                  "if (json && json.token) {",
+                  "  pm.environment.set('cost_access_token', json.token);",
+                  "  pm.collectionVariables.set('cost_access_token', json.token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"passcode\": \"Admin@123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/products/cost-access",
+              "host": ["{{base_url}}"],
+              "path": ["products", "cost-access"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Products",
+      "item": [
+        {
+          "name": "List Products",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "x-cost-access-token", "value": "{{cost_access_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/products?search=&status=all&hasBarcode=all&pricingChannel=retail&page=1&pageSize=8",
+              "host": ["{{base_url}}"],
+              "path": ["products"],
+              "query": [
+                { "key": "search", "value": "" },
+                { "key": "status", "value": "all" },
+                { "key": "hasBarcode", "value": "all" },
+                { "key": "pricingChannel", "value": "retail" },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "8" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Product Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "x-cost-access-token", "value": "{{cost_access_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/products/{{product_id}}?pricingChannel=retail",
+              "host": ["{{base_url}}"],
+              "path": ["products", "{{product_id}}"],
+              "query": [{ "key": "pricingChannel", "value": "retail" }]
+            }
+          }
+        },
+        {
+          "name": "Create Product (sets product_id)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (e) {}",
+                  "if (json && json.id) {",
+                  "  pm.environment.set('product_id', String(json.id));",
+                  "  pm.collectionVariables.set('product_id', String(json.id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "x-cost-access-token", "value": "{{cost_access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Laser Cutter X1\",\n  \"sku\": \"SKU-LASER-X1-{{timestamp}}\",\n  \"productCode\": \"PRD-LASER-X1-{{timestamp}}\",\n  \"barcode\": \"690000000001{{timestamp}}\",\n  \"images\": [],\n  \"description\": \"Machine overview\",\n  \"usageGuide\": \"How to use\",\n  \"pros\": \"Stable output\",\n  \"cons\": \"Need warm-up\",\n  \"categoryId\": 1,\n  \"unit\": \"pcs\",\n  \"costPrice\": 1000,\n  \"sellingPrice\": 1600,\n  \"pricingRules\": [\n    {\n      \"ruleName\": \"Retail\",\n      \"channelKey\": \"retail\",\n      \"markupPercentage\": 30,\n      \"isDefault\": true,\n      \"sortOrder\": 0\n    },\n    {\n      \"ruleName\": \"Wholesale\",\n      \"channelKey\": \"wholesale\",\n      \"markupPercentage\": 15,\n      \"isDefault\": false,\n      \"sortOrder\": 1\n    }\n  ],\n  \"reorderLevel\": 5,\n  \"isActive\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/products",
+              "host": ["{{base_url}}"],
+              "path": ["products"]
+            }
+          }
+        },
+        {
+          "name": "Update Product",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "x-cost-access-token", "value": "{{cost_access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Laser Cutter X1 (Updated)\",\n  \"sku\": \"SKU-LASER-X1-UPDATED\",\n  \"productCode\": \"PRD-LASER-X1\",\n  \"barcode\": \"690000000001\",\n  \"images\": [],\n  \"description\": \"Updated overview\",\n  \"usageGuide\": \"Updated guide\",\n  \"pros\": \"Updated pros\",\n  \"cons\": \"Updated cons\",\n  \"categoryId\": 1,\n  \"unit\": \"pcs\",\n  \"costPrice\": 1000,\n  \"sellingPrice\": 1700,\n  \"pricingRules\": [\n    {\n      \"ruleName\": \"Retail\",\n      \"channelKey\": \"retail\",\n      \"markupPercentage\": 35,\n      \"isDefault\": true,\n      \"sortOrder\": 0\n    }\n  ],\n  \"reorderLevel\": 6,\n  \"isActive\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/products/{{product_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["products", "{{product_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Product",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{base_url}}/products/{{product_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["products", "{{product_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Inventory",
+      "item": [
+        {
+          "name": "List Inventory",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "x-cost-access-token", "value": "{{cost_access_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/inventory?search=&page=1&pageSize=8",
+              "host": ["{{base_url}}"],
+              "path": ["inventory"],
+              "query": [
+                { "key": "search", "value": "" },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "8" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Inventory Transactions",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{base_url}}/inventory/transactions?search=&movementType=all&page=1&pageSize=8",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "transactions"],
+              "query": [
+                { "key": "search", "value": "" },
+                { "key": "movementType", "value": "all" },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "8" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Stock In",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": {{product_id}},\n  \"warehouseId\": {{warehouse_id}},\n  \"quantity\": 10,\n  \"referenceNo\": \"IN-001\",\n  \"notes\": \"Postman test\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/inventory/stock-in",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "stock-in"]
+            }
+          }
+        },
+        {
+          "name": "Stock Out",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": {{product_id}},\n  \"warehouseId\": {{warehouse_id}},\n  \"quantity\": 2,\n  \"referenceNo\": \"OUT-001\",\n  \"notes\": \"Postman test\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/inventory/stock-out",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "stock-out"]
+            }
+          }
+        },
+        {
+          "name": "Transfer",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": {{product_id}},\n  \"sourceWarehouseId\": {{warehouse_id}},\n  \"destinationWarehouseId\": 2,\n  \"quantity\": 1,\n  \"referenceNo\": \"TR-001\",\n  \"notes\": \"Postman test\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/inventory/transfer",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "transfer"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reports",
+      "item": [
+        {
+          "name": "Inventory Report",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "x-cost-access-token", "value": "{{cost_access_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/reports/inventory?search=&page=1&pageSize=8",
+              "host": ["{{base_url}}"],
+              "path": ["reports", "inventory"],
+              "query": [
+                { "key": "search", "value": "" },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "8" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Movements Report",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{base_url}}/reports/movements?search=&page=1&pageSize=8",
+              "host": ["{{base_url}}"],
+              "path": ["reports", "movements"],
+              "query": [
+                { "key": "search", "value": "" },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "8" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Alerts",
+      "item": [
+        {
+          "name": "Low Stock Alerts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{base_url}}/alerts/low-stock?status=all&page=1&pageSize=8",
+              "host": ["{{base_url}}"],
+              "path": ["alerts", "low-stock"],
+              "query": [
+                { "key": "status", "value": "all" },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "8" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Low Stock Alert",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"READ\",\n  \"assignedTo\": 1,\n  \"notes\": \"Checked in Postman\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/alerts/low-stock/{{product_id}}/{{warehouse_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["alerts", "low-stock", "{{product_id}}", "{{warehouse_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Bulk Update Alerts",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"READ\",\n  \"assignedTo\": 1,\n  \"notes\": \"Bulk update\",\n  \"items\": [\n    { \"productId\": {{product_id}}, \"warehouseId\": {{warehouse_id}} }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/alerts/low-stock/bulk-update",
+              "host": ["{{base_url}}"],
+              "path": ["alerts", "low-stock", "bulk-update"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Audit Logs",
+      "item": [
+        {
+          "name": "List Audit Logs",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{base_url}}/audit-logs?search=&page=1&pageSize=20",
+              "host": ["{{base_url}}"],
+              "path": ["audit-logs"],
+              "query": [
+                { "key": "search", "value": "" },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "20" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Stock Counts",
+      "item": [
+        {
+          "name": "List Stock Counts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{base_url}}/stock-counts?search=&status=all&page=1&pageSize=10",
+              "host": ["{{base_url}}"],
+              "path": ["stock-counts"],
+              "query": [
+                { "key": "search", "value": "" },
+                { "key": "status", "value": "all" },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "10" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Stock Count (sets stock_count_id)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (e) {}",
+                  "if (json && json.id) {",
+                  "  pm.environment.set('stock_count_id', String(json.id));",
+                  "  pm.collectionVariables.set('stock_count_id', String(json.id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"warehouseId\": {{warehouse_id}},\n  \"notes\": \"Monthly count\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/stock-counts",
+              "host": ["{{base_url}}"],
+              "path": ["stock-counts"]
+            }
+          }
+        },
+        {
+          "name": "Get Stock Count Detail",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{base_url}}/stock-counts/{{stock_count_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["stock-counts", "{{stock_count_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Save Stock Count Items",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"id\": 1,\n      \"countedQuantity\": 0,\n      \"notes\": \"Update item id in Postman\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/stock-counts/{{stock_count_id}}/items",
+              "host": ["{{base_url}}"],
+              "path": ["stock-counts", "{{stock_count_id}}", "items"]
+            }
+          }
+        },
+        {
+          "name": "Complete Stock Count",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{base_url}}/stock-counts/{{stock_count_id}}/complete",
+              "host": ["{{base_url}}"],
+              "path": ["stock-counts", "{{stock_count_id}}", "complete"]
+            }
+          }
+        },
+        {
+          "name": "Apply Stock Count (ADMIN/MANAGER)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{base_url}}/stock-counts/{{stock_count_id}}/apply",
+              "host": ["{{base_url}}"],
+              "path": ["stock-counts", "{{stock_count_id}}", "apply"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (!pm.variables.get('timestamp')) {",
+          "  pm.variables.set('timestamp', Date.now());",
+          "}"
+        ]
+      }
+    }
+  ]
+}
+
