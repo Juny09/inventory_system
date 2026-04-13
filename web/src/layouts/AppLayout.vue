@@ -104,7 +104,7 @@ function goBack() {
 }
 
 function handleResize() {
-  if (window.innerWidth >= 1280) {
+  if (window.innerWidth >= 1024) {
     mobileMenuOpen.value = false
   }
 }
@@ -128,6 +128,7 @@ watch(
   () => route.fullPath,
   () => {
     canGoBack.value = window.history.length > 1
+    mobileMenuOpen.value = false
   },
 )
 
@@ -144,18 +145,18 @@ watch(
   <div class="min-h-screen bg-slate-100">
     <div
       v-if="mobileMenuOpen"
-      class="fixed inset-0 z-40 bg-slate-950/40 xl:hidden"
+      class="fixed inset-0 z-40 bg-slate-950/40 lg:hidden"
       @click="mobileMenuOpen = false"
     />
 
     <aside
-      class="fixed inset-y-0 left-0 z-50 flex w-[82vw] max-w-80 flex-col bg-slate-950 px-4 py-5 text-white shadow-2xl transition-transform duration-200 xl:hidden"
+      class="fixed inset-y-0 left-0 z-50 flex w-[88vw] max-w-80 flex-col bg-slate-950 px-4 py-4 text-white shadow-2xl transition-transform duration-200 lg:hidden"
       :class="mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'"
     >
       <div class="flex items-center justify-between border-b border-slate-800 pb-4">
         <div>
-          <p class="text-xs uppercase tracking-[0.35em] text-slate-500">Inventory</p>
-          <h1 class="mt-2 text-xl font-semibold">Control Center</h1>
+          <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Inventory</p>
+          <h1 class="mt-1 text-lg font-semibold">Control Center</h1>
         </div>
         <button class="rounded-xl border border-slate-700 p-2 text-sm" @click="mobileMenuOpen = false">
           <AppIcon name="chevronLeft" class="h-4 w-4" />
@@ -166,7 +167,7 @@ watch(
         <section v-for="group in navGroups" :key="group.label" class="space-y-2">
           <button
             type="button"
-            class="flex w-full items-center justify-between rounded-2xl px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.25em] text-slate-500 transition hover:bg-slate-900"
+            class="flex w-full items-center justify-between rounded-2xl px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-500 transition hover:bg-slate-900"
             @click="toggleGroup(group.label)"
           >
             <span>{{ group.label }}</span>
@@ -215,7 +216,7 @@ watch(
 
     <div class="flex min-h-screen w-full">
       <aside
-        class="sticky top-0 hidden h-screen shrink-0 flex-col border-r border-slate-800 bg-slate-950 px-4 py-5 text-white xl:flex"
+        class="sticky top-0 hidden h-screen shrink-0 flex-col border-r border-slate-800 bg-slate-950 px-4 py-5 text-white lg:flex"
         :class="sidebarCollapsed ? 'w-24' : 'w-64'"
       >
         <div class="flex items-start justify-between gap-3">
@@ -304,26 +305,26 @@ watch(
         </div>
       </aside>
 
-      <main class="min-w-0 flex-1 px-2 py-2 sm:px-3 lg:px-4">
-        <div class="sticky top-0 z-30 mb-3 rounded-3xl border border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur xl:hidden">
+      <main class="min-w-0 flex-1 px-1 py-1 sm:px-3 lg:px-4">
+        <div class="sticky top-0 z-30 mb-2 rounded-3xl border border-slate-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur lg:hidden">
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
-              <p class="text-xs uppercase tracking-[0.3em] text-slate-400">{{ currentNavItem?.label || 'Inventory' }}</p>
-              <p class="truncate text-lg font-semibold text-slate-900">{{ authStore.user?.role }} workspace</p>
+              <p class="text-[11px] uppercase tracking-[0.15em] text-slate-400">{{ currentNavItem?.label || 'Inventory' }}</p>
+              <p class="text-base font-semibold text-slate-900">{{ authStore.user?.role }} workspace</p>
             </div>
             <button
-              class="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+              class="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700"
               @click="mobileMenuOpen = true"
             >
               <span class="flex items-center gap-2">
                 <AppIcon name="menu" class="h-4 w-4" />
-                <span>Menu</span>
+                <span class="hidden sm:inline">Menu</span>
               </span>
             </button>
           </div>
         </div>
 
-        <div class="mb-3 hidden rounded-3xl border border-slate-200 bg-white/95 px-5 py-4 shadow-sm backdrop-blur xl:block">
+        <div class="mb-3 hidden rounded-3xl border border-slate-200 bg-white/95 px-5 py-4 shadow-sm backdrop-blur lg:block">
           <div class="flex items-center justify-between gap-4">
             <div class="min-w-0">
               <div class="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.25em] text-slate-400">

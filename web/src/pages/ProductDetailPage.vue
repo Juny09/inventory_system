@@ -115,13 +115,13 @@ watch(pricingChannel, (value) => {
     <section>
       <div class="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <p class="text-sm uppercase tracking-[0.3em] text-slate-400">Product Page</p>
-          <h2 class="mt-2 text-3xl font-semibold text-slate-900">{{ product?.name || 'Product detail' }}</h2>
+          <p class="text-xs uppercase tracking-[0.2em] text-slate-400 sm:text-sm sm:tracking-[0.3em]">Product Page</p>
+          <h2 class="mt-2 text-2xl font-semibold leading-tight text-slate-900 sm:text-3xl">{{ product?.name || 'Product detail' }}</h2>
           <p class="mt-2 text-sm text-slate-500">单独查看商品资料、库存分布、出入库记录、低库存提醒与二维码标签。</p>
         </div>
         <RouterLink
           :to="{ name: 'products' }"
-          class="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
+          class="w-full rounded-2xl border border-slate-300 px-4 py-3 text-center text-sm font-semibold text-slate-700 sm:w-auto"
         >
           返回 Product list
         </RouterLink>
@@ -137,7 +137,7 @@ watch(pricingChannel, (value) => {
 
       <template v-else-if="product">
         <div class="mt-6 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-          <div class="rounded-3xl border border-slate-200 p-5">
+          <div class="rounded-3xl border border-slate-200 p-4 sm:p-5">
             <div class="flex flex-wrap items-start gap-4">
               <div v-if="images.length > 0" class="grid gap-3">
                 <img
@@ -151,7 +151,7 @@ watch(pricingChannel, (value) => {
                     :key="image.id"
                     :src="image.image_data"
                     alt="Gallery"
-                    class="h-14 w-14 rounded-2xl object-cover"
+                    class="h-12 w-12 rounded-2xl object-cover sm:h-14 sm:w-14"
                   />
                 </div>
               </div>
@@ -207,7 +207,7 @@ watch(pricingChannel, (value) => {
 
             <div class="mt-6 grid gap-4 lg:grid-cols-[220px_1fr]">
               <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                <p class="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">QR Label</p>
+                <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">QR Label</p>
                 <div class="mt-3 flex min-h-48 items-center justify-center rounded-2xl bg-white p-4">
                   <img v-if="qrPreview" :src="qrPreview" alt="QR Code" class="h-40 w-40 rounded-xl object-contain" />
                 </div>
@@ -222,14 +222,14 @@ watch(pricingChannel, (value) => {
               </div>
               <div class="space-y-4">
                 <div class="rounded-3xl border border-slate-200 p-4">
-                  <div class="flex flex-wrap items-center justify-between gap-3">
+                  <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                     <div>
                       <h3 class="text-lg font-semibold text-slate-900">Pricing</h3>
                       <p class="mt-1 text-sm text-slate-500">成本、建议售价与实际售价会集中展示在这里。</p>
                     </div>
                     <select
                       v-model="pricingChannel"
-                      class="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm outline-none focus:border-brand-500"
+                      class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm outline-none focus:border-brand-500 sm:w-auto"
                     >
                       <option value="retail">Retail</option>
                       <option value="wholesale">Wholesale</option>
@@ -238,7 +238,7 @@ watch(pricingChannel, (value) => {
                     <button
                       v-if="costAccessStore.isUnlocked"
                       type="button"
-                      class="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
+                      class="w-full rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 sm:w-auto"
                       @click="lockCost"
                     >
                       隐藏成本
@@ -327,8 +327,8 @@ watch(pricingChannel, (value) => {
           </div>
 
           <div class="space-y-6">
-            <div class="rounded-3xl border border-slate-200 p-5">
-              <h3 class="text-xl font-semibold text-slate-900">Stock by warehouse</h3>
+            <div class="rounded-3xl border border-slate-200 p-4 sm:p-5">
+              <h3 class="text-lg font-semibold text-slate-900 sm:text-xl">Stock by warehouse</h3>
               <div class="mt-4 space-y-3">
                 <div
                   v-for="stock in stockLevels"
@@ -349,8 +349,8 @@ watch(pricingChannel, (value) => {
               </div>
             </div>
 
-            <div class="rounded-3xl border border-slate-200 p-5">
-              <h3 class="text-xl font-semibold text-slate-900">Low stock alerts</h3>
+            <div class="rounded-3xl border border-slate-200 p-4 sm:p-5">
+              <h3 class="text-lg font-semibold text-slate-900 sm:text-xl">Low stock alerts</h3>
               <div class="mt-4 space-y-3">
                 <div
                   v-for="alert in alerts"
@@ -365,8 +365,8 @@ watch(pricingChannel, (value) => {
               </div>
             </div>
 
-            <div class="rounded-3xl border border-slate-200 p-5">
-              <h3 class="text-xl font-semibold text-slate-900">Recent movements</h3>
+            <div class="rounded-3xl border border-slate-200 p-4 sm:p-5">
+              <h3 class="text-lg font-semibold text-slate-900 sm:text-xl">Recent movements</h3>
               <div class="mt-4 space-y-3">
                 <div
                   v-for="movement in recentMovements"

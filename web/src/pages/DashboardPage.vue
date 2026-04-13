@@ -332,9 +332,9 @@ watch(chartOrder, persistChartSettings, { deep: true })
     <section>
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p class="text-sm uppercase tracking-[0.3em] text-slate-400">Dashboard</p>
-          <h2 class="mt-2 text-3xl font-semibold text-slate-900">Live inventory overview</h2>
-          <p class="mt-2 text-sm text-slate-500">See stock health, movement activity and user access in one place.</p>
+          <p class="text-xs uppercase tracking-[0.2em] text-slate-400 sm:text-sm sm:tracking-[0.3em]">Dashboard</p>
+          <h2 class="mt-2 text-2xl font-semibold leading-tight text-slate-900 sm:text-3xl">Live inventory overview</h2>
+          <p class="mt-2 text-sm leading-6 text-slate-500">See stock health, movement activity and user access in one place.</p>
         </div>
       </div>
 
@@ -354,10 +354,10 @@ watch(chartOrder, persistChartSettings, { deep: true })
           <StatCard title="On Hand" :value="summary.cards.totalOnHand" hint="Total units across all warehouses" />
         </div>
 
-        <div class="mt-8 rounded-3xl border border-slate-200 bg-slate-50 p-5">
+        <div class="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
           <div class="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h3 class="text-xl font-semibold text-slate-900">Chart preferences</h3>
+              <h3 class="text-lg font-semibold text-slate-900 sm:text-xl">Chart preferences</h3>
               <p class="mt-1 text-sm text-slate-500">每个用户可自定义 Dashboard 要显示哪些图表，以及图表类型。</p>
             </div>
             <span class="rounded-full bg-white px-4 py-2 text-xs font-semibold text-slate-600">
@@ -431,12 +431,12 @@ watch(chartOrder, persistChartSettings, { deep: true })
           </div>
         </div>
 
-        <div class="mt-8 grid gap-6 xl:grid-cols-2 2xl:grid-cols-3">
+        <div class="mt-6 grid gap-4 sm:gap-6 xl:grid-cols-2 2xl:grid-cols-3">
           <article
             v-for="chart in orderedVisibleCharts"
             :key="chart.key"
             draggable="true"
-            class="rounded-3xl border border-slate-200 p-5 transition"
+            class="rounded-3xl border border-slate-200 p-4 transition sm:p-5"
             :class="dragChartKey === chart.key ? 'scale-[0.99] border-brand-300 bg-brand-50' : 'bg-white'"
             @dragstart="onChartDragStart(chart.key)"
             @dragover.prevent
@@ -445,7 +445,7 @@ watch(chartOrder, persistChartSettings, { deep: true })
           >
             <div class="flex items-start justify-between gap-3">
               <div>
-                <h3 class="text-xl font-semibold text-slate-900">{{ chart.title }}</h3>
+                <h3 class="text-lg font-semibold text-slate-900 sm:text-xl">{{ chart.title }}</h3>
                 <p class="mt-1 text-sm text-slate-500">{{ chart.description }}</p>
               </div>
               <span class="rounded-2xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500">
@@ -465,10 +465,10 @@ watch(chartOrder, persistChartSettings, { deep: true })
           当前没有启用任何图表，请在上方 Chart preferences 中选择至少一个图表。
         </div>
 
-        <div class="mt-6 rounded-3xl border border-amber-200 bg-amber-50 p-5">
+        <div class="mt-6 rounded-3xl border border-amber-200 bg-amber-50 p-4 sm:p-5">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 class="text-xl font-semibold text-slate-900">Low stock reminders</h3>
+              <h3 class="text-lg font-semibold text-slate-900 sm:text-xl">Low stock reminders</h3>
               <p class="mt-1 text-sm text-slate-500">优先关注最接近断货的商品。</p>
             </div>
             <RouterLink
@@ -494,16 +494,32 @@ watch(chartOrder, persistChartSettings, { deep: true })
           </div>
         </div>
 
-        <div class="mt-8 grid gap-6 2xl:grid-cols-[1.5fr_1fr]">
-          <div class="rounded-3xl border border-slate-200 p-5">
+        <div class="mt-6 grid gap-6 2xl:grid-cols-[1.5fr_1fr]">
+          <div class="rounded-3xl border border-slate-200 p-4 sm:p-5">
             <div class="flex items-center justify-between">
               <div>
-                <h3 class="text-xl font-semibold text-slate-900">Recent stock movements</h3>
+                <h3 class="text-lg font-semibold text-slate-900 sm:text-xl">Recent stock movements</h3>
                 <p class="mt-1 text-sm text-slate-500">Latest incoming, outgoing and transfer records.</p>
               </div>
             </div>
 
-            <div class="mt-5 overflow-x-auto">
+            <div class="mt-4 grid gap-3 md:hidden">
+              <article
+                v-for="movement in summary.recentMovements"
+                :key="movement.id"
+                class="rounded-2xl border border-slate-200 p-3"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <p class="font-medium text-slate-900">{{ movement.movement_type }}</p>
+                  <span class="text-xs text-slate-400">{{ new Date(movement.created_at).toLocaleString() }}</span>
+                </div>
+                <p class="mt-2 text-sm text-slate-700">{{ movement.product_name }} · {{ movement.sku }}</p>
+                <p class="mt-1 text-sm text-slate-500">Qty {{ movement.quantity }}</p>
+              </article>
+              <p v-if="summary.recentMovements.length === 0" class="text-sm text-slate-500">No movement data.</p>
+            </div>
+
+            <div class="mt-5 hidden overflow-x-auto md:block">
               <table class="min-w-full text-left text-sm">
                 <thead class="text-slate-500">
                   <tr class="border-b border-slate-200">
@@ -532,9 +548,9 @@ watch(chartOrder, persistChartSettings, { deep: true })
           <div class="space-y-6">
             <div
               v-if="authStore.user?.role === 'ADMIN'"
-              class="rounded-3xl border border-slate-200 bg-slate-50 p-5"
+              class="rounded-3xl border border-slate-200 bg-slate-50 p-4 sm:p-5"
             >
-              <h3 class="text-xl font-semibold text-slate-900">Create user</h3>
+              <h3 class="text-lg font-semibold text-slate-900 sm:text-xl">Create user</h3>
               <p class="mt-1 text-sm text-slate-500">Add staff accounts and control role permissions.</p>
 
               <form class="mt-5 space-y-4" @submit.prevent="createUser">
@@ -570,14 +586,14 @@ watch(chartOrder, persistChartSettings, { deep: true })
               </form>
             </div>
 
-            <div class="rounded-3xl border border-slate-200 p-5">
+            <div class="rounded-3xl border border-slate-200 p-4 sm:p-5">
               <div class="flex flex-wrap items-center justify-between gap-3">
-                <h3 class="text-xl font-semibold text-slate-900">User access list</h3>
+                <h3 class="text-lg font-semibold text-slate-900 sm:text-xl">User access list</h3>
                 <input
                   v-model="userSearch"
                   type="text"
                   placeholder="搜索用户"
-                  class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500 md:w-64"
+                  class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500 lg:w-64"
                   @input="handleUserSearch"
                 />
               </div>
