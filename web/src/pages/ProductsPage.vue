@@ -5,6 +5,7 @@ import PaginationBar from '../components/PaginationBar.vue'
 import api from '../services/api'
 import { useCostAccessStore } from '../stores/costAccess'
 import { useToastStore } from '../stores/toast'
+import { useLocaleStore } from '../stores/locale'
 import {
   buildDefaultPricingRules,
   buildProductQrDataUrl,
@@ -22,6 +23,7 @@ import {
 const BarcodeScanner = defineAsyncComponent(() => import('../components/BarcodeScanner.vue'))
 const costAccessStore = useCostAccessStore()
 const toastStore = useToastStore()
+const localeStore = useLocaleStore()
 const products = ref([])
 const categories = ref([])
 const errorMessage = ref('')
@@ -46,9 +48,11 @@ const form = reactive({
   id: null,
   name: '',
   sku: '',
+  skuType: 'SINGLE',
   productCode: '',
   barcode: '',
   images: [],
+  bundleItems: [],
   description: '',
   usageGuide: '',
   pros: '',
@@ -220,6 +224,7 @@ async function editProduct(productId) {
       id: data.product.id,
       name: data.product.name,
       sku: data.product.sku,
+      skuType: data.product.sku_type || 'SINGLE',
       productCode: data.product.product_code || '',
       barcode: data.product.barcode || '',
       images: (data.images || []).map((image, index) => ({
@@ -231,6 +236,10 @@ async function editProduct(productId) {
       usageGuide: data.product.usage_guide || '',
       pros: data.product.pros || '',
       cons: data.product.cons || '',
+      bundleItems: (data.product.bundle_items || []).map((item) => ({
+        itemProductId: item.item_product_id,
+        itemQuantity: Number(item.item_quantity || 1),
+      })),
       categoryId: data.product.category_id || '',
       unit: data.product.unit,
       costPrice: Number(data.product.cost_price || 0),
@@ -253,9 +262,11 @@ function resetForm() {
     id: null,
     name: '',
     sku: '',
+    skuType: 'SINGLE',
     productCode: '',
     barcode: '',
     images: [],
+    bundleItems: [],
     description: '',
     usageGuide: '',
     pros: '',
@@ -280,6 +291,8 @@ async function saveProduct() {
       ...form,
       imageData: form.images[0]?.imageData || null,
       images: form.images,
+      skuType: form.skuType,
+      bundleItems: form.bundleItems,
       pricingRules: form.pricingRules,
       productCode: form.productCode || undefined,
     }
@@ -377,6 +390,20 @@ function removeImage(index) {
     sortOrder: itemIndex,
     isPrimary: image.isPrimary || itemIndex === 0,
   }))
+}
+
+function addBundleItem() {
+  form.bundleItems = [
+    ...form.bundleItems,
+    {
+      itemProductId: '',
+      itemQuantity: 1,
+    },
+  ]
+}
+
+function removeBundleItem(index) {
+  form.bundleItems = form.bundleItems.filter((_, itemIndex) => itemIndex !== index)
 }
 
 function setPrimaryImage(index) {
@@ -642,6 +669,13 @@ watch(
                 placeholder="SKU"
                 class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
               />
+              <select
+                v-model="form.skuType"
+                class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
+              >
+                <option value="SINGLE">{{ localeStore.t('products.skuTypeSingle') }}</option>
+                <option value="COMBO">{{ localeStore.t('products.skuTypeCombo') }}</option>
+              </select>
               <div class="flex gap-2">
                 <input
                   v-model="form.productCode"
@@ -796,6 +830,56 @@ watch(
                       type="button"
                       class="rounded-2xl border border-rose-200 px-4 py-3 text-xs font-semibold text-rose-600"
                       @click="removePricingRule(index)"
+                    >
+                      删除
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div v-if="form.skuType === 'COMBO'" class="sm:col-span-2 rounded-3xl border border-slate-200 bg-white p-4">
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <p class="text-sm font-semibold text-slate-900">Bundle components</p>
+                    <p class="mt-1 text-xs text-slate-500">组合 SKU 由多个单品组成。</p>
+                  </div>
+                  <button
+                    type="button"
+                    class="rounded-full border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
+                    @click="addBundleItem"
+                  >
+                    + Add item
+                  </button>
+                </div>
+                <div class="mt-4 space-y-3">
+                  <div
+                    v-for="(bundleItem, index) in form.bundleItems"
+                    :key="`bundle-${index}`"
+                    class="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[1fr_140px_90px]"
+                  >
+                    <select
+                      v-model="bundleItem.itemProductId"
+                      class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
+                    >
+                      <option value="">Select item SKU</option>
+                      <option
+                        v-for="product in products.filter((item) => item.id !== form.id)"
+                        :key="`bundle-option-${product.id}`"
+                        :value="product.id"
+                      >
+                        {{ product.name }} · {{ product.sku }}
+                      </option>
+                    </select>
+                    <input
+                      v-model="bundleItem.itemQuantity"
+                      type="number"
+                      min="0.001"
+                      step="0.001"
+                      class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
+                    />
+                    <button
+                      type="button"
+                      class="rounded-2xl border border-rose-200 px-4 py-3 text-xs font-semibold text-rose-600"
+                      @click="removeBundleItem(index)"
                     >
                       删除
                     </button>

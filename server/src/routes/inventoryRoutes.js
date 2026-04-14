@@ -30,7 +30,9 @@ router.get('/', async (req, res) => {
             stock_levels.id,
             stock_levels.product_id,
             stock_levels.warehouse_id,
-            stock_levels.quantity,
+            stock_levels.quantity AS on_hand_quantity,
+            stock_levels.allocated_quantity AS order_allocated_quantity,
+            GREATEST(stock_levels.quantity - stock_levels.allocated_quantity, 0) AS warehouse_available_quantity,
             stock_levels.updated_at,
             products.name AS product_name,
             products.sku,
@@ -56,7 +58,7 @@ router.get('/', async (req, res) => {
           )
             AND ($2::int IS NULL OR products.category_id = $2::int)
             AND ($3::int IS NULL OR stock_levels.warehouse_id = $3::int)
-            AND ($4 = FALSE OR stock_levels.quantity <= products.reorder_level)
+            AND ($4 = FALSE OR GREATEST(stock_levels.quantity - stock_levels.allocated_quantity, 0) <= products.reorder_level)
           ORDER BY stock_levels.updated_at DESC
         `,
         [searchPattern, categoryId || null, warehouseId || null, onlyLowStock],
@@ -78,7 +80,9 @@ router.get('/', async (req, res) => {
             stock_levels.id,
             stock_levels.product_id,
             stock_levels.warehouse_id,
-            stock_levels.quantity,
+            stock_levels.quantity AS on_hand_quantity,
+            stock_levels.allocated_quantity AS order_allocated_quantity,
+            GREATEST(stock_levels.quantity - stock_levels.allocated_quantity, 0) AS warehouse_available_quantity,
             stock_levels.updated_at,
             products.name AS product_name,
             products.sku,
@@ -104,7 +108,7 @@ router.get('/', async (req, res) => {
           )
             AND ($2::int IS NULL OR products.category_id = $2::int)
             AND ($3::int IS NULL OR stock_levels.warehouse_id = $3::int)
-            AND ($4 = FALSE OR stock_levels.quantity <= products.reorder_level)
+            AND ($4 = FALSE OR GREATEST(stock_levels.quantity - stock_levels.allocated_quantity, 0) <= products.reorder_level)
           ORDER BY stock_levels.updated_at DESC
           LIMIT $5 OFFSET $6
         `,
@@ -128,7 +132,7 @@ router.get('/', async (req, res) => {
           )
             AND ($2::int IS NULL OR products.category_id = $2::int)
             AND ($3::int IS NULL OR stock_levels.warehouse_id = $3::int)
-            AND ($4 = FALSE OR stock_levels.quantity <= products.reorder_level)
+            AND ($4 = FALSE OR GREATEST(stock_levels.quantity - stock_levels.allocated_quantity, 0) <= products.reorder_level)
         `,
         [searchPattern, categoryId || null, warehouseId || null, onlyLowStock],
       ),
@@ -242,8 +246,14 @@ async function createMovement(req, res, movementType) {
       }
 
       await ensureStockRow(client, productId, warehouseId)
-      const currentQty = await getStockQuantity(client, productId, warehouseId)
-      await updateStock(client, productId, warehouseId, currentQty + movementQty)
+      const currentStock = await getStockQuantity(client, productId, warehouseId)
+      await updateStock(
+        client,
+        productId,
+        warehouseId,
+        currentStock.onHandQuantity + movementQty,
+        currentStock.allocatedQuantity,
+      )
 
       const result = await client.query(
         `
@@ -272,13 +282,20 @@ async function createMovement(req, res, movementType) {
       }
 
       await ensureStockRow(client, productId, warehouseId)
-      const currentQty = await getStockQuantity(client, productId, warehouseId)
+      const currentStock = await getStockQuantity(client, productId, warehouseId)
+      const currentAvailable = currentStock.onHandQuantity - currentStock.allocatedQuantity
 
-      if (currentQty < movementQty) {
+      if (currentAvailable < movementQty) {
         throw new Error('Not enough stock for stock out.')
       }
 
-      await updateStock(client, productId, warehouseId, currentQty - movementQty)
+      await updateStock(
+        client,
+        productId,
+        warehouseId,
+        currentStock.onHandQuantity - movementQty,
+        currentStock.allocatedQuantity,
+      )
 
       const result = await client.query(
         `
@@ -312,16 +329,29 @@ async function createMovement(req, res, movementType) {
     await ensureStockRow(client, productId, sourceWarehouseId)
     await ensureStockRow(client, productId, destinationWarehouseId)
 
-    const sourceQty = await getStockQuantity(client, productId, sourceWarehouseId)
+    const sourceStock = await getStockQuantity(client, productId, sourceWarehouseId)
+    const sourceAvailable = sourceStock.onHandQuantity - sourceStock.allocatedQuantity
 
-    if (sourceQty < movementQty) {
+    if (sourceAvailable < movementQty) {
       throw new Error('Not enough stock for transfer.')
     }
 
-    const destinationQty = await getStockQuantity(client, productId, destinationWarehouseId)
+    const destinationStock = await getStockQuantity(client, productId, destinationWarehouseId)
 
-    await updateStock(client, productId, sourceWarehouseId, sourceQty - movementQty)
-    await updateStock(client, productId, destinationWarehouseId, destinationQty + movementQty)
+    await updateStock(
+      client,
+      productId,
+      sourceWarehouseId,
+      sourceStock.onHandQuantity - movementQty,
+      sourceStock.allocatedQuantity,
+    )
+    await updateStock(
+      client,
+      productId,
+      destinationWarehouseId,
+      destinationStock.onHandQuantity + movementQty,
+      destinationStock.allocatedQuantity,
+    )
 
     const result = await client.query(
       `
@@ -370,5 +400,80 @@ router.post('/stock-out', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (re
 router.post('/transfer', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =>
   createMovement(req, res, 'TRANSFER'),
 )
+
+router.post('/allocate', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (req, res) => {
+  const { productId, warehouseId, quantity, mode = 'reserve', referenceNo, notes } = req.body
+  const allocationQty = Number(quantity)
+  const normalizedMode = String(mode || '').toLowerCase()
+
+  if (!productId || !warehouseId || !allocationQty || allocationQty <= 0) {
+    return res.status(400).json({ message: 'productId, warehouseId and positive quantity are required.' })
+  }
+
+  if (!['reserve', 'release'].includes(normalizedMode)) {
+    return res.status(400).json({ message: 'mode must be reserve or release.' })
+  }
+
+  const client = await pool.connect()
+
+  try {
+    await client.query('BEGIN')
+    await ensureStockRow(client, productId, warehouseId)
+
+    const currentStock = await getStockQuantity(client, productId, warehouseId)
+    const nextAllocated =
+      normalizedMode === 'reserve'
+        ? currentStock.allocatedQuantity + allocationQty
+        : currentStock.allocatedQuantity - allocationQty
+
+    if (nextAllocated < 0) {
+      throw new Error('Allocated quantity cannot be negative.')
+    }
+
+    if (nextAllocated > currentStock.onHandQuantity) {
+      throw new Error('Allocated quantity cannot exceed on hand quantity.')
+    }
+
+    await updateStock(client, productId, warehouseId, currentStock.onHandQuantity, nextAllocated)
+
+    const result = await client.query(
+      `
+        INSERT INTO stock_movements (
+          movement_type,
+          product_id,
+          source_warehouse_id,
+          quantity,
+          reference_no,
+          notes,
+          created_by
+        )
+        VALUES ('OUT', $1, $2, $3, $4, $5, $6)
+        RETURNING *
+      `,
+      [
+        productId,
+        warehouseId,
+        allocationQty,
+        referenceNo || null,
+        notes || (normalizedMode === 'reserve' ? 'Order allocation reserved' : 'Order allocation released'),
+        req.user.id,
+      ],
+    )
+
+    await client.query('COMMIT')
+    return res.status(201).json({
+      ...result.rows[0],
+      mode: normalizedMode,
+      on_hand_quantity: currentStock.onHandQuantity,
+      order_allocated_quantity: nextAllocated,
+      warehouse_available_quantity: currentStock.onHandQuantity - nextAllocated,
+    })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    return res.status(400).json({ message: error.message })
+  } finally {
+    client.release()
+  }
+})
 
 module.exports = router

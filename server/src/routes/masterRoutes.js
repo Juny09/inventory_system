@@ -33,6 +33,10 @@ function resolveSuggestedPrice(costPrice, markupPercentage, suggestedPrice) {
   return normalizePrice(normalizedCost * (1 + normalizedMarkup / 100))
 }
 
+function normalizeSkuType(value) {
+  return String(value || 'SINGLE').toUpperCase() === 'COMBO' ? 'COMBO' : 'SINGLE'
+}
+
 function buildDefaultPricingRules(costPrice, markupPercentage, suggestedPrice) {
   return [
     {
@@ -176,6 +180,36 @@ async function loadPricingRulesMap(productIds) {
   }, new Map())
 }
 
+async function loadBundleItemsMap(productIds) {
+  if (!productIds.length) {
+    return new Map()
+  }
+
+  const result = await query(
+    `
+      SELECT
+        product_bundle_items.id,
+        product_bundle_items.combo_product_id,
+        product_bundle_items.item_product_id,
+        product_bundle_items.item_quantity,
+        products.name AS item_product_name,
+        products.sku AS item_product_sku
+      FROM product_bundle_items
+      INNER JOIN products ON products.id = product_bundle_items.item_product_id
+      WHERE product_bundle_items.combo_product_id = ANY($1::int[])
+      ORDER BY product_bundle_items.id ASC
+    `,
+    [productIds],
+  )
+
+  return result.rows.reduce((map, row) => {
+    const currentItems = map.get(row.combo_product_id) || []
+    currentItems.push(row)
+    map.set(row.combo_product_id, currentItems)
+    return map
+  }, new Map())
+}
+
 async function saveProductImages(productId, images) {
   await query('DELETE FROM product_images WHERE product_id = $1', [productId])
 
@@ -232,16 +266,50 @@ async function savePricingRules(productId, pricingRules, costPrice, markupPercen
   return insertedItems
 }
 
+async function saveBundleItems(productId, skuType, bundleItems) {
+  await query('DELETE FROM product_bundle_items WHERE combo_product_id = $1', [productId])
+
+  if (normalizeSkuType(skuType) !== 'COMBO') {
+    return []
+  }
+
+  const normalizedItems = (Array.isArray(bundleItems) ? bundleItems : [])
+    .map((item) => ({
+      itemProductId: Number(item.itemProductId || item.item_product_id || item.productId),
+      itemQuantity: Number(item.itemQuantity || item.item_quantity || item.quantity || 0),
+    }))
+    .filter((item) => item.itemProductId && item.itemQuantity > 0)
+
+  const insertedItems = []
+
+  for (const item of normalizedItems) {
+    const result = await query(
+      `
+        INSERT INTO product_bundle_items (combo_product_id, item_product_id, item_quantity)
+        VALUES ($1, $2, $3)
+        RETURNING *
+      `,
+      [productId, item.itemProductId, item.itemQuantity],
+    )
+
+    insertedItems.push(result.rows[0])
+  }
+
+  return insertedItems
+}
+
 async function attachProductRelations(products, options = {}) {
   const productIds = products.map((item) => item.id)
-  const [imagesMap, pricingRulesMap] = await Promise.all([
+  const [imagesMap, pricingRulesMap, bundleItemsMap] = await Promise.all([
     loadProductImagesMap(productIds),
     loadPricingRulesMap(productIds),
+    loadBundleItemsMap(productIds),
   ])
 
   return products.map((product) => {
     const images = imagesMap.get(product.id) || []
     const pricingRules = pricingRulesMap.get(product.id) || []
+    const bundleItems = bundleItemsMap.get(product.id) || []
     const primaryImage = images.find((item) => item.is_primary) || images[0]
     const activePricingRule = resolveActivePricingRule(pricingRules, options.pricingChannel)
 
@@ -249,6 +317,7 @@ async function attachProductRelations(products, options = {}) {
       ...maskProductCosts(product, options.allowCostAccess),
       image_data: primaryImage?.image_data || product.image_data || null,
       images,
+      bundle_items: bundleItems,
       pricing_rules: maskPricingRules(pricingRules, options.allowCostAccess),
       active_pricing_rule: activePricingRule || null,
       active_suggested_price: activePricingRule ? activePricingRule.suggested_price : product.suggested_price,
@@ -762,7 +831,9 @@ router.get('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
         `
           SELECT
             stock_levels.id,
-            stock_levels.quantity,
+            stock_levels.quantity AS on_hand_quantity,
+            stock_levels.allocated_quantity AS order_allocated_quantity,
+            GREATEST(stock_levels.quantity - stock_levels.allocated_quantity, 0) AS warehouse_available_quantity,
             stock_levels.updated_at,
             warehouses.id AS warehouse_id,
             warehouses.name AS warehouse_name,
@@ -801,9 +872,11 @@ router.get('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
           SELECT
             warehouses.id AS warehouse_id,
             warehouses.name AS warehouse_name,
-            stock_levels.quantity,
+            stock_levels.quantity AS on_hand_quantity,
+            stock_levels.allocated_quantity AS order_allocated_quantity,
+            GREATEST(stock_levels.quantity - stock_levels.allocated_quantity, 0) AS warehouse_available_quantity,
             products.reorder_level,
-            GREATEST(products.reorder_level - stock_levels.quantity, 0) AS shortage,
+            GREATEST(products.reorder_level - GREATEST(stock_levels.quantity - stock_levels.allocated_quantity, 0), 0) AS shortage,
             COALESCE(low_stock_alert_states.status, 'OPEN') AS alert_status,
             assignees.full_name AS assigned_to_name
           FROM stock_levels
@@ -813,7 +886,7 @@ router.get('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
             AND low_stock_alert_states.warehouse_id = stock_levels.warehouse_id
           LEFT JOIN users AS assignees ON assignees.id = low_stock_alert_states.assigned_to
           WHERE stock_levels.product_id = $1
-            AND stock_levels.quantity <= products.reorder_level
+            AND GREATEST(stock_levels.quantity - stock_levels.allocated_quantity, 0) <= products.reorder_level
           ORDER BY shortage DESC, warehouses.name ASC
         `,
         [req.params.id],
@@ -836,7 +909,9 @@ router.get('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
       recentMovements: movementResult.rows,
       alerts: alertResult.rows,
       summary: {
-        totalOnHand: stockResult.rows.reduce((sum, item) => sum + Number(item.quantity), 0),
+        totalOnHand: stockResult.rows.reduce((sum, item) => sum + Number(item.on_hand_quantity), 0),
+        totalAllocated: stockResult.rows.reduce((sum, item) => sum + Number(item.order_allocated_quantity), 0),
+        totalAvailable: stockResult.rows.reduce((sum, item) => sum + Number(item.warehouse_available_quantity), 0),
         warehouseCount: stockResult.rows.length,
         lowStockCount: alertResult.rows.length,
       },
@@ -850,6 +925,7 @@ router.post('/products', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =>
   const {
     name,
     sku,
+    skuType,
     productCode,
     barcode,
     imageData,
@@ -865,6 +941,7 @@ router.post('/products', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =>
     markupPercentage,
     suggestedPrice,
     pricingRules,
+    bundleItems,
     reorderLevel,
     isActive,
   } = req.body
@@ -881,6 +958,7 @@ router.post('/products', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =>
         INSERT INTO products (
           name,
           sku,
+          sku_type,
           product_code,
           barcode,
           image_data,
@@ -897,12 +975,13 @@ router.post('/products', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =>
           reorder_level,
           is_active
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
         RETURNING *
       `,
       [
         name,
         sku,
+        normalizeSkuType(skuType),
         productCode || generateProductCode(),
         barcode || null,
         primaryImage,
@@ -930,6 +1009,7 @@ router.post('/products', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =>
         defaultPricingRule.markupPercentage,
         defaultPricingRule.suggestedPrice,
       ),
+      saveBundleItems(result.rows[0].id, skuType, bundleItems),
     ])
 
     const product = (await attachProductRelations([result.rows[0]], { allowCostAccess: canViewCost(req) }))[0]
@@ -945,6 +1025,7 @@ router.put('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
   const {
     name,
     sku,
+    skuType,
     productCode,
     barcode,
     imageData,
@@ -960,6 +1041,7 @@ router.put('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
     markupPercentage,
     suggestedPrice,
     pricingRules,
+    bundleItems,
     reorderLevel,
     isActive,
   } = req.body
@@ -977,21 +1059,22 @@ router.put('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
         SET
           name = $2,
           sku = $3,
-          product_code = $4,
-          barcode = $5,
-          image_data = $6,
-          description = $7,
-          usage_guide = $8,
-          pros = $9,
-          cons = $10,
-          category_id = $11,
-          unit = $12,
-          cost_price = $13,
-          selling_price = $14,
-          markup_percentage = $15,
-          suggested_price = $16,
-          reorder_level = $17,
-          is_active = $18,
+          sku_type = $4,
+          product_code = $5,
+          barcode = $6,
+          image_data = $7,
+          description = $8,
+          usage_guide = $9,
+          pros = $10,
+          cons = $11,
+          category_id = $12,
+          unit = $13,
+          cost_price = $14,
+          selling_price = $15,
+          markup_percentage = $16,
+          suggested_price = $17,
+          reorder_level = $18,
+          is_active = $19,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = $1
         RETURNING *
@@ -1000,6 +1083,7 @@ router.put('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
         id,
         name,
         sku,
+        normalizeSkuType(skuType),
         productCode || generateProductCode(),
         barcode || null,
         primaryImage,
@@ -1027,6 +1111,7 @@ router.put('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
         defaultPricingRule.markupPercentage,
         defaultPricingRule.suggestedPrice,
       ),
+      saveBundleItems(result.rows[0].id, skuType, bundleItems),
     ])
 
     const product = (await attachProductRelations([result.rows[0]], { allowCostAccess: canViewCost(req) }))[0]

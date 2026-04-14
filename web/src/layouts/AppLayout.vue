@@ -3,10 +3,12 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppIcon from '../components/AppIcon.vue'
 import { useAuthStore } from '../stores/auth'
+import { useLocaleStore } from '../stores/locale'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const localeStore = useLocaleStore()
 const mobileMenuOpen = ref(false)
 const sidebarCollapsed = ref(localStorage.getItem('inventory_sidebar_collapsed') === 'true')
 const canGoBack = ref(false)
@@ -25,6 +27,28 @@ const navItems = [
   { label: 'Audit Logs', routeName: 'audit-logs', roles: ['ADMIN', 'MANAGER'], shortLabel: 'AU', icon: 'audit', group: 'Governance' },
   { label: 'Access Guide', routeName: 'access-guide', roles: ['ADMIN', 'MANAGER', 'STAFF'], shortLabel: 'RG', icon: 'guide', group: 'Support' },
 ]
+
+const navLabelMap = {
+  Dashboard: { en: 'Dashboard', cn: '仪表盘' },
+  Alerts: { en: 'Alerts', cn: '提醒中心' },
+  Inventory: { en: 'Inventory', cn: '库存' },
+  'Stock Counts': { en: 'Stock Counts', cn: '盘点单' },
+  Categories: { en: 'Categories', cn: '分类' },
+  Warehouses: { en: 'Warehouses', cn: '仓库' },
+  Products: { en: 'Products', cn: '商品' },
+  Reports: { en: 'Reports', cn: '报表' },
+  'Audit Logs': { en: 'Audit Logs', cn: '审计日志' },
+  'Access Guide': { en: 'Access Guide', cn: '权限说明' },
+}
+
+const groupLabelMap = {
+  Overview: { en: 'Overview', cn: '总览' },
+  Operations: { en: 'Operations', cn: '运营' },
+  'Master Data': { en: 'Master Data', cn: '主数据' },
+  Analytics: { en: 'Analytics', cn: '分析' },
+  Governance: { en: 'Governance', cn: '治理' },
+  Support: { en: 'Support', cn: '支持' },
+}
 
 const visibleNavItems = computed(() =>
   navItems.filter((item) => item.roles.includes(authStore.user?.role || 'STAFF')),
@@ -57,9 +81,9 @@ const currentNavItem = computed(
 )
 
 const breadcrumbs = computed(() => [
-  { label: 'Workspace', key: 'workspace' },
-  { label: currentNavItem.value?.group || 'Inventory', key: 'group' },
-  { label: currentNavItem.value?.label || 'Dashboard', key: 'current' },
+  { label: localeStore.t('common.workspace'), key: 'workspace' },
+  { label: localizedGroupLabel(currentNavItem.value?.group || 'Inventory'), key: 'group' },
+  { label: localizedNavLabel(currentNavItem.value?.label || 'Dashboard'), key: 'current' },
 ])
 
 const userInitials = computed(() => {
@@ -114,6 +138,14 @@ function logout() {
   router.push({ name: 'login' })
 }
 
+function localizedNavLabel(label) {
+  return navLabelMap[label]?.[localeStore.locale] || label
+}
+
+function localizedGroupLabel(label) {
+  return groupLabelMap[label]?.[localeStore.locale] || label
+}
+
 onMounted(() => {
   canGoBack.value = window.history.length > 1
   navGroupState.value = JSON.parse(localStorage.getItem(navGroupStorageKey.value) || '{}')
@@ -155,8 +187,8 @@ watch(
     >
       <div class="flex items-center justify-between border-b border-slate-800 pb-4">
         <div>
-          <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Inventory</p>
-          <h1 class="mt-1 text-lg font-semibold">Control Center</h1>
+          <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">{{ localeStore.t('common.inventory') }}</p>
+          <h1 class="mt-1 text-lg font-semibold">{{ localeStore.t('layout.controlCenter') }}</h1>
         </div>
         <button class="rounded-xl border border-slate-700 p-2 text-sm" @click="mobileMenuOpen = false">
           <AppIcon name="chevronLeft" class="h-4 w-4" />
@@ -170,7 +202,7 @@ watch(
             class="flex w-full items-center justify-between rounded-2xl px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-500 transition hover:bg-slate-900"
             @click="toggleGroup(group.label)"
           >
-            <span>{{ group.label }}</span>
+            <span>{{ localizedGroupLabel(group.label) }}</span>
             <AppIcon
               name="chevronLeft"
               class="h-3.5 w-3.5 -rotate-90 transition-transform"
@@ -193,8 +225,8 @@ watch(
                 <AppIcon :name="item.icon" class="h-4 w-4" />
               </span>
               <span class="min-w-0">
-                <span class="block truncate text-sm font-medium">{{ item.label }}</span>
-                <span class="block truncate text-[11px] text-slate-400">{{ item.group }}</span>
+                <span class="block truncate text-sm font-medium">{{ localizedNavLabel(item.label) }}</span>
+                <span class="block truncate text-[11px] text-slate-400">{{ localizedGroupLabel(item.group) }}</span>
               </span>
             </button>
           </div>
@@ -202,15 +234,23 @@ watch(
       </nav>
 
       <div class="mt-5 rounded-3xl bg-slate-900 p-4">
-        <p class="text-xs uppercase tracking-[0.25em] text-slate-500">Current User</p>
+        <p class="text-xs uppercase tracking-[0.25em] text-slate-500">{{ localeStore.t('layout.currentUser') }}</p>
         <p class="mt-3 font-medium">{{ authStore.user?.full_name || authStore.user?.fullName }}</p>
         <p class="text-sm text-slate-400">{{ authStore.user?.role }}</p>
-        <button
-          class="mt-4 w-full rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900"
-          @click="logout"
-        >
-          Logout
-        </button>
+        <div class="mt-4 grid grid-cols-2 gap-2">
+          <button
+            class="rounded-2xl border border-slate-700 px-2 py-3 text-xs font-semibold text-white"
+            @click="localeStore.toggleLocale()"
+          >
+            {{ localeStore.locale === 'en' ? '中文' : 'EN' }}
+          </button>
+          <button
+            class="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900"
+            @click="logout"
+          >
+            {{ localeStore.t('common.logout') }}
+          </button>
+        </div>
       </div>
     </aside>
 
@@ -221,9 +261,9 @@ watch(
       >
         <div class="flex items-start justify-between gap-3">
           <div v-if="!sidebarCollapsed">
-            <p class="text-xs uppercase tracking-[0.35em] text-slate-500">Inventory</p>
-            <h1 class="mt-2 text-2xl font-semibold">Control Center</h1>
-            <p class="mt-2 text-sm text-slate-400">Responsive workspace for daily stock operations.</p>
+            <p class="text-xs uppercase tracking-[0.35em] text-slate-500">{{ localeStore.t('common.inventory') }}</p>
+            <h1 class="mt-2 text-2xl font-semibold">{{ localeStore.t('layout.controlCenter') }}</h1>
+            <p class="mt-2 text-sm text-slate-400">{{ localeStore.t('layout.mobileDesc') }}</p>
           </div>
           <div v-else class="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-sm font-semibold">
             {{ userInitials }}
@@ -245,7 +285,7 @@ watch(
               class="flex w-full items-center justify-between rounded-2xl px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500 transition hover:bg-slate-900"
               @click="toggleGroup(group.label)"
             >
-              <span>{{ group.label }}</span>
+              <span>{{ localizedGroupLabel(group.label) }}</span>
               <AppIcon
                 name="chevronLeft"
                 class="h-3.5 w-3.5 -rotate-90 transition-transform"
@@ -272,14 +312,14 @@ watch(
                   <AppIcon :name="item.icon" class="h-4 w-4" />
                 </span>
                 <span v-if="!sidebarCollapsed" class="min-w-0">
-                  <span class="block truncate text-sm font-medium">{{ item.label }}</span>
-                  <span class="block truncate text-[11px] text-slate-400">{{ item.group }}</span>
+                  <span class="block truncate text-sm font-medium">{{ localizedNavLabel(item.label) }}</span>
+                  <span class="block truncate text-[11px] text-slate-400">{{ localizedGroupLabel(item.group) }}</span>
                 </span>
                 <span
                   v-if="sidebarCollapsed"
                   class="pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 rounded-xl bg-slate-900 px-3 py-2 text-xs font-medium text-white opacity-0 shadow-lg transition group-hover:opacity-100"
                 >
-                  {{ item.label }}
+                  {{ localizedNavLabel(item.label) }}
                 </span>
               </button>
             </div>
@@ -297,10 +337,16 @@ watch(
             </div>
           </div>
           <button
+            class="mt-4 w-full rounded-2xl border border-slate-700 px-4 py-3 text-sm font-semibold text-white"
+            @click="localeStore.toggleLocale()"
+          >
+            {{ localeStore.locale === 'en' ? '切换中文' : 'Switch EN' }}
+          </button>
+          <button
             class="mt-4 w-full rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900"
             @click="logout"
           >
-            {{ sidebarCollapsed ? 'Out' : 'Logout' }}
+            {{ sidebarCollapsed ? 'Out' : localeStore.t('common.logout') }}
           </button>
         </div>
       </aside>
@@ -309,18 +355,26 @@ watch(
         <div class="sticky top-0 z-30 mb-2 rounded-3xl border border-slate-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur lg:hidden">
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
-              <p class="text-[11px] uppercase tracking-[0.15em] text-slate-400">{{ currentNavItem?.label || 'Inventory' }}</p>
-              <p class="text-base font-semibold text-slate-900">{{ authStore.user?.role }} workspace</p>
+              <p class="text-[11px] uppercase tracking-[0.15em] text-slate-400">{{ localizedNavLabel(currentNavItem?.label || 'Inventory') }}</p>
+              <p class="text-base font-semibold text-slate-900">{{ authStore.user?.role }} {{ localeStore.t('common.workspace').toLowerCase() }}</p>
             </div>
-            <button
-              class="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700"
-              @click="mobileMenuOpen = true"
-            >
-              <span class="flex items-center gap-2">
-                <AppIcon name="menu" class="h-4 w-4" />
-                <span class="hidden sm:inline">Menu</span>
-              </span>
-            </button>
+            <div class="flex items-center gap-2">
+              <button
+                class="rounded-2xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"
+                @click="localeStore.toggleLocale()"
+              >
+                {{ localeStore.locale === 'en' ? '中文' : 'EN' }}
+              </button>
+              <button
+                class="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700"
+                @click="mobileMenuOpen = true"
+              >
+                <span class="flex items-center gap-2">
+                  <AppIcon name="menu" class="h-4 w-4" />
+                  <span class="hidden sm:inline">{{ localeStore.t('common.menu') }}</span>
+                </span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -335,7 +389,7 @@ watch(
                   @click="goBack"
                 >
                   <AppIcon name="chevronLeft" class="h-3.5 w-3.5" />
-                  <span>Back</span>
+                  <span>{{ localeStore.t('common.back') }}</span>
                 </button>
                 <span
                   v-for="item in breadcrumbs"
@@ -351,8 +405,8 @@ watch(
                   <AppIcon :name="currentNavItem?.icon || 'guide'" class="h-5 w-5" />
                 </div>
                 <div class="min-w-0">
-                  <p class="text-lg font-semibold text-slate-900">{{ currentNavItem?.label || 'Dashboard' }}</p>
-                  <p class="text-sm text-slate-500">{{ currentNavItem?.group || 'Inventory workspace' }}</p>
+                  <p class="text-lg font-semibold text-slate-900">{{ localizedNavLabel(currentNavItem?.label || 'Dashboard') }}</p>
+                  <p class="text-sm text-slate-500">{{ localizedGroupLabel(currentNavItem?.group || 'Inventory workspace') }}</p>
                 </div>
               </div>
             </div>

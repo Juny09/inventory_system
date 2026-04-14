@@ -61,6 +61,15 @@ const transferForm = reactive({
   notes: '',
 })
 
+const allocationForm = reactive({
+  productId: '',
+  warehouseId: '',
+  quantity: 1,
+  mode: 'reserve',
+  referenceNo: '',
+  notes: '',
+})
+
 async function loadSelectors() {
   const [productResponse, warehouseResponse, categoryResponse] = await Promise.all([
     api.get('/products', {
@@ -146,6 +155,14 @@ function resetForms() {
     sourceWarehouseId: '',
     destinationWarehouseId: '',
     quantity: 1,
+    referenceNo: '',
+    notes: '',
+  })
+  Object.assign(allocationForm, {
+    productId: '',
+    warehouseId: '',
+    quantity: 1,
+    mode: 'reserve',
     referenceNo: '',
     notes: '',
   })
@@ -364,6 +381,62 @@ onMounted(async () => {
             </button>
           </div>
         </form>
+
+        <form
+          class="rounded-3xl border border-slate-200 bg-slate-50 p-5"
+          @submit.prevent="submitMovement('/inventory/allocate', allocationForm)"
+        >
+          <h3 class="text-xl font-semibold text-slate-900">Order allocation</h3>
+          <div class="mt-5 space-y-3">
+            <select
+              v-model="allocationForm.productId"
+              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
+            >
+              <option value="">Select product</option>
+              <option v-for="product in products" :key="product.id" :value="product.id">
+                {{ product.name }} · {{ product.sku }}
+              </option>
+            </select>
+            <select
+              v-model="allocationForm.warehouseId"
+              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
+            >
+              <option value="">Select warehouse</option>
+              <option v-for="warehouse in warehouses" :key="warehouse.id" :value="warehouse.id">
+                {{ warehouse.name }}
+              </option>
+            </select>
+            <select
+              v-model="allocationForm.mode"
+              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
+            >
+              <option value="reserve">Reserve</option>
+              <option value="release">Release</option>
+            </select>
+            <input
+              v-model="allocationForm.quantity"
+              type="number"
+              min="1"
+              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
+              placeholder="Quantity"
+            />
+            <input
+              v-model="allocationForm.referenceNo"
+              type="text"
+              placeholder="Reference no"
+              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
+            />
+            <textarea
+              v-model="allocationForm.notes"
+              rows="3"
+              placeholder="Notes"
+              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
+            />
+            <button class="w-full rounded-2xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white">
+              Confirm allocation
+            </button>
+          </div>
+        </form>
       </div>
 
       <div class="mt-8 grid gap-6 2xl:grid-cols-[1.25fr_1fr]">
@@ -429,15 +502,17 @@ onMounted(async () => {
                 <span
                   class="rounded-full px-3 py-1 text-xs font-semibold"
                   :class="
-                    Number(item.quantity) <= Number(item.reorder_level)
+                    Number(item.warehouse_available_quantity) <= Number(item.reorder_level)
                       ? 'bg-amber-100 text-amber-700'
                       : 'bg-emerald-100 text-emerald-700'
                   "
                 >
-                  {{ item.quantity }} {{ item.unit }}
+                  {{ item.warehouse_available_quantity }} {{ item.unit }}
                 </span>
               </div>
               <p class="mt-3 text-sm text-slate-500">Warehouse: {{ item.warehouse_name }}</p>
+              <p class="mt-1 text-sm text-slate-500">On hand: {{ item.on_hand_quantity }}</p>
+              <p class="mt-1 text-sm text-slate-500">Allocated: {{ item.order_allocated_quantity }}</p>
               <p class="mt-1 text-sm text-slate-500">Reorder: {{ item.reorder_level }}</p>
             </article>
           </div>
@@ -447,7 +522,9 @@ onMounted(async () => {
                 <tr>
                   <th class="px-4 py-4">Product</th>
                   <th class="px-4 py-4">Warehouse</th>
-                  <th class="px-4 py-4">Quantity</th>
+                  <th class="px-4 py-4">On Hand</th>
+                  <th class="px-4 py-4">Allocated</th>
+                  <th class="px-4 py-4">Available</th>
                   <th class="px-4 py-4">Reorder</th>
                 </tr>
               </thead>
@@ -462,14 +539,16 @@ onMounted(async () => {
                     <span
                       class="rounded-full px-3 py-1 text-xs font-semibold"
                       :class="
-                        Number(item.quantity) <= Number(item.reorder_level)
+                        Number(item.warehouse_available_quantity) <= Number(item.reorder_level)
                           ? 'bg-amber-100 text-amber-700'
                           : 'bg-emerald-100 text-emerald-700'
                       "
                     >
-                      {{ item.quantity }} {{ item.unit }}
+                      {{ item.on_hand_quantity }} {{ item.unit }}
                     </span>
                   </td>
+                  <td class="px-4 py-4">{{ item.order_allocated_quantity }}</td>
+                  <td class="px-4 py-4">{{ item.warehouse_available_quantity }}</td>
                   <td class="px-4 py-4">{{ item.reorder_level }}</td>
                 </tr>
               </tbody>

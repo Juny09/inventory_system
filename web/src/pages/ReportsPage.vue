@@ -32,7 +32,9 @@ const inventoryColumns = [
   { key: 'product_name', label: '商品' },
   { key: 'sku', label: 'SKU' },
   { key: 'warehouse_name', label: '仓库' },
-  { key: 'quantity', label: '数量' },
+  { key: 'on_hand_quantity', label: '在库' },
+  { key: 'order_allocated_quantity', label: '占用' },
+  { key: 'warehouse_available_quantity', label: '可用' },
   { key: 'reorder_level', label: '补货线' },
   { key: 'stock_value', label: '库存金额' },
 ]
@@ -254,7 +256,9 @@ onMounted(loadReports)
               <p class="mt-1 text-xs text-slate-500">{{ row.sku }} · {{ row.barcode || 'No barcode' }}</p>
               <div class="mt-4 grid grid-cols-2 gap-3 text-sm text-slate-600">
                 <div class="rounded-2xl bg-slate-50 px-3 py-3">仓库：{{ row.warehouse_name }}</div>
-                <div class="rounded-2xl bg-slate-50 px-3 py-3">数量：{{ row.quantity }}</div>
+                <div class="rounded-2xl bg-slate-50 px-3 py-3">在库：{{ row.on_hand_quantity }}</div>
+                <div class="rounded-2xl bg-slate-50 px-3 py-3">占用：{{ row.order_allocated_quantity }}</div>
+                <div class="rounded-2xl bg-slate-50 px-3 py-3">可用：{{ row.warehouse_available_quantity }}</div>
                 <div class="rounded-2xl bg-slate-50 px-3 py-3">补货线：{{ row.reorder_level }}</div>
                 <div class="rounded-2xl bg-slate-50 px-3 py-3">金额：{{ formatStockValue(row.stock_value) }}</div>
               </div>
@@ -278,7 +282,9 @@ onMounted(loadReports)
                     <p class="text-xs text-slate-500">{{ row.sku }} · {{ row.barcode || 'No barcode' }}</p>
                   </td>
                   <td class="px-4 py-4">{{ row.warehouse_name }}</td>
-                  <td class="px-4 py-4">{{ row.quantity }}</td>
+                  <td class="px-4 py-4">{{ row.on_hand_quantity }}</td>
+                  <td class="px-4 py-4">{{ row.order_allocated_quantity }}</td>
+                  <td class="px-4 py-4">{{ row.warehouse_available_quantity }}</td>
                   <td class="px-4 py-4">{{ row.reorder_level }}</td>
                   <td class="px-4 py-4">{{ formatStockValue(row.stock_value) }}</td>
                 </tr>

@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS products (
   id SERIAL PRIMARY KEY,
   name VARCHAR(180) NOT NULL,
   sku VARCHAR(60) NOT NULL UNIQUE,
+  sku_type VARCHAR(20) NOT NULL DEFAULT 'SINGLE',
   product_code VARCHAR(80) UNIQUE,
   barcode VARCHAR(80) UNIQUE,
   image_data TEXT,
@@ -50,6 +51,7 @@ CREATE TABLE IF NOT EXISTS products (
 );
 
 ALTER TABLE products ADD COLUMN IF NOT EXISTS product_code VARCHAR(80);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS sku_type VARCHAR(20) NOT NULL DEFAULT 'SINGLE';
 ALTER TABLE products ADD COLUMN IF NOT EXISTS image_data TEXT;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS usage_guide TEXT;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS pros TEXT;
@@ -70,6 +72,15 @@ CREATE TABLE IF NOT EXISTS product_images (
   sort_order INTEGER NOT NULL DEFAULT 0,
   is_primary BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS product_bundle_items (
+  id SERIAL PRIMARY KEY,
+  combo_product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  item_product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  item_quantity NUMERIC(12, 3) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (combo_product_id, item_product_id)
 );
 
 INSERT INTO product_images (product_id, image_data, sort_order, is_primary)
@@ -113,8 +124,35 @@ CREATE TABLE IF NOT EXISTS stock_levels (
   product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   warehouse_id INTEGER NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
   quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+  allocated_quantity INTEGER NOT NULL DEFAULT 0 CHECK (allocated_quantity >= 0),
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE (product_id, warehouse_id)
+);
+
+ALTER TABLE stock_levels ADD COLUMN IF NOT EXISTS allocated_quantity INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS marketplace_sync_logs (
+  id SERIAL PRIMARY KEY,
+  channel VARCHAR(30) NOT NULL,
+  sync_type VARCHAR(30) NOT NULL DEFAULT 'inventory',
+  status VARCHAR(20) NOT NULL DEFAULT 'SUCCESS',
+  records_count INTEGER NOT NULL DEFAULT 0,
+  raw_response JSONB NOT NULL DEFAULT '{}'::jsonb,
+  synced_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  synced_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS marketplace_inventory_snapshots (
+  id SERIAL PRIMARY KEY,
+  channel VARCHAR(30) NOT NULL,
+  external_sku VARCHAR(120) NOT NULL,
+  product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+  warehouse_id INTEGER REFERENCES warehouses(id) ON DELETE SET NULL,
+  on_hand INTEGER NOT NULL DEFAULT 0,
+  allocated_quantity INTEGER NOT NULL DEFAULT 0,
+  available_quantity INTEGER NOT NULL DEFAULT 0,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  synced_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS stock_movements (
@@ -185,11 +223,13 @@ CREATE TABLE IF NOT EXISTS low_stock_alert_states (
 CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_products_product_code_unique ON products(product_code);
 CREATE INDEX IF NOT EXISTS idx_product_images_product_id ON product_images(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_bundle_items_combo_id ON product_bundle_items(combo_product_id);
 CREATE INDEX IF NOT EXISTS idx_product_pricing_rules_product_id ON product_pricing_rules(product_id);
 CREATE INDEX IF NOT EXISTS idx_stock_levels_product_id ON stock_levels(product_id);
 CREATE INDEX IF NOT EXISTS idx_stock_levels_warehouse_id ON stock_levels(warehouse_id);
 CREATE INDEX IF NOT EXISTS idx_stock_movements_product_id ON stock_movements(product_id);
 CREATE INDEX IF NOT EXISTS idx_stock_movements_created_at ON stock_movements(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_marketplace_snapshots_channel ON marketplace_inventory_snapshots(channel);
 CREATE INDEX IF NOT EXISTS idx_stock_counts_warehouse_id ON stock_counts(warehouse_id);
 CREATE INDEX IF NOT EXISTS idx_stock_counts_status ON stock_counts(status);
 CREATE INDEX IF NOT EXISTS idx_stock_count_items_stock_count_id ON stock_count_items(stock_count_id);

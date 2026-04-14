@@ -29,10 +29,12 @@ router.get('/inventory', async (req, res) => {
             products.sku,
             products.barcode,
             warehouses.name AS warehouse_name,
-            stock_levels.quantity,
+            stock_levels.quantity AS on_hand_quantity,
+            stock_levels.allocated_quantity AS order_allocated_quantity,
+            GREATEST(stock_levels.quantity - stock_levels.allocated_quantity, 0) AS warehouse_available_quantity,
             products.reorder_level,
             products.cost_price,
-            ROUND(stock_levels.quantity * products.cost_price, 2) AS stock_value
+            ROUND(GREATEST(stock_levels.quantity - stock_levels.allocated_quantity, 0) * products.cost_price, 2) AS stock_value
           FROM stock_levels
           INNER JOIN products ON products.id = stock_levels.product_id
           INNER JOIN warehouses ON warehouses.id = stock_levels.warehouse_id
@@ -68,10 +70,12 @@ router.get('/inventory', async (req, res) => {
             products.sku,
             products.barcode,
             warehouses.name AS warehouse_name,
-            stock_levels.quantity,
+            stock_levels.quantity AS on_hand_quantity,
+            stock_levels.allocated_quantity AS order_allocated_quantity,
+            GREATEST(stock_levels.quantity - stock_levels.allocated_quantity, 0) AS warehouse_available_quantity,
             products.reorder_level,
             products.cost_price,
-            ROUND(stock_levels.quantity * products.cost_price, 2) AS stock_value
+            ROUND(GREATEST(stock_levels.quantity - stock_levels.allocated_quantity, 0) * products.cost_price, 2) AS stock_value
           FROM stock_levels
           INNER JOIN products ON products.id = stock_levels.product_id
           INNER JOIN warehouses ON warehouses.id = stock_levels.warehouse_id

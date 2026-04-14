@@ -19,6 +19,7 @@ import StatCard from '../components/StatCard.vue'
 import PaginationBar from '../components/PaginationBar.vue'
 import api from '../services/api'
 import { useAuthStore } from '../stores/auth'
+import { useLocaleStore } from '../stores/locale'
 
 ChartJS.register(
   CategoryScale,
@@ -33,6 +34,7 @@ ChartJS.register(
 )
 
 const authStore = useAuthStore()
+const localeStore = useLocaleStore()
 const loading = ref(true)
 const errorMessage = ref('')
 const userSearch = ref('')
@@ -332,9 +334,9 @@ watch(chartOrder, persistChartSettings, { deep: true })
     <section>
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p class="text-xs uppercase tracking-[0.2em] text-slate-400 sm:text-sm sm:tracking-[0.3em]">Dashboard</p>
-          <h2 class="mt-2 text-2xl font-semibold leading-tight text-slate-900 sm:text-3xl">Live inventory overview</h2>
-          <p class="mt-2 text-sm leading-6 text-slate-500">See stock health, movement activity and user access in one place.</p>
+          <p class="text-xs uppercase tracking-[0.2em] text-slate-400 sm:text-sm sm:tracking-[0.3em]">{{ localeStore.t('common.inventory') }}</p>
+          <h2 class="mt-2 text-2xl font-semibold leading-tight text-slate-900 sm:text-3xl">{{ localeStore.t('dashboard.title') }}</h2>
+          <p class="mt-2 text-sm leading-6 text-slate-500">{{ localeStore.t('dashboard.subtitle') }}</p>
         </div>
       </div>
 

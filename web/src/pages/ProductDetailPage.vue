@@ -22,6 +22,8 @@ const images = ref([])
 const pricingRules = ref([])
 const summary = ref({
   totalOnHand: 0,
+  totalAllocated: 0,
+  totalAvailable: 0,
   warehouseCount: 0,
   lowStockCount: 0,
 })
@@ -182,26 +184,47 @@ watch(pricingChannel, (value) => {
                     <p class="text-xs uppercase tracking-[0.2em] text-slate-400">Barcode</p>
                     <p class="mt-1 font-medium text-slate-900">{{ product.barcode || '—' }}</p>
                   </div>
+                    <div class="rounded-2xl bg-slate-50 px-4 py-3">
+                      <p class="text-xs uppercase tracking-[0.2em] text-slate-400">SKU Type</p>
+                      <p class="mt-1 font-medium text-slate-900">{{ product.sku_type || 'SINGLE' }}</p>
+                    </div>
                   <div class="rounded-2xl bg-slate-50 px-4 py-3">
                     <p class="text-xs uppercase tracking-[0.2em] text-slate-400">Reorder Level</p>
                     <p class="mt-1 font-medium text-slate-900">{{ product.reorder_level }}</p>
                   </div>
                 </div>
               </div>
+              <div v-if="product.sku_type === 'COMBO'" class="mt-4 rounded-2xl bg-slate-50 p-4">
+                <p class="text-sm font-semibold text-slate-900">Bundle items</p>
+                <div class="mt-3 space-y-2">
+                  <div
+                    v-for="item in product.bundle_items || []"
+                    :key="item.id"
+                    class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                  >
+                    {{ item.item_product_name }} · {{ item.item_product_sku }} × {{ Number(item.item_quantity).toFixed(3) }}
+                  </div>
+                  <p v-if="(product.bundle_items || []).length === 0" class="text-sm text-slate-500">No bundle component configured.</p>
+                </div>
+              </div>
             </div>
 
-            <div class="mt-6 grid gap-4 md:grid-cols-3">
+            <div class="mt-6 grid gap-4 md:grid-cols-4">
               <div class="rounded-3xl border border-slate-200 p-4">
                 <p class="text-sm text-slate-500">Total on hand</p>
                 <p class="mt-2 text-2xl font-semibold text-slate-900">{{ summary.totalOnHand }}</p>
               </div>
               <div class="rounded-3xl border border-slate-200 p-4">
-                <p class="text-sm text-slate-500">Warehouses</p>
-                <p class="mt-2 text-2xl font-semibold text-slate-900">{{ summary.warehouseCount }}</p>
+                <p class="text-sm text-slate-500">Order allocated</p>
+                <p class="mt-2 text-2xl font-semibold text-slate-900">{{ summary.totalAllocated || 0 }}</p>
               </div>
               <div class="rounded-3xl border border-slate-200 p-4">
-                <p class="text-sm text-slate-500">Low stock alerts</p>
-                <p class="mt-2 text-2xl font-semibold text-slate-900">{{ summary.lowStockCount }}</p>
+                <p class="text-sm text-slate-500">Warehouse available</p>
+                <p class="mt-2 text-2xl font-semibold text-slate-900">{{ summary.totalAvailable || 0 }}</p>
+              </div>
+              <div class="rounded-3xl border border-slate-200 p-4">
+                <p class="text-sm text-slate-500">Warehouses</p>
+                <p class="mt-2 text-2xl font-semibold text-slate-900">{{ summary.warehouseCount }}</p>
               </div>
             </div>
 
@@ -340,10 +363,9 @@ watch(pricingChannel, (value) => {
                       <p class="font-medium text-slate-900">{{ stock.warehouse_name }}</p>
                       <p class="text-xs text-slate-500">{{ stock.warehouse_code }}</p>
                     </div>
-                    <span class="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">
-                      {{ stock.quantity }}
-                    </span>
+                    <span class="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">{{ stock.warehouse_available_quantity }}</span>
                   </div>
+                  <p class="mt-2 text-xs text-slate-500">On hand {{ stock.on_hand_quantity }} · Allocated {{ stock.order_allocated_quantity }}</p>
                 </div>
                 <p v-if="stockLevels.length === 0" class="text-sm text-slate-500">当前没有库存记录。</p>
               </div>
