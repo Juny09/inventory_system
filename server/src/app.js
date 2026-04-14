@@ -14,6 +14,8 @@ const alertsRoutes = require('./routes/alertsRoutes')
 const auditRoutes = require('./routes/auditRoutes')
 const stockCountRoutes = require('./routes/stockCountRoutes')
 const marketplaceRoutes = require('./routes/marketplaceRoutes')
+const orderRoutes = require('./routes/orderRoutes')
+const shippingRoutes = require('./routes/shippingRoutes')
 
 const app = express()
 
@@ -37,6 +39,8 @@ app.use('/api/alerts', alertsRoutes)
 app.use('/api/audit-logs', auditRoutes)
 app.use('/api/stock-counts', stockCountRoutes)
 app.use('/api/marketplace', marketplaceRoutes)
+app.use('/api/orders', orderRoutes)
+app.use('/api/shipping', shippingRoutes)
 
 // 统一兜底错误，避免服务端直接暴露堆栈给前端
 app.use((error, _req, res, _next) => {

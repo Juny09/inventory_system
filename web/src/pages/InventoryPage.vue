@@ -4,8 +4,10 @@ import AppLayout from '../layouts/AppLayout.vue'
 import PaginationBar from '../components/PaginationBar.vue'
 import api from '../services/api'
 import { useAuthStore } from '../stores/auth'
+import { useLocaleStore } from '../stores/locale'
 
 const authStore = useAuthStore()
+const localeStore = useLocaleStore()
 const inventory = ref([])
 const products = ref([])
 const warehouses = ref([])
@@ -217,8 +219,10 @@ onMounted(async () => {
 <template>
   <AppLayout>
     <section>
-      <p class="text-sm uppercase tracking-[0.3em] text-slate-400">Operations</p>
-      <h2 class="mt-2 text-3xl font-semibold text-slate-900">Inventory tracking</h2>
+      <p class="text-sm uppercase tracking-[0.3em] text-slate-400">
+        {{ localeStore.locale === 'en' ? 'Operations' : '运营' }}
+      </p>
+      <h2 class="mt-2 text-3xl font-semibold text-slate-900">{{ localeStore.t('inventory.title') }}</h2>
 
       <p v-if="errorMessage" class="mt-6 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">
         {{ errorMessage }}
@@ -460,7 +464,7 @@ onMounted(async () => {
               class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
               @change="handleInventorySearch"
             >
-              <option value="">全部分类</option>
+              <option value="">{{ localeStore.locale === 'en' ? 'All categories' : '全部分类' }}</option>
               <option v-for="category in categories" :key="category.id" :value="category.id">
                 {{ category.name }}
               </option>
@@ -470,21 +474,21 @@ onMounted(async () => {
               class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
               @change="handleInventorySearch"
             >
-              <option value="">全部仓库</option>
+              <option value="">{{ localeStore.locale === 'en' ? 'All warehouses' : '全部仓库' }}</option>
               <option v-for="warehouse in warehouses" :key="warehouse.id" :value="warehouse.id">
                 {{ warehouse.name }}
               </option>
             </select>
             <label class="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-600">
               <input v-model="inventoryFilters.lowStockOnly" type="checkbox" class="size-4 rounded border-slate-300" @change="handleInventorySearch" />
-              仅看低库存
+              {{ localeStore.locale === 'en' ? 'Low stock only' : '仅看低库存' }}
             </label>
             <button
               type="button"
               class="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
               @click="resetInventoryFilters"
             >
-              重置库存筛选
+              {{ localeStore.locale === 'en' ? 'Reset inventory filters' : '重置库存筛选' }}
             </button>
           </div>
           <div v-if="loading" class="px-5 py-4 text-sm text-slate-500">加载中...</div>
@@ -579,7 +583,7 @@ onMounted(async () => {
               class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
               @change="handleTransactionSearch"
             >
-              <option value="all">全部类型</option>
+              <option value="all">{{ localeStore.locale === 'en' ? 'All types' : '全部类型' }}</option>
               <option value="IN">IN</option>
               <option value="OUT">OUT</option>
               <option value="TRANSFER">TRANSFER</option>
@@ -589,7 +593,7 @@ onMounted(async () => {
               class="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
               @click="resetTransactionFilters"
             >
-              重置流水筛选
+              {{ localeStore.locale === 'en' ? 'Reset transaction filters' : '重置流水筛选' }}
             </button>
           </div>
           <div class="space-y-3 p-5">

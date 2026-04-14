@@ -4,8 +4,10 @@ import AppLayout from '../layouts/AppLayout.vue'
 import PaginationBar from '../components/PaginationBar.vue'
 import api from '../services/api'
 import { exportToCsv, exportToPdf } from '../utils/export'
+import { useLocaleStore } from '../stores/locale'
 
 const inventoryReport = ref([])
+const localeStore = useLocaleStore()
 const movementReport = ref([])
 const errorMessage = ref('')
 const loading = ref(false)
@@ -29,24 +31,24 @@ const movementPagination = ref({
 })
 
 const inventoryColumns = [
-  { key: 'product_name', label: '商品' },
+  { key: 'product_name', label: localeStore.locale === 'en' ? 'Product' : '商品' },
   { key: 'sku', label: 'SKU' },
-  { key: 'warehouse_name', label: '仓库' },
-  { key: 'on_hand_quantity', label: '在库' },
-  { key: 'order_allocated_quantity', label: '占用' },
-  { key: 'warehouse_available_quantity', label: '可用' },
-  { key: 'reorder_level', label: '补货线' },
-  { key: 'stock_value', label: '库存金额' },
+  { key: 'warehouse_name', label: localeStore.locale === 'en' ? 'Warehouse' : '仓库' },
+  { key: 'on_hand_quantity', label: localeStore.locale === 'en' ? 'On hand' : '在库' },
+  { key: 'order_allocated_quantity', label: localeStore.locale === 'en' ? 'Allocated' : '占用' },
+  { key: 'warehouse_available_quantity', label: localeStore.locale === 'en' ? 'Available' : '可用' },
+  { key: 'reorder_level', label: localeStore.locale === 'en' ? 'Reorder' : '补货线' },
+  { key: 'stock_value', label: localeStore.locale === 'en' ? 'Stock value' : '库存金额' },
 ]
 
 const movementColumns = [
-  { key: 'movement_type', label: '类型' },
-  { key: 'product_name', label: '商品' },
-  { key: 'source_warehouse_name', label: '来源' },
-  { key: 'destination_warehouse_name', label: '去向' },
-  { key: 'quantity', label: '数量' },
-  { key: 'created_by_name', label: '操作人' },
-  { key: 'created_at', label: '时间' },
+  { key: 'movement_type', label: localeStore.locale === 'en' ? 'Type' : '类型' },
+  { key: 'product_name', label: localeStore.locale === 'en' ? 'Product' : '商品' },
+  { key: 'source_warehouse_name', label: localeStore.locale === 'en' ? 'From' : '来源' },
+  { key: 'destination_warehouse_name', label: localeStore.locale === 'en' ? 'To' : '去向' },
+  { key: 'quantity', label: localeStore.locale === 'en' ? 'Qty' : '数量' },
+  { key: 'created_by_name', label: localeStore.locale === 'en' ? 'Operator' : '操作人' },
+  { key: 'created_at', label: localeStore.locale === 'en' ? 'Time' : '时间' },
 ]
 
 function formatStockValue(value) {
@@ -194,7 +196,7 @@ onMounted(loadReports)
           <input
             v-model="filters.search"
             type="text"
-            placeholder="搜索商品/仓库/单号"
+            :placeholder="localeStore.locale === 'en' ? 'Search product / warehouse / reference' : '搜索商品/仓库/单号'"
             class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
           />
           <input
@@ -216,13 +218,13 @@ onMounted(loadReports)
       </p>
 
       <div v-if="loading" class="mt-6 rounded-2xl border border-slate-200 px-4 py-4 text-sm text-slate-500">
-        报表加载中...
+        {{ localeStore.locale === 'en' ? 'Loading reports...' : '报表加载中...' }}
       </div>
       <div
         v-if="exportLoading"
         class="mt-4 rounded-2xl border border-brand-200 bg-brand-50 px-4 py-4 text-sm text-brand-700"
       >
-        正在按当前筛选条件导出全部结果...
+        {{ localeStore.locale === 'en' ? 'Exporting all rows with current filters...' : '正在按当前筛选条件导出全部结果...' }}
       </div>
 
       <div class="mt-6 grid gap-6">
@@ -235,14 +237,22 @@ onMounted(loadReports)
                 class="rounded-2xl border border-slate-300 px-4 py-2 text-sm"
                 @click="exportInventoryCsv"
               >
-                {{ exportLoading === 'inventory-csv' ? '导出中...' : '导出全部 CSV' }}
+                {{
+                  exportLoading === 'inventory-csv'
+                    ? (localeStore.locale === 'en' ? 'Exporting...' : '导出中...')
+                    : (localeStore.locale === 'en' ? 'Export All CSV' : '导出全部 CSV')
+                }}
               </button>
               <button
                 type="button"
                 class="rounded-2xl bg-slate-900 px-4 py-2 text-sm text-white"
                 @click="exportInventoryPdf"
               >
-                {{ exportLoading === 'inventory-pdf' ? '导出中...' : '导出全部 PDF' }}
+                {{
+                  exportLoading === 'inventory-pdf'
+                    ? (localeStore.locale === 'en' ? 'Exporting...' : '导出中...')
+                    : (localeStore.locale === 'en' ? 'Export All PDF' : '导出全部 PDF')
+                }}
               </button>
             </div>
           </div>
@@ -255,12 +265,12 @@ onMounted(loadReports)
               <p class="font-medium text-slate-900">{{ row.product_name }}</p>
               <p class="mt-1 text-xs text-slate-500">{{ row.sku }} · {{ row.barcode || 'No barcode' }}</p>
               <div class="mt-4 grid grid-cols-2 gap-3 text-sm text-slate-600">
-                <div class="rounded-2xl bg-slate-50 px-3 py-3">仓库：{{ row.warehouse_name }}</div>
-                <div class="rounded-2xl bg-slate-50 px-3 py-3">在库：{{ row.on_hand_quantity }}</div>
-                <div class="rounded-2xl bg-slate-50 px-3 py-3">占用：{{ row.order_allocated_quantity }}</div>
-                <div class="rounded-2xl bg-slate-50 px-3 py-3">可用：{{ row.warehouse_available_quantity }}</div>
-                <div class="rounded-2xl bg-slate-50 px-3 py-3">补货线：{{ row.reorder_level }}</div>
-                <div class="rounded-2xl bg-slate-50 px-3 py-3">金额：{{ formatStockValue(row.stock_value) }}</div>
+                <div class="rounded-2xl bg-slate-50 px-3 py-3">{{ localeStore.locale === 'en' ? 'Warehouse' : '仓库' }}: {{ row.warehouse_name }}</div>
+                <div class="rounded-2xl bg-slate-50 px-3 py-3">{{ localeStore.locale === 'en' ? 'On hand' : '在库' }}: {{ row.on_hand_quantity }}</div>
+                <div class="rounded-2xl bg-slate-50 px-3 py-3">{{ localeStore.locale === 'en' ? 'Allocated' : '占用' }}: {{ row.order_allocated_quantity }}</div>
+                <div class="rounded-2xl bg-slate-50 px-3 py-3">{{ localeStore.locale === 'en' ? 'Available' : '可用' }}: {{ row.warehouse_available_quantity }}</div>
+                <div class="rounded-2xl bg-slate-50 px-3 py-3">{{ localeStore.locale === 'en' ? 'Reorder' : '补货线' }}: {{ row.reorder_level }}</div>
+                <div class="rounded-2xl bg-slate-50 px-3 py-3">{{ localeStore.locale === 'en' ? 'Value' : '金额' }}: {{ formatStockValue(row.stock_value) }}</div>
               </div>
             </article>
           </div>
@@ -303,14 +313,22 @@ onMounted(loadReports)
                 class="rounded-2xl border border-slate-300 px-4 py-2 text-sm"
                 @click="exportMovementCsv"
               >
-                {{ exportLoading === 'movement-csv' ? '导出中...' : '导出全部 CSV' }}
+                {{
+                  exportLoading === 'movement-csv'
+                    ? (localeStore.locale === 'en' ? 'Exporting...' : '导出中...')
+                    : (localeStore.locale === 'en' ? 'Export All CSV' : '导出全部 CSV')
+                }}
               </button>
               <button
                 type="button"
                 class="rounded-2xl bg-slate-900 px-4 py-2 text-sm text-white"
                 @click="exportMovementPdf"
               >
-                {{ exportLoading === 'movement-pdf' ? '导出中...' : '导出全部 PDF' }}
+                {{
+                  exportLoading === 'movement-pdf'
+                    ? (localeStore.locale === 'en' ? 'Exporting...' : '导出中...')
+                    : (localeStore.locale === 'en' ? 'Export All PDF' : '导出全部 PDF')
+                }}
               </button>
             </div>
           </div>

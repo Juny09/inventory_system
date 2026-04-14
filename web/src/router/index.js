@@ -12,6 +12,7 @@ const AlertsPage = () => import('../pages/AlertsPage.vue')
 const StockCountsPage = () => import('../pages/StockCountsPage.vue')
 const AuditLogsPage = () => import('../pages/AuditLogsPage.vue')
 const AccessGuidePage = () => import('../pages/AccessGuidePage.vue')
+const TutorialCenterPage = () => import('../pages/TutorialCenterPage.vue')
 
 const routes = [
   {
@@ -84,6 +85,12 @@ const routes = [
     path: '/access-guide',
     name: 'access-guide',
     component: AccessGuidePage,
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/tutorial-center',
+    name: 'tutorial-center',
+    component: TutorialCenterPage,
     meta: { requiresAuth: true },
   },
 ]

@@ -69,3 +69,36 @@ npm run dev
 - 再确认后端已启动：访问 `http://localhost:4000/api/health`
 - 然后确认前端已启动：访问 `http://localhost:5173/login`
 - 登录页如果显示“后端服务正常，可直接登录”，说明前后端已经打通
+
+## Docker Deployment (Local Server)
+
+项目根目录已提供 `docker-compose.yml`，包含：
+- `db` (PostgreSQL 16)
+- `api` (Express)
+- `web` (Nginx + Vue build)
+
+### 1) 启动
+
+```bash
+docker compose up -d --build
+```
+
+### 2) 访问
+
+- 前端：`http://localhost:8080`
+- 后端健康检查：`http://localhost:4000/api/health`
+
+### 3) 停止
+
+```bash
+docker compose down
+```
+
+### 4) 重置数据库（清空后重建）
+
+```bash
+docker compose down -v
+docker compose up -d --build
+```
+
+> 初始化时会自动执行 `server/database/schema.sql` 与 `server/database/seed.sql`。

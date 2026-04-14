@@ -4,9 +4,11 @@ import AppLayout from '../layouts/AppLayout.vue'
 import PaginationBar from '../components/PaginationBar.vue'
 import api from '../services/api'
 import { useAuthStore } from '../stores/auth'
+import { useLocaleStore } from '../stores/locale'
 import { exportToCsv, exportToPdf, printHtmlDocument } from '../utils/export'
 
 const authStore = useAuthStore()
+const localeStore = useLocaleStore()
 const warehouses = ref([])
 const stockCounts = ref([])
 const selectedCount = ref(null)
@@ -30,12 +32,12 @@ const pagination = ref({
 
 const canApply = computed(() => ['ADMIN', 'MANAGER'].includes(authStore.user?.role))
 const stockCountColumns = [
-  { key: 'product_name', label: '商品' },
+  { key: 'product_name', label: localeStore.locale === 'en' ? 'Product' : '商品' },
   { key: 'sku', label: 'SKU' },
-  { key: 'expected_quantity', label: '账面库存' },
-  { key: 'countedQuantity', label: '实盘库存' },
-  { key: 'difference', label: '差异' },
-  { key: 'notes', label: '备注' },
+  { key: 'expected_quantity', label: localeStore.locale === 'en' ? 'Expected' : '账面库存' },
+  { key: 'countedQuantity', label: localeStore.locale === 'en' ? 'Counted' : '实盘库存' },
+  { key: 'difference', label: localeStore.locale === 'en' ? 'Difference' : '差异' },
+  { key: 'notes', label: localeStore.locale === 'en' ? 'Notes' : '备注' },
 ]
 
 async function loadWarehouses() {
@@ -256,8 +258,16 @@ onMounted(async () => {
       <div class="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p class="text-sm uppercase tracking-[0.3em] text-slate-400">Stock Count</p>
-          <h2 class="mt-2 text-3xl font-semibold text-slate-900">库存盘点单</h2>
-          <p class="mt-2 text-sm text-slate-500">先生成盘点单，再录入实盘数量，最后由主管应用差异。</p>
+          <h2 class="mt-2 text-3xl font-semibold text-slate-900">
+            {{ localeStore.locale === 'en' ? 'Stock count sheets' : '库存盘点单' }}
+          </h2>
+          <p class="mt-2 text-sm text-slate-500">
+            {{
+              localeStore.locale === 'en'
+                ? 'Create a count sheet, input counted qty, then apply differences.'
+                : '先生成盘点单，再录入实盘数量，最后由主管应用差异。'
+            }}
+          </p>
         </div>
       </div>
 
@@ -268,13 +278,15 @@ onMounted(async () => {
       <div class="mt-6 grid gap-6 2xl:grid-cols-[380px_1fr]">
         <div class="space-y-6">
           <form class="rounded-3xl border border-slate-200 bg-slate-50 p-5" @submit.prevent="createCount">
-            <h3 class="text-xl font-semibold text-slate-900">新建盘点单</h3>
+            <h3 class="text-xl font-semibold text-slate-900">
+              {{ localeStore.locale === 'en' ? 'Create stock count' : '新建盘点单' }}
+            </h3>
             <div class="mt-5 space-y-4">
               <select
                 v-model="createForm.warehouseId"
                 class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
               >
-                <option value="">选择仓库</option>
+                <option value="">{{ localeStore.locale === 'en' ? 'Select warehouse' : '选择仓库' }}</option>
                 <option v-for="warehouse in warehouses" :key="warehouse.id" :value="warehouse.id">
                   {{ warehouse.name }}
                 </option>
@@ -282,11 +294,11 @@ onMounted(async () => {
               <textarea
                 v-model="createForm.notes"
                 rows="4"
-                placeholder="盘点说明"
+                :placeholder="localeStore.locale === 'en' ? 'Count notes' : '盘点说明'"
                 class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
               />
               <button class="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white">
-                {{ saving ? '处理中...' : '生成盘点单' }}
+                {{ saving ? (localeStore.locale === 'en' ? 'Processing...' : '处理中...') : (localeStore.locale === 'en' ? 'Create sheet' : '生成盘点单') }}
               </button>
             </div>
           </form>
@@ -296,7 +308,7 @@ onMounted(async () => {
               <input
                 v-model="filters.search"
                 type="text"
-                placeholder="搜索仓库或备注"
+                :placeholder="localeStore.locale === 'en' ? 'Search warehouse or notes' : '搜索仓库或备注'"
                 class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
                 @input="handleFilter"
               />
@@ -305,7 +317,7 @@ onMounted(async () => {
                 class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
                 @change="handleFilter"
               >
-                <option value="all">全部状态</option>
+                <option value="all">{{ localeStore.locale === 'en' ? 'All status' : '全部状态' }}</option>
                 <option value="OPEN">OPEN</option>
                 <option value="COMPLETED">COMPLETED</option>
                 <option value="APPLIED">APPLIED</option>
@@ -334,7 +346,9 @@ onMounted(async () => {
                     {{ count.status }}
                   </span>
                 </div>
-                <p class="mt-2 text-sm text-slate-500">{{ count.item_count }} 项 · 差异 {{ count.total_difference }}</p>
+                <p class="mt-2 text-sm text-slate-500">
+                  {{ localeStore.locale === 'en' ? `${count.item_count} items · Diff ${count.total_difference}` : `${count.item_count} 项 · 差异 ${count.total_difference}` }}
+                </p>
               </button>
             </div>
 
@@ -343,14 +357,14 @@ onMounted(async () => {
         </div>
 
         <div class="rounded-3xl border border-slate-200 p-5">
-          <div v-if="loading" class="text-sm text-slate-500">加载中...</div>
+          <div v-if="loading" class="text-sm text-slate-500">{{ localeStore.locale === 'en' ? 'Loading...' : '加载中...' }}</div>
 
           <template v-else-if="selectedCount">
             <div class="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <p class="text-sm uppercase tracking-[0.25em] text-slate-400">Count #{{ selectedCount.id }}</p>
                 <h3 class="mt-2 text-2xl font-semibold text-slate-900">{{ selectedCount.warehouse_name }}</h3>
-                <p class="mt-2 text-sm text-slate-500">{{ selectedCount.notes || '无额外说明' }}</p>
+                <p class="mt-2 text-sm text-slate-500">{{ selectedCount.notes || (localeStore.locale === 'en' ? 'No additional notes' : '无额外说明') }}</p>
               </div>
               <div class="flex flex-wrap gap-2">
                 <span class="rounded-full bg-slate-900 px-3 py-2 text-xs font-semibold text-white">
@@ -361,21 +375,21 @@ onMounted(async () => {
                   class="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
                   @click="exportCountCsv"
                 >
-                  导出 CSV
+                  {{ localeStore.locale === 'en' ? 'Export CSV' : '导出 CSV' }}
                 </button>
                 <button
                   type="button"
                   class="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
                   @click="exportCountPdf"
                 >
-                  导出 PDF
+                  {{ localeStore.locale === 'en' ? 'Export PDF' : '导出 PDF' }}
                 </button>
                 <button
                   type="button"
                   class="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
                   @click="printCount"
                 >
-                  打印
+                  {{ localeStore.locale === 'en' ? 'Print' : '打印' }}
                 </button>
                 <button
                   v-if="selectedCount.status === 'OPEN'"
@@ -383,7 +397,7 @@ onMounted(async () => {
                   class="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
                   @click="saveItems"
                 >
-                  保存录入
+                  {{ localeStore.locale === 'en' ? 'Save entries' : '保存录入' }}
                 </button>
                 <button
                   v-if="selectedCount.status === 'OPEN'"
@@ -391,7 +405,7 @@ onMounted(async () => {
                   class="rounded-2xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white"
                   @click="completeCount"
                 >
-                  完成盘点
+                  {{ localeStore.locale === 'en' ? 'Complete count' : '完成盘点' }}
                 </button>
                 <button
                   v-if="selectedCount.status === 'COMPLETED' && canApply"
@@ -399,7 +413,7 @@ onMounted(async () => {
                   class="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
                   @click="applyCount"
                 >
-                  应用差异
+                  {{ localeStore.locale === 'en' ? 'Apply difference' : '应用差异' }}
                 </button>
               </div>
             </div>

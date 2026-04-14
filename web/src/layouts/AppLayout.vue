@@ -11,6 +11,7 @@ const authStore = useAuthStore()
 const localeStore = useLocaleStore()
 const mobileMenuOpen = ref(false)
 const sidebarCollapsed = ref(localStorage.getItem('inventory_sidebar_collapsed') === 'true')
+const userActionsHidden = ref(localStorage.getItem('inventory_user_actions_hidden') !== 'false')
 const canGoBack = ref(false)
 const navGroupState = ref({})
 const navGroupStorageKey = computed(() => `inventory_sidebar_groups_${authStore.user?.role || 'STAFF'}`)
@@ -26,6 +27,7 @@ const navItems = [
   { label: 'Reports', routeName: 'reports', roles: ['ADMIN', 'MANAGER'], shortLabel: 'RP', icon: 'reports', group: 'Analytics' },
   { label: 'Audit Logs', routeName: 'audit-logs', roles: ['ADMIN', 'MANAGER'], shortLabel: 'AU', icon: 'audit', group: 'Governance' },
   { label: 'Access Guide', routeName: 'access-guide', roles: ['ADMIN', 'MANAGER', 'STAFF'], shortLabel: 'RG', icon: 'guide', group: 'Support' },
+  { label: 'Tutorial Center', routeName: 'tutorial-center', roles: ['ADMIN', 'MANAGER', 'STAFF'], shortLabel: 'TC', icon: 'guide', group: 'Support' },
 ]
 
 const navLabelMap = {
@@ -39,6 +41,7 @@ const navLabelMap = {
   Reports: { en: 'Reports', cn: '报表' },
   'Audit Logs': { en: 'Audit Logs', cn: '审计日志' },
   'Access Guide': { en: 'Access Guide', cn: '权限说明' },
+  'Tutorial Center': { en: 'Tutorial Center', cn: '教学中心' },
 }
 
 const groupLabelMap = {
@@ -136,6 +139,11 @@ function handleResize() {
 function logout() {
   authStore.clearAuth()
   router.push({ name: 'login' })
+}
+
+function toggleUserActions() {
+  userActionsHidden.value = !userActionsHidden.value
+  localStorage.setItem('inventory_user_actions_hidden', String(userActionsHidden.value))
 }
 
 function localizedNavLabel(label) {
@@ -237,7 +245,13 @@ watch(
         <p class="text-xs uppercase tracking-[0.25em] text-slate-500">{{ localeStore.t('layout.currentUser') }}</p>
         <p class="mt-3 font-medium">{{ authStore.user?.full_name || authStore.user?.fullName }}</p>
         <p class="text-sm text-slate-400">{{ authStore.user?.role }}</p>
-        <div class="mt-4 grid grid-cols-2 gap-2">
+        <button
+          class="mt-4 w-full rounded-2xl border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-200"
+          @click="toggleUserActions"
+        >
+          {{ userActionsHidden ? 'Show Actions' : 'Hide Actions' }}
+        </button>
+        <div v-if="!userActionsHidden" class="mt-3 grid grid-cols-2 gap-2">
           <button
             class="rounded-2xl border border-slate-700 px-2 py-3 text-xs font-semibold text-white"
             @click="localeStore.toggleLocale()"
@@ -337,17 +351,26 @@ watch(
             </div>
           </div>
           <button
-            class="mt-4 w-full rounded-2xl border border-slate-700 px-4 py-3 text-sm font-semibold text-white"
-            @click="localeStore.toggleLocale()"
+            v-if="!sidebarCollapsed"
+            class="mt-4 w-full rounded-2xl border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-200"
+            @click="toggleUserActions"
           >
-            {{ localeStore.locale === 'en' ? '切换中文' : 'Switch EN' }}
+            {{ userActionsHidden ? 'Show Actions' : 'Hide Actions' }}
           </button>
-          <button
-            class="mt-4 w-full rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900"
-            @click="logout"
-          >
-            {{ sidebarCollapsed ? 'Out' : localeStore.t('common.logout') }}
-          </button>
+          <div v-if="!userActionsHidden" class="mt-3 space-y-3">
+            <button
+              class="w-full rounded-2xl border border-slate-700 px-4 py-3 text-sm font-semibold text-white"
+              @click="localeStore.toggleLocale()"
+            >
+              {{ localeStore.locale === 'en' ? '切换中文' : 'Switch EN' }}
+            </button>
+            <button
+              class="w-full rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900"
+              @click="logout"
+            >
+              {{ sidebarCollapsed ? 'Out' : localeStore.t('common.logout') }}
+            </button>
+          </div>
         </div>
       </aside>
 

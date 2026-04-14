@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: inventory_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: inventory_system
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - inventory_db_data:/var/lib/postgresql/data
+      - ./server/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./server/database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d inventory_system"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: inventory_api
+    restart: unless-stopped
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/inventory_system
+      JWT_SECRET: change_this_to_a_secure_secret
+      SHOPEE_SYNC_ENDPOINT: ""
+      SHOPEE_ACCESS_TOKEN: ""
+      LAZADA_SYNC_ENDPOINT: ""
+      LAZADA_ACCESS_TOKEN: ""
+      TIKTOK_SYNC_ENDPOINT: ""
+      TIKTOK_ACCESS_TOKEN: ""
+    ports:
+      - "4000:4000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: inventory_web
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+volumes:
+  inventory_db_data:

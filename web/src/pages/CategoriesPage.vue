@@ -3,8 +3,10 @@ import { onMounted, reactive, ref } from 'vue'
 import AppLayout from '../layouts/AppLayout.vue'
 import PaginationBar from '../components/PaginationBar.vue'
 import api from '../services/api'
+import { useLocaleStore } from '../stores/locale'
 
 const categories = ref([])
+const localeStore = useLocaleStore()
 const errorMessage = ref('')
 const loading = ref(false)
 const searchKeyword = ref('')
@@ -98,7 +100,7 @@ onMounted(loadCategories)
         <input
           v-model="searchKeyword"
           type="text"
-          placeholder="搜索分类"
+          :placeholder="localeStore.locale === 'en' ? 'Search categories' : '搜索分类'"
           class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500 md:w-72"
           @input="handleSearch"
         />
@@ -142,7 +144,9 @@ onMounted(loadCategories)
         </form>
 
         <div class="overflow-hidden rounded-3xl border border-slate-200">
-          <div v-if="loading" class="border-b border-slate-200 px-4 py-4 text-sm text-slate-500">加载中...</div>
+          <div v-if="loading" class="border-b border-slate-200 px-4 py-4 text-sm text-slate-500">
+            {{ localeStore.locale === 'en' ? 'Loading...' : '加载中...' }}
+          </div>
           <div class="space-y-3 p-4 md:hidden">
             <article
               v-for="category in categories"

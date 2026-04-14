@@ -15,6 +15,27 @@ const channelConfigs = {
   },
 }
 
+async function getChannelConfig(channel) {
+  const dbResult = await query(
+    `
+      SELECT channel, api_base_url, access_token
+      FROM marketplace_connections
+      WHERE channel = $1 AND is_active = TRUE
+      LIMIT 1
+    `,
+    [channel],
+  )
+
+  if (dbResult.rows[0]?.api_base_url && dbResult.rows[0]?.access_token) {
+    return {
+      endpoint: `${String(dbResult.rows[0].api_base_url).replace(/\/$/, '')}/inventory`,
+      token: dbResult.rows[0].access_token,
+    }
+  }
+
+  return channelConfigs[channel]
+}
+
 function normalizeRecords(payload) {
   const sourceItems = Array.isArray(payload?.items) ? payload.items : []
 
@@ -77,7 +98,7 @@ async function saveSnapshots(channel, normalizedRecords) {
 }
 
 async function syncMarketplaceInventory(channel, userId) {
-  const config = channelConfigs[channel]
+  const config = await getChannelConfig(channel)
 
   if (!config) {
     throw new Error(`Unsupported channel: ${channel}`)
@@ -120,4 +141,5 @@ async function syncMarketplaceInventory(channel, userId) {
 
 module.exports = {
   syncMarketplaceInventory,
+  getChannelConfig,
 }

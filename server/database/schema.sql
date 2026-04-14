@@ -155,6 +155,60 @@ CREATE TABLE IF NOT EXISTS marketplace_inventory_snapshots (
   synced_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS marketplace_connections (
+  id SERIAL PRIMARY KEY,
+  channel VARCHAR(30) NOT NULL UNIQUE,
+  shop_name VARCHAR(120),
+  api_base_url TEXT,
+  access_token TEXT,
+  refresh_token TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS marketplace_orders (
+  id SERIAL PRIMARY KEY,
+  channel VARCHAR(30) NOT NULL,
+  external_order_id VARCHAR(120) NOT NULL,
+  order_status VARCHAR(40) NOT NULL DEFAULT 'PENDING',
+  buyer_name VARCHAR(120),
+  total_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  currency VARCHAR(10) NOT NULL DEFAULT 'USD',
+  order_created_at TIMESTAMP,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  synced_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (channel, external_order_id)
+);
+
+CREATE TABLE IF NOT EXISTS marketplace_order_items (
+  id SERIAL PRIMARY KEY,
+  marketplace_order_id INTEGER NOT NULL REFERENCES marketplace_orders(id) ON DELETE CASCADE,
+  external_item_id VARCHAR(120),
+  external_sku VARCHAR(120),
+  product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+  quantity INTEGER NOT NULL DEFAULT 0,
+  unit_price NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS shipping_shipments (
+  id SERIAL PRIMARY KEY,
+  channel VARCHAR(30),
+  marketplace_order_id INTEGER REFERENCES marketplace_orders(id) ON DELETE SET NULL,
+  shipment_status VARCHAR(40) NOT NULL DEFAULT 'PENDING',
+  carrier VARCHAR(80),
+  service_level VARCHAR(80),
+  tracking_no VARCHAR(120),
+  label_url TEXT,
+  shipped_at TIMESTAMP,
+  delivered_at TIMESTAMP,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS stock_movements (
   id SERIAL PRIMARY KEY,
   movement_type VARCHAR(20) NOT NULL CHECK (movement_type IN ('IN', 'OUT', 'TRANSFER')),
@@ -230,6 +284,10 @@ CREATE INDEX IF NOT EXISTS idx_stock_levels_warehouse_id ON stock_levels(warehou
 CREATE INDEX IF NOT EXISTS idx_stock_movements_product_id ON stock_movements(product_id);
 CREATE INDEX IF NOT EXISTS idx_stock_movements_created_at ON stock_movements(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_marketplace_snapshots_channel ON marketplace_inventory_snapshots(channel);
+CREATE INDEX IF NOT EXISTS idx_marketplace_orders_channel ON marketplace_orders(channel);
+CREATE INDEX IF NOT EXISTS idx_marketplace_orders_status ON marketplace_orders(order_status);
+CREATE INDEX IF NOT EXISTS idx_marketplace_order_items_order_id ON marketplace_order_items(marketplace_order_id);
+CREATE INDEX IF NOT EXISTS idx_shipping_shipments_status ON shipping_shipments(shipment_status);
 CREATE INDEX IF NOT EXISTS idx_stock_counts_warehouse_id ON stock_counts(warehouse_id);
 CREATE INDEX IF NOT EXISTS idx_stock_counts_status ON stock_counts(status);
 CREATE INDEX IF NOT EXISTS idx_stock_count_items_stock_count_id ON stock_count_items(stock_count_id);

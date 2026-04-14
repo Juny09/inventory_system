@@ -2,16 +2,18 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useLocaleStore } from '../stores/locale'
 import api from '../services/api'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const localeStore = useLocaleStore()
 const form = reactive({
   email: 'admin@inventory.local',
   password: 'Admin@123',
 })
 const errorMessage = ref('')
-const healthMessage = ref('正在检查后端服务...')
+const healthMessage = ref('Checking backend health...')
 const testingAccounts = [
   { role: 'Admin', email: 'admin@inventory.local', password: 'Admin@123' },
   { role: 'Manager', email: 'manager@inventory.local', password: 'Manager@123' },
@@ -27,9 +29,12 @@ function fillTestingAccount(account) {
 async function checkBackendHealth() {
   try {
     await api.get('/health')
-    healthMessage.value = '后端服务正常，可直接登录。'
+    healthMessage.value = localeStore.locale === 'en' ? 'Backend is reachable. You can login now.' : '后端服务正常，可直接登录。'
   } catch (error) {
-    healthMessage.value = '后端服务未连通，请先启动 server 或检查 PostgreSQL。'
+    healthMessage.value =
+      localeStore.locale === 'en'
+        ? 'Backend is unreachable. Please start server or check PostgreSQL.'
+        : '后端服务未连通，请先启动 server 或检查 PostgreSQL。'
   }
 }
 

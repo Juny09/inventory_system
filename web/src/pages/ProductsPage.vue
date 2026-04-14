@@ -585,9 +585,19 @@ watch(
     <section>
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p class="text-sm uppercase tracking-[0.3em] text-slate-400">Catalog</p>
-          <h2 class="mt-2 text-3xl font-semibold text-slate-900">Product list</h2>
-          <p class="mt-2 text-sm text-slate-500">集中管理商品资料，并可打开单独的 product page 查看详情。</p>
+          <p class="text-sm uppercase tracking-[0.3em] text-slate-400">
+            {{ localeStore.locale === 'en' ? 'Catalog' : '商品目录' }}
+          </p>
+          <h2 class="mt-2 text-3xl font-semibold text-slate-900">
+            {{ localeStore.locale === 'en' ? 'Product list' : '商品列表' }}
+          </h2>
+          <p class="mt-2 text-sm text-slate-500">
+            {{
+              localeStore.locale === 'en'
+                ? 'Manage product info and open product detail pages.'
+                : '集中管理商品资料，并可打开单独的 product page 查看详情。'
+            }}
+          </p>
         </div>
       </div>
 
