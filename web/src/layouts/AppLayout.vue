@@ -256,7 +256,7 @@ watch(
             class="rounded-2xl border border-slate-700 px-2 py-3 text-xs font-semibold text-white"
             @click="localeStore.toggleLocale()"
           >
-            {{ localeStore.locale === 'en' ? '中文' : 'EN' }}
+            {{ localeStore.locale === 'en' ? 'Switch to Chinese' : '切换英文' }}
           </button>
           <button
             class="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900"
@@ -362,7 +362,7 @@ watch(
               class="w-full rounded-2xl border border-slate-700 px-4 py-3 text-sm font-semibold text-white"
               @click="localeStore.toggleLocale()"
             >
-              {{ localeStore.locale === 'en' ? '切换中文' : 'Switch EN' }}
+              {{ localeStore.locale === 'en' ? 'Switch to Chinese' : '切换英文' }}
             </button>
             <button
               class="w-full rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900"
@@ -386,7 +386,7 @@ watch(
                 class="rounded-2xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"
                 @click="localeStore.toggleLocale()"
               >
-                {{ localeStore.locale === 'en' ? '中文' : 'EN' }}
+                {{ localeStore.locale === 'en' ? 'Switch to Chinese' : '切换英文' }}
               </button>
               <button
                 class="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700"

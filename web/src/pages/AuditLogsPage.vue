@@ -5,8 +5,10 @@ import PaginationBar from '../components/PaginationBar.vue'
 import api from '../services/api'
 import { exportToCsv, exportToJson, exportToPdf } from '../utils/export'
 import { useAuthStore } from '../stores/auth'
+import { useLocaleStore } from '../stores/locale'
 
 const authStore = useAuthStore()
+const localeStore = useLocaleStore()
 const logs = ref([])
 const errorMessage = ref('')
 const loading = ref(false)
@@ -29,16 +31,20 @@ const pagination = ref({
 })
 const expandedIds = ref([])
 
+function tr(en, cn) {
+  return localeStore.locale === 'en' ? en : cn
+}
+
 const actionOptions = ['all', 'LOGIN', 'STOCK_COUNT_CREATE', 'STOCK_COUNT_SAVE', 'STOCK_COUNT_COMPLETE', 'STOCK_COUNT_APPLY', 'ALERT_UPDATE', 'ALERT_BULK_UPDATE']
 const entityTypeOptions = ['all', 'AUTH', 'USERS', 'CATEGORIES', 'WAREHOUSES', 'PRODUCTS', 'INVENTORY', 'STOCK_COUNT', 'ALERT']
 const auditColumns = [
-  { key: 'created_at', label: '时间' },
-  { key: 'user_email', label: '用户' },
-  { key: 'user_role', label: '角色' },
-  { key: 'action', label: '动作' },
-  { key: 'entity_type', label: '实体' },
-  { key: 'path', label: '路径' },
-  { key: 'description', label: '说明' },
+  { key: 'created_at', label: tr('Time', '时间') },
+  { key: 'user_email', label: tr('User', '用户') },
+  { key: 'user_role', label: tr('Role', '角色') },
+  { key: 'action', label: tr('Action', '动作') },
+  { key: 'entity_type', label: tr('Entity', '实体') },
+  { key: 'path', label: tr('Path', '路径') },
+  { key: 'description', label: tr('Description', '说明') },
 ]
 
 function getPresetStorageKey() {
@@ -264,8 +270,8 @@ onMounted(() => {
   <AppLayout>
     <section>
       <p class="text-sm uppercase tracking-[0.3em] text-slate-400">Audit</p>
-      <h2 class="mt-2 text-3xl font-semibold text-slate-900">操作审计日志</h2>
-      <p class="mt-3 max-w-3xl text-sm text-slate-500">查看谁在什么时间执行了什么操作，方便追溯和排查。</p>
+      <h2 class="mt-2 text-3xl font-semibold text-slate-900">{{ tr('Operation audit logs', '操作审计日志') }}</h2>
+      <p class="mt-3 max-w-3xl text-sm text-slate-500">{{ tr('Review who did what and when for traceability.', '查看谁在什么时间执行了什么操作，方便追溯和排查。') }}</p>
 
       <p v-if="errorMessage" class="mt-6 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">
         {{ errorMessage }}
@@ -274,7 +280,7 @@ onMounted(() => {
       <div class="mt-6 rounded-3xl border border-slate-200 p-5">
         <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p class="text-sm text-slate-500">支持展开查看 metadata 明细，也可导出全部筛选结果。</p>
+            <p class="text-sm text-slate-500">{{ tr('Supports metadata expansion and full filtered export.', '支持展开查看 metadata 明细，也可导出全部筛选结果。') }}</p>
           </div>
           <div class="flex flex-wrap gap-2">
             <button
@@ -282,21 +288,21 @@ onMounted(() => {
               class="rounded-2xl border border-slate-300 px-4 py-2 text-sm"
               @click="exportAuditCsv"
             >
-              {{ exportLoading === 'csv' ? '导出中...' : '导出全部 CSV' }}
+              {{ exportLoading === 'csv' ? tr('Exporting...', '导出中...') : tr('Export All CSV', '导出全部 CSV') }}
             </button>
             <button
               type="button"
               class="rounded-2xl border border-slate-300 px-4 py-2 text-sm"
               @click="exportAuditJson"
             >
-              {{ exportLoading === 'json' ? '导出中...' : '导出全部 JSON' }}
+              {{ exportLoading === 'json' ? tr('Exporting...', '导出中...') : tr('Export All JSON', '导出全部 JSON') }}
             </button>
             <button
               type="button"
               class="rounded-2xl bg-slate-900 px-4 py-2 text-sm text-white"
               @click="exportAuditPdf"
             >
-              {{ exportLoading === 'pdf' ? '导出中...' : '导出全部 PDF' }}
+              {{ exportLoading === 'pdf' ? tr('Exporting...', '导出中...') : tr('Export All PDF', '导出全部 PDF') }}
             </button>
           </div>
         </div>
@@ -305,7 +311,7 @@ onMounted(() => {
           <input
             v-model="presetName"
             type="text"
-            placeholder="保存当前筛选为预设"
+            :placeholder="tr('Save current filters as preset', '保存当前筛选为预设')"
             class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
           />
           <select
@@ -313,7 +319,7 @@ onMounted(() => {
             class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
             @change="applyPreset(selectedPresetName)"
           >
-            <option value="">选择筛选预设</option>
+            <option value="">{{ tr('Select filter preset', '选择筛选预设') }}</option>
             <option v-for="preset in filterPresets" :key="preset.name" :value="preset.name">
               {{ preset.name }}
             </option>
@@ -323,7 +329,7 @@ onMounted(() => {
             class="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
             @click="saveCurrentPreset"
           >
-            保存预设
+            {{ tr('Save preset', '保存预设') }}
           </button>
           <button
             type="button"
@@ -331,7 +337,7 @@ onMounted(() => {
             :disabled="!selectedPresetName"
             @click="renameSelectedPreset"
           >
-            重命名所选
+            {{ tr('Rename selected', '重命名所选') }}
           </button>
         </div>
 
@@ -342,10 +348,10 @@ onMounted(() => {
             class="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm"
           >
             <button type="button" class="font-medium text-slate-900" @click="applyPreset(preset.name)">
-              {{ preset.name }}{{ preset.isDefault ? ' · 默认' : '' }}
+              {{ preset.name }}{{ preset.isDefault ? tr(' · Default', ' · 默认') : '' }}
             </button>
             <button type="button" class="text-slate-400" @click="setDefaultPreset(preset.name)">
-              默认
+              {{ tr('Default', '默认') }}
             </button>
             <button type="button" class="text-slate-400" @click="deletePreset(preset.name)">
               ×
@@ -357,7 +363,7 @@ onMounted(() => {
           <input
             v-model="filters.search"
             type="text"
-            placeholder="搜索邮箱、路径、动作"
+            :placeholder="tr('Search email, path, action', '搜索邮箱、路径、动作')"
             class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
             @input="handleFilter"
           />
@@ -367,7 +373,7 @@ onMounted(() => {
             @change="handleFilter"
           >
             <option v-for="option in actionOptions" :key="option" :value="option">
-              {{ option === 'all' ? '全部动作' : option }}
+              {{ option === 'all' ? tr('All actions', '全部动作') : option }}
             </option>
           </select>
           <select
@@ -376,7 +382,7 @@ onMounted(() => {
             @change="handleFilter"
           >
             <option v-for="option in entityTypeOptions" :key="option" :value="option">
-              {{ option === 'all' ? '全部实体' : option }}
+              {{ option === 'all' ? tr('All entities', '全部实体') : option }}
             </option>
           </select>
           <input
@@ -396,11 +402,11 @@ onMounted(() => {
             class="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
             @click="resetFilters"
           >
-            重置筛选
+            {{ tr('Reset filters', '重置筛选') }}
           </button>
         </div>
 
-        <div v-if="loading" class="mt-5 text-sm text-slate-500">加载中...</div>
+        <div v-if="loading" class="mt-5 text-sm text-slate-500">{{ tr('Loading...', '加载中...') }}</div>
 
         <div class="mt-5 space-y-3">
           <article v-for="log in logs" :key="log.id" class="rounded-3xl border border-slate-200 p-4">
@@ -430,7 +436,7 @@ onMounted(() => {
                   class="mt-3 block rounded-2xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
                   @click="toggleExpanded(log.id)"
                 >
-                  {{ expandedIds.includes(log.id) ? '收起详情' : '展开详情' }}
+                  {{ expandedIds.includes(log.id) ? tr('Hide detail', '收起详情') : tr('View detail', '展开详情') }}
                 </button>
               </div>
             </div>

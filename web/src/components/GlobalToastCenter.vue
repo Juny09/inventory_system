@@ -1,7 +1,9 @@
 <script setup>
 import { useToastStore } from '../stores/toast'
+import { useLocaleStore } from '../stores/locale'
 
 const toastStore = useToastStore()
+const localeStore = useLocaleStore()
 </script>
 
 <template>
@@ -21,7 +23,7 @@ const toastStore = useToastStore()
       <div class="flex items-start justify-between gap-3">
         <p class="text-sm font-medium">{{ toast.message }}</p>
         <button type="button" class="text-xs font-semibold" @click="toastStore.removeToast(toast.id)">
-          关闭
+          {{ localeStore.locale === 'en' ? 'Close' : '关闭' }}
         </button>
       </div>
       <div v-if="toast.actionLabel" class="mt-3">

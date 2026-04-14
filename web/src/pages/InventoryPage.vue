@@ -448,12 +448,14 @@ onMounted(async () => {
           <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
             <div>
               <h3 class="text-xl font-semibold text-slate-900">Inventory by warehouse</h3>
-              <p class="mt-1 text-sm text-slate-500">支持分类、仓库和低库存组合筛选。</p>
+              <p class="mt-1 text-sm text-slate-500">
+                {{ localeStore.locale === 'en' ? 'Supports combined filtering by category, warehouse and low stock.' : '支持分类、仓库和低库存组合筛选。' }}
+              </p>
             </div>
             <input
               v-model="inventorySearch"
               type="text"
-              placeholder="搜索库存"
+              :placeholder="localeStore.locale === 'en' ? 'Search inventory' : '搜索库存'"
               class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500 md:w-64"
               @input="handleInventorySearch"
             />
@@ -491,7 +493,7 @@ onMounted(async () => {
               {{ localeStore.locale === 'en' ? 'Reset inventory filters' : '重置库存筛选' }}
             </button>
           </div>
-          <div v-if="loading" class="px-5 py-4 text-sm text-slate-500">加载中...</div>
+          <div v-if="loading" class="px-5 py-4 text-sm text-slate-500">{{ localeStore.locale === 'en' ? 'Loading...' : '加载中...' }}</div>
           <div class="grid gap-3 p-4 md:hidden">
             <article
               v-for="item in inventory"
@@ -566,12 +568,14 @@ onMounted(async () => {
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 class="text-xl font-semibold text-slate-900">Recent transactions</h3>
-                <p class="mt-1 text-sm text-slate-500">支持搜索单号、商品和操作类型。</p>
+                <p class="mt-1 text-sm text-slate-500">
+                  {{ localeStore.locale === 'en' ? 'Supports searching by reference no, product and movement type.' : '支持搜索单号、商品和操作类型。' }}
+                </p>
               </div>
               <input
                 v-model="transactionSearch"
                 type="text"
-                placeholder="搜索流水"
+                :placeholder="localeStore.locale === 'en' ? 'Search transactions' : '搜索流水'"
                 class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500 md:w-56"
                 @input="handleTransactionSearch"
               />

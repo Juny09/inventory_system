@@ -2,16 +2,16 @@ import QRCode from 'qrcode'
 import { printHtmlDocument } from './export'
 
 export const markupPresets = [
-  { label: '10% 保守', value: 10, hint: '适合低竞争差异品类' },
-  { label: '20% 常规', value: 20, hint: '适合常见标准品' },
-  { label: '30% 零售', value: 30, hint: '适合门店与陈列成本' },
-  { label: '50% 高服务', value: 50, hint: '适合安装、培训、售后场景' },
+  { label: '10% Conservative', value: 10, hint: 'Low competition / differentiated products' },
+  { label: '20% Standard', value: 20, hint: 'Common standardized products' },
+  { label: '30% Retail', value: 30, hint: 'Retail shelf and display overhead' },
+  { label: '50% Service-heavy', value: 50, hint: 'Installation, training, after-sales scenarios' },
 ]
 
 export const pricingRuleTemplates = [
-  { ruleName: 'Retail', channelKey: 'retail', markupPercentage: 30, description: '门店常规零售价' },
-  { ruleName: 'Wholesale', channelKey: 'wholesale', markupPercentage: 18, description: '批发合作价' },
-  { ruleName: 'VIP', channelKey: 'vip', markupPercentage: 12, description: '会员或老客户价格' },
+  { ruleName: 'Retail', channelKey: 'retail', markupPercentage: 30, description: 'Storefront standard retail price' },
+  { ruleName: 'Wholesale', channelKey: 'wholesale', markupPercentage: 18, description: 'Bulk partner price' },
+  { ruleName: 'VIP', channelKey: 'vip', markupPercentage: 12, description: 'Member / loyal customer price' },
 ]
 
 export function generateLocalProductCode() {

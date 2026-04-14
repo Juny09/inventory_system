@@ -4,6 +4,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import AppLayout from '../layouts/AppLayout.vue'
 import api from '../services/api'
 import { useCostAccessStore } from '../stores/costAccess'
+import { useLocaleStore } from '../stores/locale'
 import { useToastStore } from '../stores/toast'
 import {
   buildProductQrDataUrl,
@@ -13,6 +14,7 @@ import {
 
 const route = useRoute()
 const costAccessStore = useCostAccessStore()
+const localeStore = useLocaleStore()
 const toastStore = useToastStore()
 const product = ref(null)
 const stockLevels = ref([])
@@ -34,6 +36,10 @@ const costPasscode = ref('')
 const pricingChannel = ref(localStorage.getItem('inventory_pricing_channel') || 'retail')
 
 const markupSummary = computed(() => Number(product.value?.markup_percentage || 0))
+
+function tr(en, cn) {
+  return localeStore.locale === 'en' ? en : cn
+}
 
 function formatCurrency(value) {
   return `$${Number(value || 0).toFixed(2)}`
@@ -73,7 +79,7 @@ async function unlockCost() {
     costPasscode.value = ''
     toastStore.pushToast({
       tone: 'success',
-      message: '成本信息已解锁，可查看商品页价格细节。',
+      message: tr('Cost details unlocked for this session.', '成本信息已解锁，可查看商品页价格细节。'),
     })
     await loadDetail()
   } catch (error) {
@@ -119,13 +125,15 @@ watch(pricingChannel, (value) => {
         <div>
           <p class="text-xs uppercase tracking-[0.2em] text-slate-400 sm:text-sm sm:tracking-[0.3em]">Product Page</p>
           <h2 class="mt-2 text-2xl font-semibold leading-tight text-slate-900 sm:text-3xl">{{ product?.name || 'Product detail' }}</h2>
-          <p class="mt-2 text-sm text-slate-500">单独查看商品资料、库存分布、出入库记录、低库存提醒与二维码标签。</p>
+          <p class="mt-2 text-sm text-slate-500">
+            {{ tr('View product profile, inventory distribution, movements, low-stock alerts and QR labels in one page.', '单独查看商品资料、库存分布、出入库记录、低库存提醒与二维码标签。') }}
+          </p>
         </div>
         <RouterLink
           :to="{ name: 'products' }"
           class="w-full rounded-2xl border border-slate-300 px-4 py-3 text-center text-sm font-semibold text-slate-700 sm:w-auto"
         >
-          返回 Product list
+          {{ tr('Back to Product List', '返回 Product list') }}
         </RouterLink>
       </div>
 
@@ -236,10 +244,10 @@ watch(pricingChannel, (value) => {
                 </div>
                 <div class="mt-4 flex gap-2">
                   <button type="button" class="flex-1 rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700" @click="downloadQrCode">
-                    下载
+                    {{ tr('Download', '下载') }}
                   </button>
                   <button type="button" class="flex-1 rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white" @click="printLabel">
-                    打印
+                    {{ tr('Print', '打印') }}
                   </button>
                 </div>
               </div>
@@ -248,7 +256,7 @@ watch(pricingChannel, (value) => {
                   <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                     <div>
                       <h3 class="text-lg font-semibold text-slate-900">Pricing</h3>
-                      <p class="mt-1 text-sm text-slate-500">成本、建议售价与实际售价会集中展示在这里。</p>
+                      <p class="mt-1 text-sm text-slate-500">{{ tr('Cost, suggested and selling prices are summarized here.', '成本、建议售价与实际售价会集中展示在这里。') }}</p>
                     </div>
                     <select
                       v-model="pricingChannel"
@@ -264,14 +272,14 @@ watch(pricingChannel, (value) => {
                       class="w-full rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 sm:w-auto"
                       @click="lockCost"
                     >
-                      隐藏成本
+                      {{ tr('Hide Cost', '隐藏成本') }}
                     </button>
                   </div>
                   <div v-if="!costAccessStore.isUnlocked" class="mt-4 flex flex-wrap items-center gap-3 rounded-2xl bg-slate-50 p-4">
                     <input
                       v-model="costPasscode"
                       type="password"
-                      placeholder="输入 passcode 查看成本"
+                      :placeholder="tr('Enter passcode to view cost', '输入 passcode 查看成本')"
                       class="min-w-0 flex-1 rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
                     />
                     <button
@@ -280,7 +288,7 @@ watch(pricingChannel, (value) => {
                       :disabled="costAccessStore.loading"
                       @click="unlockCost"
                     >
-                      {{ costAccessStore.loading ? '验证中...' : '查看成本' }}
+                      {{ costAccessStore.loading ? tr('Verifying...', '验证中...') : tr('Unlock Cost', '查看成本') }}
                     </button>
                   </div>
                   <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -329,20 +337,20 @@ watch(pricingChannel, (value) => {
 
                 <div class="rounded-3xl border border-slate-200 p-4">
                   <h3 class="text-lg font-semibold text-slate-900">Description</h3>
-                  <p class="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-600">{{ product.description || '暂无商品说明。' }}</p>
+                  <p class="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-600">{{ product.description || tr('No product description.', '暂无商品说明。') }}</p>
                 </div>
                 <div class="grid gap-4 md:grid-cols-3">
                   <div class="rounded-3xl border border-slate-200 p-4">
                     <h3 class="text-lg font-semibold text-slate-900">How to use</h3>
-                    <p class="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-600">{{ product.usage_guide || '暂无使用说明。' }}</p>
+                    <p class="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-600">{{ product.usage_guide || tr('No usage guide.', '暂无使用说明。') }}</p>
                   </div>
                   <div class="rounded-3xl border border-slate-200 p-4">
                     <h3 class="text-lg font-semibold text-slate-900">Pros</h3>
-                    <p class="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-600">{{ product.pros || '暂无优点说明。' }}</p>
+                    <p class="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-600">{{ product.pros || tr('No pros listed.', '暂无优点说明。') }}</p>
                   </div>
                   <div class="rounded-3xl border border-slate-200 p-4">
                     <h3 class="text-lg font-semibold text-slate-900">Cons</h3>
-                    <p class="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-600">{{ product.cons || '暂无缺点说明。' }}</p>
+                    <p class="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-600">{{ product.cons || tr('No cons listed.', '暂无缺点说明。') }}</p>
                   </div>
                 </div>
               </div>
@@ -367,7 +375,7 @@ watch(pricingChannel, (value) => {
                   </div>
                   <p class="mt-2 text-xs text-slate-500">On hand {{ stock.on_hand_quantity }} · Allocated {{ stock.order_allocated_quantity }}</p>
                 </div>
-                <p v-if="stockLevels.length === 0" class="text-sm text-slate-500">当前没有库存记录。</p>
+                <p v-if="stockLevels.length === 0" class="text-sm text-slate-500">{{ tr('No stock record yet.', '当前没有库存记录。') }}</p>
               </div>
             </div>
 
@@ -380,10 +388,10 @@ watch(pricingChannel, (value) => {
                   class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4"
                 >
                   <p class="font-medium text-slate-900">{{ alert.warehouse_name }}</p>
-                  <p class="mt-1 text-sm text-amber-700">状态 {{ alert.alert_status }} · 缺口 {{ alert.shortage }}</p>
-                  <p class="mt-1 text-xs text-slate-500">负责人：{{ alert.assigned_to_name || '未指派' }}</p>
+                  <p class="mt-1 text-sm text-amber-700">{{ tr('Status', '状态') }} {{ alert.alert_status }} · {{ tr('Shortage', '缺口') }} {{ alert.shortage }}</p>
+                  <p class="mt-1 text-xs text-slate-500">{{ tr('Assignee', '负责人') }}: {{ alert.assigned_to_name || tr('Unassigned', '未指派') }}</p>
                 </div>
-                <p v-if="alerts.length === 0" class="text-sm text-slate-500">当前没有低库存提醒。</p>
+                <p v-if="alerts.length === 0" class="text-sm text-slate-500">{{ tr('No low-stock alerts.', '当前没有低库存提醒。') }}</p>
               </div>
             </div>
 
@@ -401,11 +409,11 @@ watch(pricingChannel, (value) => {
                     </span>
                     <span class="text-xs text-slate-400">{{ new Date(movement.created_at).toLocaleString() }}</span>
                   </div>
-                  <p class="mt-3 text-sm text-slate-700">数量 {{ movement.quantity }} · 参考号 {{ movement.reference_no || '—' }}</p>
+                  <p class="mt-3 text-sm text-slate-700">{{ tr('Qty', '数量') }} {{ movement.quantity }} · {{ tr('Ref', '参考号') }} {{ movement.reference_no || '—' }}</p>
                   <p class="mt-1 text-xs text-slate-500">From {{ movement.source_warehouse_name || '—' }} → {{ movement.destination_warehouse_name || '—' }}</p>
-                  <p class="mt-1 text-xs text-slate-500">操作人：{{ movement.created_by_name || 'System' }}</p>
+                  <p class="mt-1 text-xs text-slate-500">{{ tr('Operator', '操作人') }}: {{ movement.created_by_name || 'System' }}</p>
                 </div>
-                <p v-if="recentMovements.length === 0" class="text-sm text-slate-500">暂无最近流水记录。</p>
+                <p v-if="recentMovements.length === 0" class="text-sm text-slate-500">{{ tr('No recent movements.', '暂无最近流水记录。') }}</p>
               </div>
             </div>
           </div>

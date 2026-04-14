@@ -74,6 +74,10 @@ const summary = reactive({
   },
 })
 
+function tr(en, cn) {
+  return localeStore.locale === 'en' ? en : cn
+}
+
 const userForm = reactive({
   fullName: '',
   email: '',
@@ -85,7 +89,7 @@ const movementTrendData = computed(() => ({
   labels: summary.charts.movementTrend.map((item) => item.month),
   datasets: [
     {
-      label: '月度流水',
+      label: tr('Monthly movement', '月度流水'),
       data: summary.charts.movementTrend.map((item) => item.total),
       borderColor: '#4338ca',
       backgroundColor: 'rgba(67, 56, 202, 0.15)',
@@ -99,7 +103,7 @@ const warehouseChartData = computed(() => ({
   labels: summary.charts.stockByWarehouse.map((item) => item.label),
   datasets: [
     {
-      label: '仓库库存',
+      label: tr('Stock by warehouse', '仓库库存'),
       data: summary.charts.stockByWarehouse.map((item) => item.total),
       backgroundColor: ['#4338ca', '#16a34a', '#f59e0b', '#ef4444', '#0ea5e9'],
     },
@@ -110,7 +114,7 @@ const categoryChartData = computed(() => ({
   labels: summary.charts.stockByCategory.map((item) => item.label),
   datasets: [
     {
-      label: '分类库存',
+      label: tr('Stock by category', '分类库存'),
       data: summary.charts.stockByCategory.map((item) => item.total),
       backgroundColor: ['#0f172a', '#334155', '#64748b', '#94a3b8', '#cbd5e1'],
     },
@@ -146,7 +150,7 @@ const chartDefinitions = computed(() => ({
   movementTrend: {
     key: 'movementTrend',
     title: 'Movement trend',
-    description: '查看最近 6 个月的库存流水变化。',
+    description: tr('View stock movement trend for the last 6 months.', '查看最近 6 个月的库存流水变化。'),
     visible: chartPreferences.showMovementTrend,
     component: movementTrendComponent.value,
     data: movementTrendData.value,
@@ -155,7 +159,7 @@ const chartDefinitions = computed(() => ({
   categoryChart: {
     key: 'categoryChart',
     title: 'Stock by category',
-    description: '看哪些分类占了更多库存。',
+    description: tr('Compare stock distribution by category.', '看哪些分类占了更多库存。'),
     visible: chartPreferences.showCategoryChart,
     component: categoryChartComponent.value,
     data: categoryChartData.value,
@@ -164,7 +168,7 @@ const chartDefinitions = computed(() => ({
   warehouseChart: {
     key: 'warehouseChart',
     title: 'Stock by warehouse',
-    description: '对比各仓库存量，方便调拨决策。',
+    description: tr('Compare stock quantity by warehouse for transfer decisions.', '对比各仓库存量，方便调拨决策。'),
     visible: chartPreferences.showWarehouseChart,
     component: warehouseChartComponent.value,
     data: warehouseChartData.value,
@@ -360,10 +364,10 @@ watch(chartOrder, persistChartSettings, { deep: true })
           <div class="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h3 class="text-lg font-semibold text-slate-900 sm:text-xl">Chart preferences</h3>
-              <p class="mt-1 text-sm text-slate-500">每个用户可自定义 Dashboard 要显示哪些图表，以及图表类型。</p>
+              <p class="mt-1 text-sm text-slate-500">{{ tr('Each user can customize visible charts and chart types.', '每个用户可自定义 Dashboard 要显示哪些图表，以及图表类型。') }}</p>
             </div>
             <span class="rounded-full bg-white px-4 py-2 text-xs font-semibold text-slate-600">
-              当前显示 {{ visibleChartsCount }} 个图表
+              {{ tr(`Showing ${visibleChartsCount} charts`, `当前显示 ${visibleChartsCount} 个图表`) }}
             </span>
           </div>
           <div class="mt-5 grid gap-4 xl:grid-cols-3">
@@ -451,7 +455,7 @@ watch(chartOrder, persistChartSettings, { deep: true })
                 <p class="mt-1 text-sm text-slate-500">{{ chart.description }}</p>
               </div>
               <span class="rounded-2xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500">
-                拖拽排序
+                {{ tr('Drag to reorder', '拖拽排序') }}
               </span>
             </div>
             <div class="mt-4" :class="getChartHeightClass(chart.size)">
@@ -464,20 +468,20 @@ watch(chartOrder, persistChartSettings, { deep: true })
           v-if="visibleChartsCount === 0"
           class="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-center text-sm text-slate-500"
         >
-          当前没有启用任何图表，请在上方 Chart preferences 中选择至少一个图表。
+          {{ tr('No chart is enabled. Please enable at least one chart in chart preferences.', '当前没有启用任何图表，请在上方 Chart preferences 中选择至少一个图表。') }}
         </div>
 
         <div class="mt-6 rounded-3xl border border-amber-200 bg-amber-50 p-4 sm:p-5">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 class="text-lg font-semibold text-slate-900 sm:text-xl">Low stock reminders</h3>
-              <p class="mt-1 text-sm text-slate-500">优先关注最接近断货的商品。</p>
+              <p class="mt-1 text-sm text-slate-500">{{ tr('Prioritize products that are closest to stockout.', '优先关注最接近断货的商品。') }}</p>
             </div>
             <RouterLink
               :to="{ name: 'alerts' }"
               class="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
             >
-              打开提醒中心
+              {{ tr('Open Alerts', '打开提醒中心') }}
             </RouterLink>
           </div>
           <div class="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
@@ -489,10 +493,10 @@ watch(chartOrder, persistChartSettings, { deep: true })
               <p class="font-medium text-slate-900">{{ item.product_name }}</p>
               <p class="mt-1 text-xs text-slate-500">{{ item.sku }} · {{ item.warehouse_name }}</p>
               <p class="mt-3 text-sm text-amber-700">
-                当前 {{ item.quantity }} / 补货线 {{ item.reorder_level }}
+                {{ tr('Current', '当前') }} {{ item.quantity }} / {{ tr('Reorder', '补货线') }} {{ item.reorder_level }}
               </p>
             </div>
-            <p v-if="summary.lowStockPreview.length === 0" class="text-sm text-slate-500">当前没有低库存提醒。</p>
+            <p v-if="summary.lowStockPreview.length === 0" class="text-sm text-slate-500">{{ tr('No low-stock alert currently.', '当前没有低库存提醒。') }}</p>
           </div>
         </div>
 
@@ -594,7 +598,7 @@ watch(chartOrder, persistChartSettings, { deep: true })
                 <input
                   v-model="userSearch"
                   type="text"
-                  placeholder="搜索用户"
+                  :placeholder="tr('Search users', '搜索用户')"
                   class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500 lg:w-64"
                   @input="handleUserSearch"
                 />

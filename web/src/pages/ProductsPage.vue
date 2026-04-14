@@ -149,7 +149,10 @@ async function unlockCost() {
     costPasscode.value = ''
     toastStore.pushToast({
       tone: 'success',
-      message: '成本信息已解锁，后端接口会返回成本字段。',
+      message:
+        localeStore.locale === 'en'
+          ? 'Cost fields are unlocked for this session.'
+          : '成本信息已解锁，后端接口会返回成本字段。',
     })
     await loadPageData(pagination.value.page)
   } catch (error) {
@@ -161,7 +164,10 @@ async function lockCost() {
   costAccessStore.lock()
   toastStore.pushToast({
     tone: 'info',
-    message: '成本信息已重新隐藏，后端接口将不再返回成本字段。',
+    message:
+      localeStore.locale === 'en'
+        ? 'Cost fields are hidden again.'
+        : '成本信息已重新隐藏，后端接口将不再返回成本字段。',
   })
   await loadPageData(pagination.value.page)
 }
@@ -306,7 +312,14 @@ async function saveProduct() {
     await loadPageData(1)
     toastStore.pushToast({
       tone: 'success',
-      message: isEditing ? '商品已更新。' : '商品已创建。',
+      message:
+        localeStore.locale === 'en'
+          ? isEditing
+            ? 'Product updated.'
+            : 'Product created.'
+          : isEditing
+            ? '商品已更新。'
+            : '商品已创建。',
     })
   } catch (error) {
     errorMessage.value = error.response?.data?.message || 'Failed to save product.'
@@ -319,7 +332,7 @@ async function deleteProduct(id) {
     await loadPageData()
     toastStore.pushToast({
       tone: 'success',
-      message: '商品已删除。',
+      message: localeStore.locale === 'en' ? 'Product deleted.' : '商品已删除。',
     })
   } catch (error) {
     errorMessage.value = error.response?.data?.message || 'Failed to delete product.'
@@ -368,7 +381,10 @@ async function handleImageChange(event) {
 
     toastStore.pushToast({
       tone: 'success',
-      message: `已加入 ${processedImages.length} 张商品图片，并自动裁剪压缩。`,
+      message:
+        localeStore.locale === 'en'
+          ? `Added ${processedImages.length} product images with auto crop/compress.`
+          : `已加入 ${processedImages.length} 张商品图片，并自动裁剪压缩。`,
     })
   } catch {
     errorMessage.value = 'Failed to process product images.'
@@ -607,14 +623,20 @@ watch(
 
       <div class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4">
         <div>
-          <p class="text-sm font-semibold text-slate-900">成本保护</p>
-          <p class="mt-1 text-xs text-slate-500">成本会以 ****** 隐藏，输入当前登录密码后才会在本次会话中显示。</p>
+          <p class="text-sm font-semibold text-slate-900">{{ localeStore.locale === 'en' ? 'Cost Protection' : '成本保护' }}</p>
+          <p class="mt-1 text-xs text-slate-500">
+            {{
+              localeStore.locale === 'en'
+                ? 'Cost fields are masked as ******. Enter your current password to unlock in this session.'
+                : '成本会以 ****** 隐藏，输入当前登录密码后才会在本次会话中显示。'
+            }}
+          </p>
         </div>
         <div v-if="!costAccessStore.isUnlocked" class="flex flex-wrap items-center gap-3">
           <input
             v-model="costPasscode"
             type="password"
-            placeholder="输入 passcode"
+            :placeholder="localeStore.locale === 'en' ? 'Enter passcode' : '输入 passcode'"
             class="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-brand-500"
           />
           <button
@@ -623,7 +645,7 @@ watch(
             :disabled="costAccessStore.loading"
             @click="unlockCost"
           >
-            {{ costAccessStore.loading ? '验证中...' : '查看成本' }}
+            {{ costAccessStore.loading ? (localeStore.locale === 'en' ? 'Verifying...' : '验证中...') : (localeStore.locale === 'en' ? 'Unlock cost' : '查看成本') }}
           </button>
         </div>
         <button
@@ -632,7 +654,7 @@ watch(
           class="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
           @click="lockCost"
         >
-          重新隐藏成本
+          {{ localeStore.locale === 'en' ? 'Hide cost again' : '重新隐藏成本' }}
         </button>
       </div>
 
@@ -644,7 +666,13 @@ watch(
                 <h3 class="text-xl font-semibold text-slate-900">
                   {{ form.id ? 'Edit product' : 'Create product' }}
                 </h3>
-                <p class="mt-1 text-sm text-slate-500">可填写说明、使用方式、优点与缺点，并自动生成建议售价。</p>
+                <p class="mt-1 text-sm text-slate-500">
+                  {{
+                    localeStore.locale === 'en'
+                      ? 'Fill description, usage guide, pros and cons; suggested price is auto calculated.'
+                      : '可填写说明、使用方式、优点与缺点，并自动生成建议售价。'
+                  }}
+                </p>
               </div>
               <div class="flex gap-2">
                 <button
@@ -653,7 +681,7 @@ watch(
                   :disabled="!form.productCode"
                   @click="downloadQrCode"
                 >
-                  下载 QR
+                  {{ localeStore.locale === 'en' ? 'Download QR' : '下载 QR' }}
                 </button>
                 <button
                   type="button"
@@ -661,7 +689,7 @@ watch(
                   :disabled="!form.productCode"
                   @click="printLabel"
                 >
-                  打印标签
+                  {{ localeStore.locale === 'en' ? 'Print Label' : '打印标签' }}
                 </button>
               </div>
             </div>
@@ -709,7 +737,7 @@ watch(
               />
               <label class="flex cursor-pointer items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-600">
                 <input type="file" accept="image/*" multiple class="hidden" @change="handleImageChange" />
-                {{ imageProcessing ? '处理中...' : 'Add product photos' }}
+                {{ imageProcessing ? (localeStore.locale === 'en' ? 'Processing...' : '处理中...') : 'Add product photos' }}
               </label>
               <select
                 v-model="form.categoryId"
@@ -780,14 +808,26 @@ watch(
                 </button>
               </div>
               <div class="sm:col-span-2 grid gap-2 text-xs text-slate-500">
-                <p>Markup 公式：建议售价 = 成本价 × (1 + markup%)</p>
+                <p>
+                  {{
+                    localeStore.locale === 'en'
+                      ? 'Markup formula: Suggested price = Cost × (1 + markup%)'
+                      : 'Markup 公式：建议售价 = 成本价 × (1 + markup%)'
+                  }}
+                </p>
                 <p v-for="item in markupPresets" :key="`${item.label}-hint`">{{ item.label }}：{{ item.hint }}</p>
               </div>
               <div class="sm:col-span-2 rounded-3xl border border-slate-200 bg-white p-4">
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p class="text-sm font-semibold text-slate-900">Pricing rules</p>
-                    <p class="mt-1 text-xs text-slate-500">支持多套 pricing rule，默认规则会同步到商品建议售价。</p>
+                    <p class="mt-1 text-xs text-slate-500">
+                      {{
+                        localeStore.locale === 'en'
+                          ? 'Supports multiple pricing rules. Default rule syncs to product suggested price.'
+                          : '支持多套 pricing rule，默认规则会同步到商品建议售价。'
+                      }}
+                    </p>
                   </div>
                   <div class="flex flex-wrap gap-2">
                     <button
@@ -834,14 +874,14 @@ watch(
                       :class="rule.isDefault ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 text-slate-700'"
                       @click="setDefaultPricingRule(index)"
                     >
-                      {{ rule.isDefault ? 'Default' : '设默认' }}
+                      {{ rule.isDefault ? 'Default' : (localeStore.locale === 'en' ? 'Set default' : '设默认') }}
                     </button>
                     <button
                       type="button"
                       class="rounded-2xl border border-rose-200 px-4 py-3 text-xs font-semibold text-rose-600"
                       @click="removePricingRule(index)"
                     >
-                      删除
+                      {{ localeStore.locale === 'en' ? 'Delete' : '删除' }}
                     </button>
                   </div>
                 </div>
@@ -850,7 +890,9 @@ watch(
                 <div class="flex items-center justify-between gap-3">
                   <div>
                     <p class="text-sm font-semibold text-slate-900">Bundle components</p>
-                    <p class="mt-1 text-xs text-slate-500">组合 SKU 由多个单品组成。</p>
+                    <p class="mt-1 text-xs text-slate-500">
+                      {{ localeStore.locale === 'en' ? 'Bundle SKU is composed by multiple single SKUs.' : '组合 SKU 由多个单品组成。' }}
+                    </p>
                   </div>
                   <button
                     type="button"
@@ -891,7 +933,7 @@ watch(
                       class="rounded-2xl border border-rose-200 px-4 py-3 text-xs font-semibold text-rose-600"
                       @click="removeBundleItem(index)"
                     >
-                      删除
+                      {{ localeStore.locale === 'en' ? 'Delete' : '删除' }}
                     </button>
                   </div>
                 </div>
@@ -950,7 +992,7 @@ watch(
                           :class="image.isPrimary ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 text-slate-700'"
                           @click="setPrimaryImage(index)"
                         >
-                          {{ image.isPrimary ? 'Cover' : '设封面' }}
+                          {{ image.isPrimary ? 'Cover' : (localeStore.locale === 'en' ? 'Set Cover' : '设封面') }}
                         </button>
                         <button
                           type="button"
@@ -988,7 +1030,13 @@ watch(
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 class="text-xl font-semibold text-slate-900">Product list</h3>
-              <p class="mt-1 text-sm text-slate-500">支持名称、分类、状态、产品码、条码和二维码内容组合筛选，并支持批量打印标签。</p>
+              <p class="mt-1 text-sm text-slate-500">
+                {{
+                  localeStore.locale === 'en'
+                    ? 'Filter by name, category, status, product code, barcode and QR content. Supports batch label printing.'
+                    : '支持名称、分类、状态、产品码、条码和二维码内容组合筛选，并支持批量打印标签。'
+                }}
+              </p>
             </div>
             <div class="flex flex-wrap gap-3">
               <select
@@ -1012,7 +1060,7 @@ watch(
                 :disabled="selectedProductIds.length === 0"
                 @click="batchDownloadSelectedPng"
               >
-                批量下载 PNG
+                {{ localeStore.locale === 'en' ? 'Batch Download PNG' : '批量下载 PNG' }}
               </button>
               <button
                 type="button"
@@ -1020,7 +1068,7 @@ watch(
                 :disabled="selectedProductIds.length === 0"
                 @click="batchDownloadSelectedPdf"
               >
-                批量下载 PDF
+                {{ localeStore.locale === 'en' ? 'Batch Download PDF' : '批量下载 PDF' }}
               </button>
               <button
                 type="button"
@@ -1028,16 +1076,16 @@ watch(
                 :disabled="selectedProductIds.length === 0"
                 @click="batchPrintSelected"
               >
-                批量打印二维码标签
+                {{ localeStore.locale === 'en' ? 'Batch Print QR Labels' : '批量打印二维码标签' }}
               </button>
             </div>
           </div>
 
           <div class="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
             <button type="button" class="rounded-xl border border-slate-300 px-3 py-2 font-semibold text-slate-700" @click="toggleSelectAllCurrentPage">
-              当前页全选
+              {{ localeStore.locale === 'en' ? 'Select Current Page' : '当前页全选' }}
             </button>
-            <span>已选 {{ selectedProductIds.length }} 个商品</span>
+            <span>{{ localeStore.locale === 'en' ? `Selected ${selectedProductIds.length} products` : `已选 ${selectedProductIds.length} 个商品` }}</span>
           </div>
 
           <div class="mt-4 grid gap-3 md:grid-cols-4">
@@ -1046,7 +1094,7 @@ watch(
               class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
               @change="handleSearch"
             >
-              <option value="">全部分类</option>
+              <option value="">{{ localeStore.locale === 'en' ? 'All categories' : '全部分类' }}</option>
               <option v-for="category in categories" :key="category.id" :value="category.id">
                 {{ category.name }}
               </option>
@@ -1056,30 +1104,30 @@ watch(
               class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
               @change="handleSearch"
             >
-              <option value="all">全部状态</option>
-              <option value="active">仅启用</option>
-              <option value="inactive">仅停用</option>
+              <option value="all">{{ localeStore.locale === 'en' ? 'All status' : '全部状态' }}</option>
+              <option value="active">{{ localeStore.locale === 'en' ? 'Active only' : '仅启用' }}</option>
+              <option value="inactive">{{ localeStore.locale === 'en' ? 'Inactive only' : '仅停用' }}</option>
             </select>
             <select
               v-model="filters.hasBarcode"
               class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
               @change="handleSearch"
             >
-              <option value="all">全部条码状态</option>
-              <option value="yes">仅有条码</option>
-              <option value="no">仅无条码</option>
+              <option value="all">{{ localeStore.locale === 'en' ? 'All barcode status' : '全部条码状态' }}</option>
+              <option value="yes">{{ localeStore.locale === 'en' ? 'Has barcode only' : '仅有条码' }}</option>
+              <option value="no">{{ localeStore.locale === 'en' ? 'No barcode only' : '仅无条码' }}</option>
             </select>
             <button
               type="button"
               class="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
               @click="resetFilters"
             >
-              重置筛选
+              {{ localeStore.locale === 'en' ? 'Reset Filters' : '重置筛选' }}
             </button>
           </div>
 
           <div v-if="loading" class="mt-5 rounded-2xl border border-slate-200 px-4 py-4 text-sm text-slate-500">
-            加载中...
+            {{ localeStore.locale === 'en' ? 'Loading...' : '加载中...' }}
           </div>
 
           <div class="mt-5 grid gap-3 md:hidden">
@@ -1091,7 +1139,7 @@ watch(
               <div class="mb-3 flex items-center justify-between gap-3">
                 <label class="flex items-center gap-2 text-xs text-slate-500">
                   <input :checked="isSelected(product.id)" type="checkbox" class="size-4 rounded border-slate-300" @change="toggleSelected(product.id)" />
-                  选择打印
+                  {{ localeStore.locale === 'en' ? 'Select for Print' : '选择打印' }}
                 </label>
                 <span class="text-xs text-slate-400">{{ product.images?.length || 0 }} images</span>
               </div>

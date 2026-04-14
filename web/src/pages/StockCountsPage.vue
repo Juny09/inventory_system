@@ -430,16 +430,16 @@ onMounted(async () => {
                     <p class="mt-1 text-xs text-slate-500">{{ item.sku }}</p>
                   </div>
                   <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                    差异 {{ Number(item.countedQuantity) - Number(item.expected_quantity) }}
+                    {{ localeStore.locale === 'en' ? 'Diff' : '差异' }} {{ Number(item.countedQuantity) - Number(item.expected_quantity) }}
                   </span>
                 </div>
                 <div class="mt-4 grid grid-cols-2 gap-3">
                   <div class="rounded-2xl bg-slate-50 px-3 py-3">
-                    <p class="text-xs text-slate-400">账面</p>
+                    <p class="text-xs text-slate-400">{{ localeStore.locale === 'en' ? 'Expected' : '账面' }}</p>
                     <p class="mt-1 font-semibold text-slate-900">{{ item.expected_quantity }} {{ item.unit }}</p>
                   </div>
                   <div class="rounded-2xl bg-slate-50 px-3 py-3">
-                    <p class="text-xs text-slate-400">实盘</p>
+                    <p class="text-xs text-slate-400">{{ localeStore.locale === 'en' ? 'Counted' : '实盘' }}</p>
                     <input
                       v-model="item.countedQuantity"
                       :disabled="selectedCount.status !== 'OPEN'"
@@ -453,7 +453,7 @@ onMounted(async () => {
                   v-model="item.notes"
                   :disabled="selectedCount.status !== 'OPEN'"
                   type="text"
-                  placeholder="备注"
+                  :placeholder="localeStore.locale === 'en' ? 'Notes' : '备注'"
                   class="mt-4 w-full rounded-2xl border border-slate-200 px-3 py-2 outline-none focus:border-brand-500 disabled:bg-slate-100"
                 />
               </article>
@@ -463,11 +463,11 @@ onMounted(async () => {
               <table class="min-w-full text-left text-sm">
                 <thead class="bg-slate-50 text-slate-500">
                   <tr>
-                    <th class="px-4 py-4">商品</th>
-                    <th class="px-4 py-4">账面</th>
-                    <th class="px-4 py-4">实盘</th>
-                    <th class="px-4 py-4">差异</th>
-                    <th class="px-4 py-4">备注</th>
+                    <th class="px-4 py-4">{{ localeStore.locale === 'en' ? 'Product' : '商品' }}</th>
+                    <th class="px-4 py-4">{{ localeStore.locale === 'en' ? 'Expected' : '账面' }}</th>
+                    <th class="px-4 py-4">{{ localeStore.locale === 'en' ? 'Counted' : '实盘' }}</th>
+                    <th class="px-4 py-4">{{ localeStore.locale === 'en' ? 'Diff' : '差异' }}</th>
+                    <th class="px-4 py-4">{{ localeStore.locale === 'en' ? 'Notes' : '备注' }}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -503,7 +503,9 @@ onMounted(async () => {
             </div>
           </template>
 
-          <div v-else class="text-sm text-slate-500">暂无盘点单，请先生成一张盘点单。</div>
+          <div v-else class="text-sm text-slate-500">
+            {{ localeStore.locale === 'en' ? 'No stock count yet. Please create one first.' : '暂无盘点单，请先生成一张盘点单。' }}
+          </div>
         </div>
       </div>
     </section>
