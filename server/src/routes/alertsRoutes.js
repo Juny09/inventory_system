@@ -45,6 +45,22 @@ function getAlertBaseQuery() {
     INNER JOIN products ON products.id = stock_levels.product_id
     INNER JOIN warehouses ON warehouses.id = stock_levels.warehouse_id
     LEFT JOIN categories ON categories.id = products.category_id
+    LEFT JOIN product_suppliers ON product_suppliers.product_id = products.id
+      AND product_suppliers.is_primary = TRUE
+    LEFT JOIN suppliers ON suppliers.id = product_suppliers.supplier_id
+    LEFT JOIN LATERAL (
+      SELECT
+        stock_movements.created_at,
+        stock_movements.quantity,
+        stock_movements.unit_cost,
+        stock_movements.purchase_reason,
+        stock_movements.reference_no
+      FROM stock_movements
+      WHERE stock_movements.product_id = products.id
+        AND stock_movements.movement_type = 'IN'
+      ORDER BY stock_movements.created_at DESC
+      LIMIT 1
+    ) last_purchase ON TRUE
     LEFT JOIN low_stock_alert_states ON low_stock_alert_states.product_id = stock_levels.product_id
       AND low_stock_alert_states.warehouse_id = stock_levels.warehouse_id
     LEFT JOIN users AS assignees ON assignees.id = low_stock_alert_states.assigned_to
@@ -86,7 +102,19 @@ router.get('/low-stock', async (req, res) => {
             COALESCE(low_stock_alert_states.status, 'OPEN') AS alert_status,
             low_stock_alert_states.notes AS alert_notes,
             low_stock_alert_states.assigned_to,
-            assignees.full_name AS assigned_to_name
+            assignees.full_name AS assigned_to_name,
+            suppliers.id AS supplier_id,
+            suppliers.name AS supplier_name,
+            suppliers.contact_name AS supplier_contact_name,
+            suppliers.phone AS supplier_phone,
+            suppliers.email AS supplier_email,
+            suppliers.lead_time_days AS supplier_lead_time_days,
+            suppliers.payment_terms AS supplier_payment_terms,
+            last_purchase.created_at AS last_purchase_at,
+            last_purchase.quantity AS last_purchase_quantity,
+            last_purchase.unit_cost AS last_purchase_unit_cost,
+            last_purchase.purchase_reason AS last_purchase_reason,
+            last_purchase.reference_no AS last_purchase_reference_no
           ${getAlertBaseQuery()}
           ORDER BY shortage DESC, products.name ASC
         `,
@@ -120,7 +148,19 @@ router.get('/low-stock', async (req, res) => {
             COALESCE(low_stock_alert_states.status, 'OPEN') AS alert_status,
             low_stock_alert_states.notes AS alert_notes,
             low_stock_alert_states.assigned_to,
-            assignees.full_name AS assigned_to_name
+            assignees.full_name AS assigned_to_name,
+            suppliers.id AS supplier_id,
+            suppliers.name AS supplier_name,
+            suppliers.contact_name AS supplier_contact_name,
+            suppliers.phone AS supplier_phone,
+            suppliers.email AS supplier_email,
+            suppliers.lead_time_days AS supplier_lead_time_days,
+            suppliers.payment_terms AS supplier_payment_terms,
+            last_purchase.created_at AS last_purchase_at,
+            last_purchase.quantity AS last_purchase_quantity,
+            last_purchase.unit_cost AS last_purchase_unit_cost,
+            last_purchase.purchase_reason AS last_purchase_reason,
+            last_purchase.reference_no AS last_purchase_reference_no
           ${getAlertBaseQuery()}
           ORDER BY shortage DESC, products.name ASC
           LIMIT $4 OFFSET $5
@@ -238,8 +278,7 @@ router.post('/low-stock/bulk-update', async (req, res) => {
       description: `Bulk updated ${items.length} low stock alerts`,
     }
 
-    return res.json({
-      success: true,
+    return res.success({
       updated: result.length,
     })
   } catch (error) {

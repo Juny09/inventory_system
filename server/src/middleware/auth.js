@@ -13,7 +13,7 @@ async function authenticateToken(req, res, next) {
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET)
     const result = await query(
-      'SELECT id, full_name, email, role, is_active FROM users WHERE id = $1',
+      'SELECT id, full_name, email, role, is_active, preferred_currency FROM users WHERE id = $1',
       [payload.userId],
     )
 

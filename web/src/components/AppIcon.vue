@@ -25,6 +25,9 @@ const icons = {
   guide: ['M7 6h18a2 2 0 0 1 2 2v18a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zm4 4h10m-10 5h10m-10 5h6'],
   chevronLeft: ['m20 8-8 8 8 8'],
   menu: ['M6 9h20M6 16h20M6 23h20'],
+  question: ['M16 24v-2m0-4c2.2 0 4-1.5 4-3.5S18.9 11 16 11c-2.3 0-3.7 1.2-4.3 2.7M16 30C8.3 30 2 23.7 2 16S8.3 2 16 2s14 6.3 14 14-6.3 14-14 14z'],
+  bell: ['M16 30a3 3 0 0 0 3-3h-6a3 3 0 0 0 3 3zM26 24H6l2-2v-7a8 8 0 0 1 16 0v7z'],
+  x: ['M8 8l16 16M24 8 8 24'],
 }
 
 const paths = computed(() => icons[props.name] || icons.guide)

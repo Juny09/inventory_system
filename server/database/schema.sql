@@ -6,8 +6,11 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   role VARCHAR(20) NOT NULL CHECK (role IN ('ADMIN', 'MANAGER', 'STAFF')),
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  preferred_currency VARCHAR(10) NOT NULL DEFAULT 'MYR',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_currency VARCHAR(10) NOT NULL DEFAULT 'MYR';
 
 CREATE TABLE IF NOT EXISTS categories (
   id SERIAL PRIMARY KEY,
@@ -168,6 +171,28 @@ CREATE TABLE IF NOT EXISTS marketplace_connections (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS marketplace_oauth_states (
+  id SERIAL PRIMARY KEY,
+  channel VARCHAR(30) NOT NULL,
+  state_token VARCHAR(120) NOT NULL UNIQUE,
+  redirect_uri TEXT,
+  expires_at TIMESTAMP NOT NULL,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS marketplace_error_logs (
+  id SERIAL PRIMARY KEY,
+  channel VARCHAR(30) NOT NULL,
+  operation VARCHAR(60) NOT NULL,
+  error_code VARCHAR(60) NOT NULL,
+  message TEXT NOT NULL,
+  details JSONB NOT NULL DEFAULT '{}'::jsonb,
+  request_id VARCHAR(60),
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS marketplace_orders (
   id SERIAL PRIMARY KEY,
   channel VARCHAR(30) NOT NULL,
@@ -274,6 +299,89 @@ CREATE TABLE IF NOT EXISTS low_stock_alert_states (
   UNIQUE (product_id, warehouse_id)
 );
 
+CREATE TABLE IF NOT EXISTS suppliers (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(180) NOT NULL,
+  company_name VARCHAR(180),
+  contact_name VARCHAR(120),
+  phone VARCHAR(60),
+  email VARCHAR(160),
+  address TEXT,
+  payment_terms TEXT,
+  lead_time_days INTEGER NOT NULL DEFAULT 0 CHECK (lead_time_days >= 0),
+  notes TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE suppliers
+  ADD COLUMN IF NOT EXISTS company_name VARCHAR(180);
+
+CREATE TABLE IF NOT EXISTS product_suppliers (
+  id SERIAL PRIMARY KEY,
+  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  supplier_id INTEGER NOT NULL REFERENCES suppliers(id) ON DELETE CASCADE,
+  is_primary BOOLEAN NOT NULL DEFAULT TRUE,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (product_id, supplier_id)
+);
+
+ALTER TABLE stock_movements
+  ADD COLUMN IF NOT EXISTS supplier_id INTEGER REFERENCES suppliers(id) ON DELETE SET NULL;
+
+ALTER TABLE stock_movements
+  ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12,2);
+
+ALTER TABLE stock_movements
+  ADD COLUMN IF NOT EXISTS purchase_reason TEXT;
+
+CREATE TABLE IF NOT EXISTS product_cost_price_histories (
+  id SERIAL PRIMARY KEY,
+  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  old_cost_price NUMERIC(12,2) NOT NULL,
+  new_cost_price NUMERIC(12,2) NOT NULL,
+  percent_change NUMERIC(10,4) NOT NULL,
+  reason TEXT,
+  changed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  changed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS system_notifications (
+  id SERIAL PRIMARY KEY,
+  notification_type VARCHAR(40) NOT NULL,
+  title VARCHAR(200) NOT NULL,
+  message TEXT NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  target_role VARCHAR(20),
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS system_settings (
+  id SERIAL PRIMARY KEY,
+  setting_key VARCHAR(120) NOT NULL UNIQUE,
+  setting_value TEXT NOT NULL,
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS bank_statements (
+  id SERIAL PRIMARY KEY,
+  uploaded_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  statement_month DATE NOT NULL,
+  original_name TEXT NOT NULL,
+  storage_path TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  file_size INTEGER NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (uploaded_by, statement_month)
+);
+
 CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_products_product_code_unique ON products(product_code);
 CREATE INDEX IF NOT EXISTS idx_product_images_product_id ON product_images(product_id);
@@ -286,6 +394,10 @@ CREATE INDEX IF NOT EXISTS idx_stock_movements_created_at ON stock_movements(cre
 CREATE INDEX IF NOT EXISTS idx_marketplace_snapshots_channel ON marketplace_inventory_snapshots(channel);
 CREATE INDEX IF NOT EXISTS idx_marketplace_orders_channel ON marketplace_orders(channel);
 CREATE INDEX IF NOT EXISTS idx_marketplace_orders_status ON marketplace_orders(order_status);
+CREATE INDEX IF NOT EXISTS idx_marketplace_oauth_states_channel ON marketplace_oauth_states(channel);
+CREATE INDEX IF NOT EXISTS idx_marketplace_oauth_states_expires_at ON marketplace_oauth_states(expires_at);
+CREATE INDEX IF NOT EXISTS idx_marketplace_error_logs_channel ON marketplace_error_logs(channel);
+CREATE INDEX IF NOT EXISTS idx_marketplace_error_logs_created_at ON marketplace_error_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_marketplace_order_items_order_id ON marketplace_order_items(marketplace_order_id);
 CREATE INDEX IF NOT EXISTS idx_shipping_shipments_status ON shipping_shipments(shipment_status);
 CREATE INDEX IF NOT EXISTS idx_stock_counts_warehouse_id ON stock_counts(warehouse_id);
@@ -294,3 +406,14 @@ CREATE INDEX IF NOT EXISTS idx_stock_count_items_stock_count_id ON stock_count_i
 CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_low_stock_alert_states_status ON low_stock_alert_states(status);
+CREATE INDEX IF NOT EXISTS idx_suppliers_name ON suppliers(name);
+CREATE INDEX IF NOT EXISTS idx_suppliers_is_active ON suppliers(is_active);
+CREATE INDEX IF NOT EXISTS idx_product_suppliers_product_id ON product_suppliers(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_suppliers_supplier_id ON product_suppliers(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_product_suppliers_is_primary ON product_suppliers(is_primary);
+CREATE INDEX IF NOT EXISTS idx_product_cost_price_histories_product_id ON product_cost_price_histories(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_cost_price_histories_changed_at ON product_cost_price_histories(changed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_system_notifications_created_at ON system_notifications(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_system_notifications_type ON system_notifications(notification_type);
+CREATE INDEX IF NOT EXISTS idx_bank_statements_uploaded_by ON bank_statements(uploaded_by);
+CREATE INDEX IF NOT EXISTS idx_bank_statements_statement_month ON bank_statements(statement_month DESC);

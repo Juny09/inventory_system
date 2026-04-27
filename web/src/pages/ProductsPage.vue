@@ -1,11 +1,16 @@
 <script setup>
-import { defineAsyncComponent, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import AppLayout from '../layouts/AppLayout.vue'
 import PaginationBar from '../components/PaginationBar.vue'
 import api from '../services/api'
+import { useAuthStore } from '../stores/auth'
 import { useCostAccessStore } from '../stores/costAccess'
+import { useCurrencyStore } from '../stores/currency'
 import { useToastStore } from '../stores/toast'
 import { useLocaleStore } from '../stores/locale'
+import { encodeCostToCode } from '../utils/costCode'
+import { formatMoney } from '../utils/money'
 import {
   buildDefaultPricingRules,
   buildProductQrDataUrl,
@@ -21,7 +26,10 @@ import {
 } from '../utils/productHelpers'
 
 const BarcodeScanner = defineAsyncComponent(() => import('../components/BarcodeScanner.vue'))
+const router = useRouter()
+const authStore = useAuthStore()
 const costAccessStore = useCostAccessStore()
+const currencyStore = useCurrencyStore()
 const toastStore = useToastStore()
 const localeStore = useLocaleStore()
 const products = ref([])
@@ -31,6 +39,7 @@ const loading = ref(false)
 const imageProcessing = ref(false)
 const searchKeyword = ref('')
 const costPasscode = ref('')
+const costCalculatorInput = ref('')
 const selectedProductIds = ref([])
 const pricingChannel = ref(localStorage.getItem('inventory_pricing_channel') || 'retail')
 const filters = reactive({
@@ -70,8 +79,11 @@ const form = reactive({
 const qrPreview = ref('')
 const dragImageIndex = ref(-1)
 
+const canEditProducts = computed(() => ['ADMIN', 'MANAGER'].includes(authStore.user?.role || ''))
+const canDeleteProducts = computed(() => (authStore.user?.role || '') === 'ADMIN')
+
 function formatCurrency(value) {
-  return `$${Number(value || 0).toFixed(2)}`
+  return formatMoney(value, currencyStore.currency, localeStore.locale)
 }
 
 function getSuggestedPrice(product) {
@@ -80,6 +92,27 @@ function getSuggestedPrice(product) {
 
 function displayCost(value) {
   return value !== null && value !== undefined && costAccessStore.isUnlocked ? formatCurrency(value) : '******'
+}
+
+function displayCostCode(value) {
+  const code = String(value || '').trim()
+  return code ? code : '—'
+}
+
+function displayCostCodeFromProduct(product) {
+  const direct = String(product?.cost_code || '').trim()
+  if (direct) {
+    return direct
+  }
+  if (product?.cost_price !== null && product?.cost_price !== undefined) {
+    const fallback = encodeCostToCode(product.cost_price)
+    return fallback || '—'
+  }
+  return '—'
+}
+
+function calculatedCostCode() {
+  return encodeCostToCode(costCalculatorInput.value) || '—'
 }
 
 function getProductImage(product) {
@@ -261,6 +294,14 @@ async function editProduct(productId) {
   } catch (error) {
     errorMessage.value = error.response?.data?.message || 'Failed to load product for edit.'
   }
+}
+
+function goToProductForm(productId = null) {
+  if (productId) {
+    router.push({ name: 'product-form', query: { id: String(productId) } })
+    return
+  }
+  router.push({ name: 'product-form' })
 }
 
 function resetForm() {
@@ -615,6 +656,13 @@ watch(
             }}
           </p>
         </div>
+        <button
+          type="button"
+          class="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
+          @click="goToProductForm()"
+        >
+          {{ localeStore.locale === 'en' ? 'Add Product Page' : '新增商品页面' }}
+        </button>
       </div>
 
       <p v-if="errorMessage" class="mt-6 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">
@@ -658,374 +706,31 @@ watch(
         </button>
       </div>
 
-      <div class="mt-6 grid gap-6 2xl:grid-cols-[480px_1fr]">
-        <div class="space-y-6">
-          <form class="rounded-3xl border border-slate-200 bg-slate-50 p-5" @submit.prevent="saveProduct">
-            <div class="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 class="text-xl font-semibold text-slate-900">
-                  {{ form.id ? 'Edit product' : 'Create product' }}
-                </h3>
-                <p class="mt-1 text-sm text-slate-500">
-                  {{
-                    localeStore.locale === 'en'
-                      ? 'Fill description, usage guide, pros and cons; suggested price is auto calculated.'
-                      : '可填写说明、使用方式、优点与缺点，并自动生成建议售价。'
-                  }}
-                </p>
-              </div>
-              <div class="flex gap-2">
-                <button
-                  type="button"
-                  class="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
-                  :disabled="!form.productCode"
-                  @click="downloadQrCode"
-                >
-                  {{ localeStore.locale === 'en' ? 'Download QR' : '下载 QR' }}
-                </button>
-                <button
-                  type="button"
-                  class="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
-                  :disabled="!form.productCode"
-                  @click="printLabel"
-                >
-                  {{ localeStore.locale === 'en' ? 'Print Label' : '打印标签' }}
-                </button>
-              </div>
+      <div class="mt-3 rounded-3xl border border-slate-200 bg-white p-4">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p class="text-sm font-semibold text-slate-900">{{ localeStore.locale === 'en' ? 'C-code calculator' : '成本编码计算器' }}</p>
+            <p class="mt-1 text-xs text-slate-500">
+              {{ localeStore.locale === 'en' ? 'Convert amount (块) to code like EHSTX / IHRTX.' : '把金额（块）转换为 EHSTX / IHRTX 这类编码。' }}
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-3">
+            <input
+              v-model="costCalculatorInput"
+              type="number"
+              min="0"
+              step="1"
+              :placeholder="localeStore.locale === 'en' ? 'Enter amount' : '输入金额'"
+              class="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-brand-500"
+            />
+            <div class="rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900">
+              {{ calculatedCostCode() }}
             </div>
-
-            <div class="mt-5 grid gap-4 sm:grid-cols-2">
-              <input
-                v-model="form.name"
-                type="text"
-                placeholder="Product name"
-                class="sm:col-span-2 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              />
-              <input
-                v-model="form.sku"
-                type="text"
-                placeholder="SKU"
-                class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              />
-              <select
-                v-model="form.skuType"
-                class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              >
-                <option value="SINGLE">{{ localeStore.t('products.skuTypeSingle') }}</option>
-                <option value="COMBO">{{ localeStore.t('products.skuTypeCombo') }}</option>
-              </select>
-              <div class="flex gap-2">
-                <input
-                  v-model="form.productCode"
-                  type="text"
-                  placeholder="Product code"
-                  class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-                />
-                <button
-                  type="button"
-                  class="shrink-0 rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
-                  @click="generateProductCode"
-                >
-                  Generate
-                </button>
-              </div>
-              <input
-                v-model="form.barcode"
-                type="text"
-                placeholder="Barcode"
-                class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              />
-              <label class="flex cursor-pointer items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-600">
-                <input type="file" accept="image/*" multiple class="hidden" @change="handleImageChange" />
-                {{ imageProcessing ? (localeStore.locale === 'en' ? 'Processing...' : '处理中...') : 'Add product photos' }}
-              </label>
-              <select
-                v-model="form.categoryId"
-                class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              >
-                <option value="">Select category</option>
-                <option v-for="category in categories" :key="category.id" :value="category.id">
-                  {{ category.name }}
-                </option>
-              </select>
-              <input
-                v-model="form.unit"
-                type="text"
-                placeholder="Unit"
-                class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              />
-              <input
-                v-model="form.costPrice"
-                :type="costAccessStore.isUnlocked ? 'number' : 'password'"
-                min="0"
-                step="0.01"
-                placeholder="Cost price"
-                class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              />
-              <input
-                v-model="form.sellingPrice"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="Selling price"
-                class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              />
-              <input
-                v-model="form.markupPercentage"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="Markup %"
-                class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              />
-              <input
-                :value="form.suggestedPrice"
-                type="number"
-                readonly
-                placeholder="Suggested price"
-                class="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 outline-none"
-              />
-              <input
-                v-model="form.reorderLevel"
-                type="number"
-                min="0"
-                placeholder="Reorder level"
-                class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              />
-              <label class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-                <input v-model="form.isActive" type="checkbox" class="size-4 rounded border-slate-300" />
-                Product is active
-              </label>
-              <div class="sm:col-span-2 flex flex-wrap gap-2">
-                <button
-                  v-for="item in markupPresets"
-                  :key="item.value"
-                  type="button"
-                  class="rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700"
-                  @click="applyMarkup(item.value)"
-                >
-                  {{ item.label }}
-                </button>
-              </div>
-              <div class="sm:col-span-2 grid gap-2 text-xs text-slate-500">
-                <p>
-                  {{
-                    localeStore.locale === 'en'
-                      ? 'Markup formula: Suggested price = Cost × (1 + markup%)'
-                      : 'Markup 公式：建议售价 = 成本价 × (1 + markup%)'
-                  }}
-                </p>
-                <p v-for="item in markupPresets" :key="`${item.label}-hint`">{{ item.label }}：{{ item.hint }}</p>
-              </div>
-              <div class="sm:col-span-2 rounded-3xl border border-slate-200 bg-white p-4">
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p class="text-sm font-semibold text-slate-900">Pricing rules</p>
-                    <p class="mt-1 text-xs text-slate-500">
-                      {{
-                        localeStore.locale === 'en'
-                          ? 'Supports multiple pricing rules. Default rule syncs to product suggested price.'
-                          : '支持多套 pricing rule，默认规则会同步到商品建议售价。'
-                      }}
-                    </p>
-                  </div>
-                  <div class="flex flex-wrap gap-2">
-                    <button
-                      v-for="template in pricingRuleTemplates"
-                      :key="template.ruleName"
-                      type="button"
-                      class="rounded-full border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
-                      @click="addPricingRule(template)"
-                    >
-                      + {{ template.ruleName }}
-                    </button>
-                  </div>
-                </div>
-                <div class="mt-4 space-y-3">
-                  <div
-                    v-for="(rule, index) in form.pricingRules"
-                    :key="`${rule.ruleName}-${index}`"
-                    class="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 xl:grid-cols-[1.2fr_140px_160px_120px_90px]"
-                  >
-                    <input
-                      v-model="rule.ruleName"
-                      type="text"
-                      placeholder="Rule name"
-                      class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-                    />
-                    <input
-                      v-model="rule.markupPercentage"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="Markup %"
-                      class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-                      @input="recalculatePricingRules"
-                    />
-                    <input
-                      :value="rule.suggestedPrice"
-                      type="number"
-                      readonly
-                      class="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none"
-                    />
-                    <button
-                      type="button"
-                      class="rounded-2xl border px-4 py-3 text-xs font-semibold"
-                      :class="rule.isDefault ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 text-slate-700'"
-                      @click="setDefaultPricingRule(index)"
-                    >
-                      {{ rule.isDefault ? 'Default' : (localeStore.locale === 'en' ? 'Set default' : '设默认') }}
-                    </button>
-                    <button
-                      type="button"
-                      class="rounded-2xl border border-rose-200 px-4 py-3 text-xs font-semibold text-rose-600"
-                      @click="removePricingRule(index)"
-                    >
-                      {{ localeStore.locale === 'en' ? 'Delete' : '删除' }}
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div v-if="form.skuType === 'COMBO'" class="sm:col-span-2 rounded-3xl border border-slate-200 bg-white p-4">
-                <div class="flex items-center justify-between gap-3">
-                  <div>
-                    <p class="text-sm font-semibold text-slate-900">Bundle components</p>
-                    <p class="mt-1 text-xs text-slate-500">
-                      {{ localeStore.locale === 'en' ? 'Bundle SKU is composed by multiple single SKUs.' : '组合 SKU 由多个单品组成。' }}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    class="rounded-full border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
-                    @click="addBundleItem"
-                  >
-                    + Add item
-                  </button>
-                </div>
-                <div class="mt-4 space-y-3">
-                  <div
-                    v-for="(bundleItem, index) in form.bundleItems"
-                    :key="`bundle-${index}`"
-                    class="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[1fr_140px_90px]"
-                  >
-                    <select
-                      v-model="bundleItem.itemProductId"
-                      class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-                    >
-                      <option value="">Select item SKU</option>
-                      <option
-                        v-for="product in products.filter((item) => item.id !== form.id)"
-                        :key="`bundle-option-${product.id}`"
-                        :value="product.id"
-                      >
-                        {{ product.name }} · {{ product.sku }}
-                      </option>
-                    </select>
-                    <input
-                      v-model="bundleItem.itemQuantity"
-                      type="number"
-                      min="0.001"
-                      step="0.001"
-                      class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-                    />
-                    <button
-                      type="button"
-                      class="rounded-2xl border border-rose-200 px-4 py-3 text-xs font-semibold text-rose-600"
-                      @click="removeBundleItem(index)"
-                    >
-                      {{ localeStore.locale === 'en' ? 'Delete' : '删除' }}
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <textarea
-                v-model="form.description"
-                rows="4"
-                placeholder="Product description / machine overview"
-                class="sm:col-span-2 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              />
-              <textarea
-                v-model="form.usageGuide"
-                rows="4"
-                placeholder="How to use this machine"
-                class="sm:col-span-2 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              />
-              <textarea
-                v-model="form.pros"
-                rows="3"
-                placeholder="Pros / benefits"
-                class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              />
-              <textarea
-                v-model="form.cons"
-                rows="3"
-                placeholder="Cons / trade-offs"
-                class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              />
-              <div class="sm:col-span-2 grid gap-4 lg:grid-cols-[180px_1fr]">
-                <div class="rounded-3xl border border-slate-200 bg-white p-3">
-                  <p class="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">QR Preview</p>
-                  <div class="mt-3 flex min-h-40 items-center justify-center rounded-2xl bg-slate-50 p-3">
-                    <img v-if="qrPreview" :src="qrPreview" alt="Product QR Code" class="h-36 w-36 rounded-xl object-contain" />
-                    <p v-else class="text-center text-xs text-slate-400">Generate or save product code to preview QR</p>
-                  </div>
-                </div>
-                <div class="rounded-3xl border border-slate-200 bg-white p-3">
-                  <div class="flex items-center justify-between gap-3">
-                    <p class="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">Gallery Preview</p>
-                  </div>
-                  <div class="mt-3 grid min-h-40 gap-3 rounded-2xl bg-slate-50 p-3 sm:grid-cols-2">
-                    <div
-                      v-for="(image, index) in form.images"
-                      :key="`${image.sortOrder}-${index}`"
-                      class="rounded-2xl border border-slate-200 bg-white p-3"
-                      draggable="true"
-                      @dragstart="startDragImage(index)"
-                      @dragover.prevent
-                      @drop="dropImage(index)"
-                    >
-                      <img :src="image.imageData" alt="Product gallery preview" class="h-32 w-full rounded-2xl object-cover" />
-                      <div class="mt-3 flex gap-2">
-                        <button
-                          type="button"
-                          class="flex-1 rounded-xl border px-3 py-2 text-xs font-semibold"
-                          :class="image.isPrimary ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 text-slate-700'"
-                          @click="setPrimaryImage(index)"
-                        >
-                          {{ image.isPrimary ? 'Cover' : (localeStore.locale === 'en' ? 'Set Cover' : '设封面') }}
-                        </button>
-                        <button
-                          type="button"
-                          class="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600"
-                          @click="removeImage(index)"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                    <p v-if="form.images.length === 0" class="col-span-full text-center text-xs text-slate-400">Uploaded images will be auto-cropped and compressed</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="mt-4 flex gap-3">
-              <button class="flex-1 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white">
-                Save
-              </button>
-              <button
-                type="button"
-                class="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
-                @click="resetForm"
-              >
-                Reset
-              </button>
-            </div>
-          </form>
-
-          <BarcodeScanner @detected="handleBarcodeDetected" />
+          </div>
         </div>
+      </div>
 
+      <div class="mt-6">
         <div class="rounded-3xl border border-slate-200 p-5">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -1033,8 +738,8 @@ watch(
               <p class="mt-1 text-sm text-slate-500">
                 {{
                   localeStore.locale === 'en'
-                    ? 'Filter by name, category, status, product code, barcode and QR content. Supports batch label printing.'
-                    : '支持名称、分类、状态、产品码、条码和二维码内容组合筛选，并支持批量打印标签。'
+                    ? 'Use the tools panel to filter and batch print labels.'
+                    : '使用右侧工具面板进行筛选与批量打印标签。'
                 }}
               </p>
             </div>
@@ -1050,7 +755,7 @@ watch(
               <input
                 v-model="searchKeyword"
                 type="text"
-                placeholder="Search products / product code / barcode / QR code"
+                :placeholder="localeStore.locale === 'en' ? 'Search products / code / barcode / QR' : '搜索商品 / 编码 / 条码 / 二维码'"
                 class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500 md:w-80"
                 @input="handleSearch"
               />
@@ -1126,6 +831,10 @@ watch(
             </button>
           </div>
 
+          <div class="mt-4">
+            <BarcodeScanner @detected="handleBarcodeDetected" />
+          </div>
+
           <div v-if="loading" class="mt-5 rounded-2xl border border-slate-200 px-4 py-4 text-sm text-slate-500">
             {{ localeStore.locale === 'en' ? 'Loading...' : '加载中...' }}
           </div>
@@ -1173,6 +882,7 @@ watch(
               </div>
               <p class="mt-3 text-sm text-slate-500">Category: {{ product.category_name || '—' }}</p>
               <p class="mt-1 text-sm text-slate-500">Cost {{ displayCost(product.cost_price) }}</p>
+              <p class="mt-1 text-sm text-slate-500">C-code {{ displayCostCodeFromProduct(product) }}</p>
               <p class="mt-1 text-sm text-slate-500">
                 Suggested {{ formatCurrency(getSuggestedPrice(product)) }} · Selling {{ formatCurrency(product.selling_price) }}
               </p>
@@ -1183,8 +893,20 @@ watch(
                 >
                   Open
                 </RouterLink>
-                <button class="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white" @click="editProduct(product.id)">Edit</button>
-                <button class="rounded-xl bg-rose-500 px-3 py-2 text-xs font-semibold text-white" @click="deleteProduct(product.id)">Delete</button>
+                <button
+                  v-if="canEditProducts"
+                  class="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
+                  @click="goToProductForm(product.id)"
+                >
+                  Edit
+                </button>
+                <button
+                  v-if="canDeleteProducts"
+                  class="rounded-xl bg-rose-500 px-3 py-2 text-xs font-semibold text-white"
+                  @click="deleteProduct(product.id)"
+                >
+                  Delete
+                </button>
               </div>
             </article>
           </div>
@@ -1193,13 +915,13 @@ watch(
             <table class="min-w-full text-left text-sm">
               <thead class="text-slate-500">
                 <tr class="border-b border-slate-200">
-                  <th class="px-3 py-3">Select</th>
-                  <th class="px-3 py-3">Product</th>
-                  <th class="px-3 py-3">Code</th>
-                  <th class="px-3 py-3">Category</th>
-                  <th class="px-3 py-3">Pricing</th>
-                  <th class="px-3 py-3">Status</th>
-                  <th class="px-3 py-3">Actions</th>
+                  <th class="px-3 py-3">{{ localeStore.t('table.select') }}</th>
+                  <th class="px-3 py-3">{{ localeStore.t('table.product') }}</th>
+                  <th class="px-3 py-3">{{ localeStore.t('table.code') }}</th>
+                  <th class="px-3 py-3">{{ localeStore.t('table.category') }}</th>
+                  <th class="px-3 py-3">{{ localeStore.t('table.pricing') }}</th>
+                  <th class="px-3 py-3">{{ localeStore.t('table.status') }}</th>
+                  <th class="px-3 py-3">{{ localeStore.t('table.actions') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1230,6 +952,7 @@ watch(
                   <td class="px-3 py-3">{{ product.category_name || '—' }}</td>
                   <td class="px-3 py-3">
                     <p>Cost: {{ displayCost(product.cost_price) }}</p>
+                    <p>C-code: {{ displayCostCodeFromProduct(product) }}</p>
                     <p>Suggested: {{ formatCurrency(getSuggestedPrice(product)) }}</p>
                     <p>Selling: {{ formatCurrency(product.selling_price) }}</p>
                   </td>
@@ -1254,12 +977,14 @@ watch(
                         Open
                       </RouterLink>
                       <button
+                        v-if="canEditProducts"
                         class="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
-                        @click="editProduct(product.id)"
+                        @click="goToProductForm(product.id)"
                       >
                         Edit
                       </button>
                       <button
+                        v-if="canDeleteProducts"
                         class="rounded-xl bg-rose-500 px-3 py-2 text-xs font-semibold text-white"
                         @click="deleteProduct(product.id)"
                       >

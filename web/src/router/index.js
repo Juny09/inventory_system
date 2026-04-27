@@ -5,7 +5,12 @@ const LoginPage = () => import('../pages/LoginPage.vue')
 const CategoriesPage = () => import('../pages/CategoriesPage.vue')
 const WarehousesPage = () => import('../pages/WarehousesPage.vue')
 const ProductsPage = () => import('../pages/ProductsPage.vue')
+const ProductFormPage = () => import('../pages/ProductFormPage.vue')
 const ProductDetailPage = () => import('../pages/ProductDetailPage.vue')
+const SuppliersPage = () => import('../pages/SuppliersPage.vue')
+const SupplierFormPage = () => import('../pages/SupplierFormPage.vue')
+const SupplierDetailPage = () => import('../pages/SupplierDetailPage.vue')
+const SettingsPage = () => import('../pages/SettingsPage.vue')
 const InventoryPage = () => import('../pages/InventoryPage.vue')
 const ReportsPage = () => import('../pages/ReportsPage.vue')
 const AlertsPage = () => import('../pages/AlertsPage.vue')
@@ -13,6 +18,12 @@ const StockCountsPage = () => import('../pages/StockCountsPage.vue')
 const AuditLogsPage = () => import('../pages/AuditLogsPage.vue')
 const AccessGuidePage = () => import('../pages/AccessGuidePage.vue')
 const TutorialCenterPage = () => import('../pages/TutorialCenterPage.vue')
+const TodoPage = () => import('../pages/TodoPage.vue')
+const MarketplaceCenterPage = () => import('../pages/MarketplaceCenterPage.vue')
+const MarketplaceOAuthCallbackPage = () => import('../pages/MarketplaceOAuthCallbackPage.vue')
+const OrdersPage = () => import('../pages/OrdersPage.vue')
+const OrderDetailPage = () => import('../pages/OrderDetailPage.vue')
+const BankStatementsPage = () => import('../pages/BankStatementsPage.vue')
 
 const routes = [
   {
@@ -52,16 +63,58 @@ const routes = [
     meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER'] },
   },
   {
+    path: '/products/form',
+    name: 'product-form',
+    component: ProductFormPage,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER'], navKey: 'products' },
+  },
+  {
     path: '/products/:id',
     name: 'product-detail',
     component: ProductDetailPage,
     meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER'], navKey: 'products' },
   },
   {
+    path: '/suppliers',
+    name: 'suppliers',
+    component: SuppliersPage,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER'] },
+  },
+  {
+    path: '/suppliers/form',
+    name: 'supplier-form',
+    component: SupplierFormPage,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER'], navKey: 'suppliers' },
+  },
+  {
+    path: '/suppliers/:id',
+    name: 'supplier-detail',
+    component: SupplierDetailPage,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER'], navKey: 'suppliers' },
+  },
+  {
+    path: '/settings',
+    name: 'settings',
+    component: SettingsPage,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER', 'STAFF'] },
+  },
+  {
     path: '/inventory',
     name: 'inventory',
     component: InventoryPage,
     meta: { requiresAuth: true },
+  },
+  {
+    path: '/orders',
+    name: 'orders',
+    component: OrdersPage,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER', 'STAFF'] },
+  },
+  {
+    path: '/orders/:id',
+    name: 'order-detail',
+    component: OrderDetailPage,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER', 'STAFF'], navKey: 'orders' },
   },
   {
     path: '/stock-counts',
@@ -92,6 +145,30 @@ const routes = [
     name: 'tutorial-center',
     component: TutorialCenterPage,
     meta: { requiresAuth: true },
+  },
+  {
+    path: '/todos',
+    name: 'todos',
+    component: TodoPage,
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/bank-statements',
+    name: 'bank-statements',
+    component: BankStatementsPage,
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/marketplace-center',
+    name: 'marketplace-center',
+    component: MarketplaceCenterPage,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER'] },
+  },
+  {
+    path: '/marketplace/oauth/callback/:channel',
+    name: 'marketplace-oauth-callback',
+    component: MarketplaceOAuthCallbackPage,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER'] },
   },
 ]
 

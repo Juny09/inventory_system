@@ -3,16 +3,24 @@ const { pool } = require('./config/db')
 
 const port = process.env.PORT || 4000
 
-// 启动前先验证数据库连接，方便快速发现环境配置问题
+function withTimeout(promise, timeoutMs) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('DB connection timed out.')), timeoutMs)),
+  ])
+}
+
 async function startServer() {
+  const server = app.listen(port, () => {
+    console.log(`Inventory API is running on http://localhost:${port}`)
+  })
+
   try {
-    await pool.query('SELECT NOW()')
-    app.listen(port, () => {
-      console.log(`Inventory API is running on http://localhost:${port}`)
-    })
+    const timeoutMs = Number(process.env.STARTUP_DB_TIMEOUT_MS || 8000)
+    await withTimeout(pool.query('SELECT NOW()'), timeoutMs)
   } catch (error) {
-    console.error('Failed to start server:', error.message)
-    process.exit(1)
+    console.error('Failed to connect database on startup:', error.message)
+    server.close(() => process.exit(1))
   }
 }
 

@@ -221,20 +221,20 @@ function printCount() {
     .join('')
 
   printHtmlDocument(
-    `Stock Count #${selectedCount.value.id}`,
+    `${localeStore.locale === 'en' ? 'Stock Count' : '盘点单'} #${selectedCount.value.id}`,
     `
-      <h1>Stock Count #${selectedCount.value.id}</h1>
-      <p>Warehouse: ${selectedCount.value.warehouse_name}</p>
-      <p>Status: ${selectedCount.value.status}</p>
-      <p>Notes: ${selectedCount.value.notes || '—'}</p>
+      <h1>${localeStore.locale === 'en' ? 'Stock Count' : '盘点单'} #${selectedCount.value.id}</h1>
+      <p>${localeStore.locale === 'en' ? 'Warehouse' : '仓库'}: ${selectedCount.value.warehouse_name}</p>
+      <p>${localeStore.locale === 'en' ? 'Status' : '状态'}: ${selectedCount.value.status}</p>
+      <p>${localeStore.locale === 'en' ? 'Notes' : '备注'}: ${selectedCount.value.notes || '—'}</p>
       <table>
         <thead>
           <tr>
-            <th>Product</th>
-            <th>Expected</th>
-            <th>Counted</th>
-            <th>Diff</th>
-            <th>Notes</th>
+            <th>${localeStore.t('table.product')}</th>
+            <th>${localeStore.t('table.expected')}</th>
+            <th>${localeStore.t('table.counted')}</th>
+            <th>${localeStore.t('table.diff')}</th>
+            <th>${localeStore.t('table.notes')}</th>
           </tr>
         </thead>
         <tbody>${rowsHtml}</tbody>
@@ -463,11 +463,11 @@ onMounted(async () => {
               <table class="min-w-full text-left text-sm">
                 <thead class="bg-slate-50 text-slate-500">
                   <tr>
-                    <th class="px-4 py-4">{{ localeStore.locale === 'en' ? 'Product' : '商品' }}</th>
-                    <th class="px-4 py-4">{{ localeStore.locale === 'en' ? 'Expected' : '账面' }}</th>
-                    <th class="px-4 py-4">{{ localeStore.locale === 'en' ? 'Counted' : '实盘' }}</th>
-                    <th class="px-4 py-4">{{ localeStore.locale === 'en' ? 'Diff' : '差异' }}</th>
-                    <th class="px-4 py-4">{{ localeStore.locale === 'en' ? 'Notes' : '备注' }}</th>
+                    <th class="px-4 py-4">{{ localeStore.t('table.product') }}</th>
+                    <th class="px-4 py-4">{{ localeStore.t('table.expected') }}</th>
+                    <th class="px-4 py-4">{{ localeStore.t('table.counted') }}</th>
+                    <th class="px-4 py-4">{{ localeStore.t('table.diff') }}</th>
+                    <th class="px-4 py-4">{{ localeStore.t('table.notes') }}</th>
                   </tr>
                 </thead>
                 <tbody>

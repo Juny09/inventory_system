@@ -261,7 +261,7 @@ router.put('/:id/items', async (req, res) => {
       entityId: String(req.params.id),
       description: `Saved stock count #${req.params.id}`,
     }
-    return res.json({ success: true })
+    return res.success({ saved: true })
   } catch (error) {
     await client.query('ROLLBACK')
     return res.status(500).json({ message: 'Failed to save stock count items.', error: error.message })

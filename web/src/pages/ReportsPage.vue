@@ -278,11 +278,13 @@ onMounted(loadReports)
             <table class="min-w-full text-left text-sm">
               <thead class="bg-slate-50 text-slate-500">
                 <tr>
-                  <th class="px-4 py-4">Product</th>
-                  <th class="px-4 py-4">Warehouse</th>
-                  <th class="px-4 py-4">Quantity</th>
-                  <th class="px-4 py-4">Reorder Level</th>
-                  <th class="px-4 py-4">Stock Value</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.product') }}</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.warehouse') }}</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.onHand') }}</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.allocated') }}</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.available') }}</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.reorderLevel') }}</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.stockValue') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -351,13 +353,13 @@ onMounted(loadReports)
             <table class="min-w-full text-left text-sm">
               <thead class="bg-slate-50 text-slate-500">
                 <tr>
-                  <th class="px-4 py-4">Type</th>
-                  <th class="px-4 py-4">Product</th>
-                  <th class="px-4 py-4">From</th>
-                  <th class="px-4 py-4">To</th>
-                  <th class="px-4 py-4">Qty</th>
-                  <th class="px-4 py-4">Operator</th>
-                  <th class="px-4 py-4">Time</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.type') }}</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.product') }}</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.from') }}</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.to') }}</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.qty') }}</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.operator') }}</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.time') }}</th>
                 </tr>
               </thead>
               <tbody>

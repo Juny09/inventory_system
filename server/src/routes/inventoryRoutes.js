@@ -227,7 +227,7 @@ router.get('/transactions', async (req, res) => {
 })
 
 async function createMovement(req, res, movementType) {
-  const { productId, warehouseId, sourceWarehouseId, destinationWarehouseId, quantity, referenceNo, notes } =
+  const { productId, warehouseId, sourceWarehouseId, destinationWarehouseId, quantity, referenceNo, notes, supplierId, unitCost, purchaseReason } =
     req.body
   const movementQty = Number(quantity)
 
@@ -264,12 +264,25 @@ async function createMovement(req, res, movementType) {
             quantity,
             reference_no,
             notes,
+            supplier_id,
+            unit_cost,
+            purchase_reason,
             created_by
           )
-          VALUES ('IN', $1, $2, $3, $4, $5, $6)
+          VALUES ('IN', $1, $2, $3, $4, $5, $6, $7, $8, $9)
           RETURNING *
         `,
-        [productId, warehouseId, movementQty, referenceNo || null, notes || null, req.user.id],
+        [
+          productId,
+          warehouseId,
+          movementQty,
+          referenceNo || null,
+          notes || null,
+          supplierId || null,
+          unitCost === undefined || unitCost === null || unitCost === '' ? null : Number(Number(unitCost).toFixed(2)),
+          purchaseReason || null,
+          req.user.id,
+        ],
       )
 
       await client.query('COMMIT')

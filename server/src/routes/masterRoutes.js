@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken')
 const { query } = require('../config/db')
 const { authenticateToken, authorizeRoles } = require('../middleware/auth')
 const { getPaginationParams, buildPagination } = require('../utils/pagination')
+const { encodeCostToCode } = require('../utils/costCode')
 
 const router = express.Router()
 const COST_ACCESS_HEADER = 'x-cost-access-token'
@@ -122,6 +123,7 @@ function maskProductCosts(product, allowCostAccess) {
 
   return {
     ...product,
+    cost_code: encodeCostToCode(product.cost_price),
     cost_price: allowCostAccess ? product.cost_price : null,
     can_view_cost: allowCostAccess,
   }
@@ -132,6 +134,168 @@ function maskPricingRules(pricingRules, allowCostAccess) {
     ...rule,
     cost_price: allowCostAccess ? rule.cost_price : null,
   }))
+}
+
+function normalizePercentChange(oldValue, newValue) {
+  const oldNumber = Number(oldValue || 0)
+  const newNumber = Number(newValue || 0)
+
+  if (!Number.isFinite(oldNumber) || !Number.isFinite(newNumber)) {
+    return 0
+  }
+
+  if (oldNumber === 0) {
+    return newNumber === 0 ? 0 : 100
+  }
+
+  return Number((((newNumber - oldNumber) / oldNumber) * 100).toFixed(4))
+}
+
+async function getSettingValue(settingKey) {
+  const result = await query('SELECT setting_value FROM system_settings WHERE setting_key = $1', [settingKey])
+  return result.rows[0]?.setting_value ?? null
+}
+
+async function resolvePriceChangeThresholdPercent() {
+  const stored = await getSettingValue('PRICE_CHANGE_ALERT_THRESHOLD_PERCENT')
+  const value = stored ?? process.env.PRICE_CHANGE_ALERT_THRESHOLD_PERCENT ?? '10'
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : 10
+}
+
+function normalizeRoles(value) {
+  const allowed = new Set(['ADMIN', 'MANAGER', 'STAFF'])
+  const roles = Array.isArray(value) ? value : String(value || '').split(',')
+  const normalized = roles
+    .map((role) => String(role || '').trim().toUpperCase())
+    .filter((role) => allowed.has(role))
+  return Array.from(new Set(normalized))
+}
+
+function normalizeBoolean(value, defaultValue) {
+  if (value === undefined || value === null) {
+    return defaultValue
+  }
+  if (typeof value === 'boolean') {
+    return value
+  }
+  const lowered = String(value).trim().toLowerCase()
+  if (lowered === 'true') return true
+  if (lowered === 'false') return false
+  return defaultValue
+}
+
+async function resolvePriceChangeNotificationPolicy() {
+  const [enabledValue, rolesValue] = await Promise.all([
+    getSettingValue('PRICE_CHANGE_NOTIFICATIONS_ENABLED'),
+    getSettingValue('PRICE_CHANGE_NOTIFY_ROLES'),
+  ])
+
+  const enabled = normalizeBoolean(enabledValue ?? 'true', true)
+  const roles = normalizeRoles(rolesValue ?? 'ADMIN,MANAGER')
+  return { enabled, roles }
+}
+
+async function createPriceChangeNotifications({ productId, productName, oldCostPrice, newCostPrice, percentChange, reason, userId, roles }) {
+  const title = `Cost price changed: ${productName}`
+  const direction = percentChange >= 0 ? 'increased' : 'decreased'
+  const message = `Cost price ${direction} by ${Math.abs(percentChange).toFixed(2)}% (${oldCostPrice} -> ${newCostPrice})`
+  const metadata = {
+    productId,
+    oldCostPrice,
+    newCostPrice,
+    percentChange,
+    reason: reason || null,
+  }
+
+  const targets = Array.isArray(roles) ? roles : []
+  if (!targets.length) {
+    return
+  }
+
+  const values = []
+  const params = []
+  let index = 1
+
+  targets.forEach((role) => {
+    values.push(`('PRICE_CHANGE', $${index++}, $${index++}, $${index++}::jsonb, $${index++}, $${index++})`)
+    params.push(title, message, JSON.stringify(metadata), role, userId)
+  })
+
+  await query(
+    `
+      INSERT INTO system_notifications (notification_type, title, message, metadata, target_role, created_by)
+      VALUES ${values.join(',')}
+    `,
+    params,
+  )
+}
+
+async function recordCostPriceHistory({ productId, oldCostPrice, newCostPrice, reason, userId }) {
+  const percentChange = normalizePercentChange(oldCostPrice, newCostPrice)
+  const result = await query(
+    `
+      INSERT INTO product_cost_price_histories (
+        product_id, old_cost_price, new_cost_price, percent_change, reason, changed_by
+      )
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+    `,
+    [productId, normalizePrice(oldCostPrice), normalizePrice(newCostPrice), percentChange, reason || null, userId || null],
+  )
+
+  await query(
+    `
+      DELETE FROM product_cost_price_histories
+      WHERE id IN (
+        SELECT id
+        FROM product_cost_price_histories
+        WHERE product_id = $1
+        ORDER BY changed_at DESC
+        OFFSET 5
+      )
+    `,
+    [productId],
+  )
+
+  const threshold = await resolvePriceChangeThresholdPercent()
+  if (Math.abs(percentChange) >= threshold) {
+    const policy = await resolvePriceChangeNotificationPolicy()
+    if (!policy.enabled) {
+      return result.rows[0]
+    }
+    const productResult = await query('SELECT name FROM products WHERE id = $1', [productId])
+    await createPriceChangeNotifications({
+      productId,
+      productName: productResult.rows[0]?.name || `#${productId}`,
+      oldCostPrice: normalizePrice(oldCostPrice),
+      newCostPrice: normalizePrice(newCostPrice),
+      percentChange,
+      reason,
+      userId,
+      roles: policy.roles,
+    })
+  }
+
+  return result.rows[0]
+}
+
+async function setPrimarySupplier({ productId, supplierId, userId }) {
+  if (!supplierId) {
+    await query('UPDATE product_suppliers SET is_primary = FALSE WHERE product_id = $1', [productId])
+    return
+  }
+
+  await query('UPDATE product_suppliers SET is_primary = FALSE WHERE product_id = $1', [productId])
+  await query(
+    `
+      INSERT INTO product_suppliers (product_id, supplier_id, is_primary, created_by)
+      VALUES ($1, $2, TRUE, $3)
+      ON CONFLICT (product_id, supplier_id)
+      DO UPDATE SET is_primary = TRUE
+    `,
+    [productId, supplierId, userId || null],
+  )
 }
 
 async function loadProductImagesMap(productIds) {
@@ -420,6 +584,82 @@ router.post('/users', authorizeRoles('ADMIN'), async (req, res) => {
   }
 })
 
+router.put('/users/:id', authorizeRoles('ADMIN'), async (req, res) => {
+  const { id } = req.params
+  const { fullName, email, role, isActive, password } = req.body
+
+  if (!fullName || !email || !role) {
+    return res.status(400).json({ message: 'fullName, email and role are required.' })
+  }
+
+  try {
+    const currentResult = await query('SELECT id FROM users WHERE id = $1', [id])
+    if (!currentResult.rows[0]) {
+      return res.status(404).json({ message: 'User not found.' })
+    }
+
+    let passwordHashClause = ''
+    const params = [id, fullName, email, role, isActive ?? true]
+
+    if (password) {
+      const passwordHash = await bcrypt.hash(password, 10)
+      params.push(passwordHash)
+      passwordHashClause = ', password_hash = $6'
+    }
+
+    const result = await query(
+      `
+        UPDATE users
+        SET
+          full_name = $2,
+          email = $3,
+          role = $4,
+          is_active = $5
+          ${passwordHashClause}
+        WHERE id = $1
+        RETURNING id, full_name, email, role, is_active, created_at
+      `,
+      params,
+    )
+
+    req.auditContext = {
+      action: 'USERS_UPDATE',
+      entityType: 'USERS',
+      entityId: String(id),
+      description: `Updated user #${id}`,
+    }
+    return res.json(result.rows[0])
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to update user.', error: error.message })
+  }
+})
+
+router.delete('/users/:id', authorizeRoles('ADMIN'), async (req, res) => {
+  const { id } = req.params
+
+  if (Number(id) === Number(req.user.id)) {
+    return res.status(400).json({ message: 'Cannot delete current login user.' })
+  }
+
+  try {
+    const result = await query('DELETE FROM users WHERE id = $1 RETURNING id', [id])
+
+    if (!result.rows[0]) {
+      return res.status(404).json({ message: 'User not found.' })
+    }
+
+    req.auditContext = {
+      action: 'USERS_DELETE',
+      entityType: 'USERS',
+      entityId: String(id),
+      description: `Deleted user #${id}`,
+    }
+    return res.status(204).send()
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to delete user.', error: error.message })
+  }
+})
+
 // 分类接口支持搜索和分页，同时保留 all=true 供下拉框取全量
 router.get('/categories', async (req, res) => {
   const { search = '', all = 'false' } = req.query
@@ -523,7 +763,7 @@ router.put('/categories/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, re
   }
 })
 
-router.delete('/categories/:id', authorizeRoles('ADMIN'), async (req, res) => {
+router.delete('/categories/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
   try {
     await query('DELETE FROM categories WHERE id = $1', [req.params.id])
     return res.status(204).send()
@@ -639,7 +879,7 @@ router.put('/warehouses/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, re
   }
 })
 
-router.delete('/warehouses/:id', authorizeRoles('ADMIN'), async (req, res) => {
+router.delete('/warehouses/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
   try {
     await query('DELETE FROM warehouses WHERE id = $1', [req.params.id])
     return res.status(204).send()
@@ -805,7 +1045,7 @@ router.post('/products/cost-access', authorizeRoles('ADMIN', 'MANAGER'), async (
       { expiresIn: '8h' },
     )
 
-    return res.json({ success: true, token })
+    return res.success({ token })
   } catch (error) {
     return res.status(500).json({ message: 'Failed to verify passcode.', error: error.message })
   }
@@ -815,7 +1055,7 @@ router.get('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
   try {
     const allowCostAccess = canViewCost(req)
     const pricingChannel = req.query.pricingChannel || ''
-    const [productResult, stockResult, movementResult, alertResult, imagesMap, pricingRulesMap] = await Promise.all([
+    const [productResult, stockResult, movementResult, alertResult, imagesMap, pricingRulesMap, supplierResult, costHistoryResult] = await Promise.all([
       query(
         `
           SELECT
@@ -893,6 +1133,42 @@ router.get('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
       ),
       loadProductImagesMap([Number(req.params.id)]),
       loadPricingRulesMap([Number(req.params.id)]),
+      query(
+        `
+          SELECT
+            suppliers.id,
+            suppliers.name,
+            suppliers.contact_name,
+            suppliers.phone,
+            suppliers.email,
+            suppliers.lead_time_days,
+            suppliers.payment_terms,
+            suppliers.is_active
+          FROM product_suppliers
+          INNER JOIN suppliers ON suppliers.id = product_suppliers.supplier_id
+          WHERE product_suppliers.product_id = $1
+            AND product_suppliers.is_primary = TRUE
+          LIMIT 1
+        `,
+        [req.params.id],
+      ),
+      query(
+        `
+          SELECT
+            id,
+            old_cost_price,
+            new_cost_price,
+            percent_change,
+            reason,
+            changed_by,
+            changed_at
+          FROM product_cost_price_histories
+          WHERE product_id = $1
+          ORDER BY changed_at DESC
+          LIMIT 5
+        `,
+        [req.params.id],
+      ),
     ])
 
     if (!productResult.rows[0]) {
@@ -908,6 +1184,8 @@ router.get('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
       stockLevels: stockResult.rows,
       recentMovements: movementResult.rows,
       alerts: alertResult.rows,
+      supplier: supplierResult.rows[0] || null,
+      costPriceHistory: costHistoryResult.rows,
       summary: {
         totalOnHand: stockResult.rows.reduce((sum, item) => sum + Number(item.on_hand_quantity), 0),
         totalAllocated: stockResult.rows.reduce((sum, item) => sum + Number(item.order_allocated_quantity), 0),
@@ -918,6 +1196,62 @@ router.get('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
     })
   } catch (error) {
     return res.status(500).json({ message: 'Failed to fetch product detail.', error: error.message })
+  }
+})
+
+router.get('/products/:id/cost-price-history', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  try {
+    const result = await query(
+      `
+        SELECT
+          id,
+          old_cost_price,
+          new_cost_price,
+          percent_change,
+          reason,
+          changed_by,
+          changed_at
+        FROM product_cost_price_histories
+        WHERE product_id = $1
+        ORDER BY changed_at DESC
+        LIMIT 5
+      `,
+      [req.params.id],
+    )
+
+    return res.json({ items: result.rows })
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to fetch cost price history.', error: error.message })
+  }
+})
+
+router.put('/products/:id/primary-supplier', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  const { supplierId } = req.body
+
+  try {
+    if (supplierId) {
+      const supplierResult = await query('SELECT id FROM suppliers WHERE id = $1', [supplierId])
+      if (!supplierResult.rows[0]) {
+        return res.status(400).json({ message: 'Supplier not found.' })
+      }
+    }
+
+    await setPrimarySupplier({
+      productId: Number(req.params.id),
+      supplierId: supplierId ? Number(supplierId) : null,
+      userId: req.user.id,
+    })
+
+    req.auditContext = {
+      action: 'PRODUCT_SUPPLIER_UPDATE',
+      entityType: 'PRODUCT',
+      entityId: String(req.params.id),
+      description: `Updated primary supplier for product ${req.params.id}`,
+    }
+
+    return res.json({ updated: true })
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to update primary supplier.', error: error.message })
   }
 })
 
@@ -944,6 +1278,7 @@ router.post('/products', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =>
     bundleItems,
     reorderLevel,
     isActive,
+    primarySupplierId,
   } = req.body
 
   if (!name || !sku) {
@@ -1012,6 +1347,10 @@ router.post('/products', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =>
       saveBundleItems(result.rows[0].id, skuType, bundleItems),
     ])
 
+    if (primarySupplierId) {
+      await setPrimarySupplier({ productId: result.rows[0].id, supplierId: Number(primarySupplierId), userId: req.user.id })
+    }
+
     const product = (await attachProductRelations([result.rows[0]], { allowCostAccess: canViewCost(req) }))[0]
 
     return res.status(201).json(product)
@@ -1044,6 +1383,8 @@ router.put('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
     bundleItems,
     reorderLevel,
     isActive,
+    primarySupplierId,
+    costChangeReason,
   } = req.body
 
   if (!name || !sku) {
@@ -1051,7 +1392,26 @@ router.put('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
   }
 
   try {
-    const defaultPricingRule = getDefaultPricingRule(pricingRules, costPrice, markupPercentage, suggestedPrice ?? sellingPrice)
+    const existingResult = await query('SELECT cost_price FROM products WHERE id = $1', [id])
+    if (!existingResult.rows[0]) {
+      return res.status(404).json({ message: 'Product not found.' })
+    }
+
+    const oldCostPrice = normalizePrice(existingResult.rows[0].cost_price)
+    const hasCostPrice = !(costPrice === undefined || costPrice === null || costPrice === '')
+    const newCostPrice = hasCostPrice ? normalizePrice(costPrice) : oldCostPrice
+    const costChanged = oldCostPrice !== newCostPrice
+    const allowCostAccess = canViewCost(req)
+
+    if (costChanged && !allowCostAccess) {
+      return res.status(403).json({ message: 'Cost access is required to change cost price.' })
+    }
+
+    if (costChanged && !String(costChangeReason || '').trim()) {
+      return res.status(400).json({ message: 'Cost change reason is required when updating cost price.' })
+    }
+
+    const defaultPricingRule = getDefaultPricingRule(pricingRules, newCostPrice, markupPercentage, suggestedPrice ?? sellingPrice)
     const primaryImage = (Array.isArray(images) && images[0]?.imageData) || imageData || null
     const result = await query(
       `
@@ -1093,7 +1453,7 @@ router.put('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
         cons || null,
         categoryId || null,
         unit || 'pcs',
-        normalizePrice(costPrice),
+        newCostPrice,
         normalizePrice(sellingPrice),
         Number(defaultPricingRule.markupPercentage || 0),
         normalizePrice(defaultPricingRule.suggestedPrice),
@@ -1107,12 +1467,30 @@ router.put('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
       savePricingRules(
         result.rows[0].id,
         pricingRules,
-        costPrice,
+        newCostPrice,
         defaultPricingRule.markupPercentage,
         defaultPricingRule.suggestedPrice,
       ),
       saveBundleItems(result.rows[0].id, skuType, bundleItems),
     ])
+
+    if (primarySupplierId !== undefined) {
+      await setPrimarySupplier({
+        productId: result.rows[0].id,
+        supplierId: primarySupplierId ? Number(primarySupplierId) : null,
+        userId: req.user.id,
+      })
+    }
+
+    if (costChanged) {
+      await recordCostPriceHistory({
+        productId: result.rows[0].id,
+        oldCostPrice,
+        newCostPrice,
+        reason: String(costChangeReason || '').trim(),
+        userId: req.user.id,
+      })
+    }
 
     const product = (await attachProductRelations([result.rows[0]], { allowCostAccess: canViewCost(req) }))[0]
 

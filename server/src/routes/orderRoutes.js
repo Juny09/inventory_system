@@ -3,12 +3,14 @@ const { query } = require('../config/db')
 const { authenticateToken, authorizeRoles } = require('../middleware/auth')
 const { syncMarketplaceOrders } = require('../services/orderSyncService')
 const { getPaginationParams, buildPagination } = require('../utils/pagination')
+const { createRateLimiter } = require('../middleware/rateLimit')
 
 const router = express.Router()
+const syncRateLimit = createRateLimiter({ namespace: 'orders-sync', windowMs: 60 * 1000, max: 12 })
 
 router.use(authenticateToken)
 
-router.post('/sync/:channel', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
+router.post('/sync/:channel', authorizeRoles('ADMIN', 'MANAGER'), syncRateLimit, async (req, res) => {
   const channel = String(req.params.channel || '').toLowerCase()
 
   if (!['shopee', 'lazada', 'tiktok'].includes(channel)) {

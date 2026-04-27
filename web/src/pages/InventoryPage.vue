@@ -12,6 +12,7 @@ const inventory = ref([])
 const products = ref([])
 const warehouses = ref([])
 const categories = ref([])
+const suppliers = ref([])
 const transactions = ref([])
 const errorMessage = ref('')
 const loading = ref(false)
@@ -41,8 +42,11 @@ const transactionPagination = ref({
 const stockInForm = reactive({
   productId: '',
   warehouseId: '',
+  supplierId: '',
   quantity: 1,
+  unitCost: '',
   referenceNo: '',
+  purchaseReason: '',
   notes: '',
 })
 
@@ -73,7 +77,7 @@ const allocationForm = reactive({
 })
 
 async function loadSelectors() {
-  const [productResponse, warehouseResponse, categoryResponse] = await Promise.all([
+  const [productResponse, warehouseResponse, categoryResponse, supplierResponse] = await Promise.all([
     api.get('/products', {
       params: {
         all: true,
@@ -91,11 +95,19 @@ async function loadSelectors() {
         all: true,
       },
     }),
+    api.get('/suppliers', {
+      params: {
+        status: 'active',
+        page: 1,
+        pageSize: 200,
+      },
+    }),
   ])
 
   products.value = productResponse.data.items
   warehouses.value = warehouseResponse.data.items
   categories.value = categoryResponse.data.items
+  suppliers.value = supplierResponse.data.items
 }
 
 async function loadInventoryPage(
@@ -218,6 +230,214 @@ onMounted(async () => {
 
 <template>
   <AppLayout>
+    <template #sidebar>
+      <div>
+        <h3 class="text-base font-semibold text-slate-900">{{ localeStore.locale === 'en' ? 'Inventory Tools' : '库存工具' }}</h3>
+        <p class="mt-1 text-xs text-slate-500">
+          {{ localeStore.locale === 'en' ? 'Create stock movements and manage filters.' : '创建库存操作并管理筛选条件。' }}
+        </p>
+      </div>
+
+      <details open class="mt-4 rounded-3xl border border-slate-200 bg-white p-4">
+        <summary class="cursor-pointer list-none text-sm font-semibold text-slate-900">{{ localeStore.locale === 'en' ? 'Stock Movements' : '库存操作' }}</summary>
+        <div class="mt-4 space-y-4">
+          <form
+            class="rounded-3xl border border-slate-200 bg-slate-50 p-4"
+            @submit.prevent="submitMovement('/inventory/stock-in', stockInForm)"
+          >
+            <h4 class="text-sm font-semibold text-slate-900">Stock in</h4>
+            <div class="mt-3 space-y-2">
+              <select v-model="stockInForm.productId" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">Select product</option>
+                <option v-for="product in products" :key="product.id" :value="product.id">
+                  {{ product.name }} · {{ product.sku }}
+                </option>
+              </select>
+              <select v-model="stockInForm.warehouseId" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">Select warehouse</option>
+                <option v-for="warehouse in warehouses" :key="warehouse.id" :value="warehouse.id">
+                  {{ warehouse.name }}
+                </option>
+              </select>
+              <select v-model="stockInForm.supplierId" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">{{ localeStore.locale === 'en' ? 'Select supplier (optional)' : '选择供应商（可选）' }}</option>
+                <option v-for="supplier in suppliers" :key="supplier.id" :value="supplier.id">
+                  {{ supplier.name }}
+                </option>
+              </select>
+              <input v-model="stockInForm.quantity" type="number" min="1" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" placeholder="Quantity" />
+              <input v-model="stockInForm.unitCost" type="number" min="0" step="0.01" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Unit cost (optional)' : '单价（可选）'" />
+              <input v-model="stockInForm.referenceNo" type="text" placeholder="Reference no" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" />
+              <input v-model="stockInForm.purchaseReason" type="text" :placeholder="localeStore.locale === 'en' ? 'Purchase reason (optional)' : '采购原因（可选）'" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" />
+              <textarea v-model="stockInForm.notes" rows="2" placeholder="Notes" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" />
+              <button class="w-full rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white">
+                Confirm stock in
+              </button>
+            </div>
+          </form>
+
+          <form
+            class="rounded-3xl border border-slate-200 bg-slate-50 p-4"
+            @submit.prevent="submitMovement('/inventory/stock-out', stockOutForm)"
+          >
+            <h4 class="text-sm font-semibold text-slate-900">Stock out</h4>
+            <div class="mt-3 space-y-2">
+              <select v-model="stockOutForm.productId" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">Select product</option>
+                <option v-for="product in products" :key="product.id" :value="product.id">
+                  {{ product.name }} · {{ product.sku }}
+                </option>
+              </select>
+              <select v-model="stockOutForm.warehouseId" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">Select warehouse</option>
+                <option v-for="warehouse in warehouses" :key="warehouse.id" :value="warehouse.id">
+                  {{ warehouse.name }}
+                </option>
+              </select>
+              <input v-model="stockOutForm.quantity" type="number" min="1" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" placeholder="Quantity" />
+              <input v-model="stockOutForm.referenceNo" type="text" placeholder="Reference no" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" />
+              <textarea v-model="stockOutForm.notes" rows="2" placeholder="Notes" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" />
+              <button class="w-full rounded-2xl bg-rose-500 px-4 py-3 text-sm font-semibold text-white">
+                Confirm stock out
+              </button>
+            </div>
+          </form>
+
+          <form
+            v-if="authStore.user?.role === 'ADMIN' || authStore.user?.role === 'MANAGER'"
+            class="rounded-3xl border border-slate-200 bg-slate-50 p-4"
+            @submit.prevent="submitMovement('/inventory/transfer', transferForm)"
+          >
+            <h4 class="text-sm font-semibold text-slate-900">Stock transfer</h4>
+            <div class="mt-3 space-y-2">
+              <select v-model="transferForm.productId" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">Select product</option>
+                <option v-for="product in products" :key="product.id" :value="product.id">
+                  {{ product.name }} · {{ product.sku }}
+                </option>
+              </select>
+              <select v-model="transferForm.sourceWarehouseId" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">Source warehouse</option>
+                <option v-for="warehouse in warehouses" :key="warehouse.id" :value="warehouse.id">
+                  {{ warehouse.name }}
+                </option>
+              </select>
+              <select v-model="transferForm.destinationWarehouseId" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">Destination warehouse</option>
+                <option v-for="warehouse in warehouses" :key="warehouse.id" :value="warehouse.id">
+                  {{ warehouse.name }}
+                </option>
+              </select>
+              <input v-model="transferForm.quantity" type="number" min="1" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" placeholder="Quantity" />
+              <input v-model="transferForm.referenceNo" type="text" placeholder="Reference no" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" />
+              <textarea v-model="transferForm.notes" rows="2" placeholder="Notes" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" />
+              <button class="w-full rounded-2xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white">
+                Confirm transfer
+              </button>
+            </div>
+          </form>
+
+          <form
+            class="rounded-3xl border border-slate-200 bg-slate-50 p-4"
+            @submit.prevent="submitMovement('/inventory/allocate', allocationForm)"
+          >
+            <h4 class="text-sm font-semibold text-slate-900">Order allocation</h4>
+            <div class="mt-3 space-y-2">
+              <select v-model="allocationForm.productId" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">Select product</option>
+                <option v-for="product in products" :key="product.id" :value="product.id">
+                  {{ product.name }} · {{ product.sku }}
+                </option>
+              </select>
+              <select v-model="allocationForm.warehouseId" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">Select warehouse</option>
+                <option v-for="warehouse in warehouses" :key="warehouse.id" :value="warehouse.id">
+                  {{ warehouse.name }}
+                </option>
+              </select>
+              <select v-model="allocationForm.mode" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="reserve">Reserve</option>
+                <option value="release">Release</option>
+              </select>
+              <input v-model="allocationForm.quantity" type="number" min="1" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" placeholder="Quantity" />
+              <input v-model="allocationForm.referenceNo" type="text" placeholder="Reference no" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" />
+              <textarea v-model="allocationForm.notes" rows="2" placeholder="Notes" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" />
+              <button class="w-full rounded-2xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white">
+                Confirm allocation
+              </button>
+            </div>
+          </form>
+        </div>
+      </details>
+
+      <details open class="mt-4 rounded-3xl border border-slate-200 bg-white p-4">
+        <summary class="cursor-pointer list-none text-sm font-semibold text-slate-900">{{ localeStore.locale === 'en' ? 'Filters' : '筛选' }}</summary>
+        <div class="mt-4 space-y-4">
+          <div class="space-y-2">
+            <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{{ localeStore.locale === 'en' ? 'Inventory' : '库存' }}</p>
+            <input
+              v-model="inventorySearch"
+              type="text"
+              :placeholder="localeStore.locale === 'en' ? 'Search inventory' : '搜索库存'"
+              class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-brand-500"
+              @input="handleInventorySearch"
+            />
+            <select
+              v-model="inventoryFilters.categoryId"
+              class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-brand-500"
+              @change="handleInventorySearch"
+            >
+              <option value="">{{ localeStore.locale === 'en' ? 'All categories' : '全部分类' }}</option>
+              <option v-for="category in categories" :key="category.id" :value="category.id">
+                {{ category.name }}
+              </option>
+            </select>
+            <select
+              v-model="inventoryFilters.warehouseId"
+              class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-brand-500"
+              @change="handleInventorySearch"
+            >
+              <option value="">{{ localeStore.locale === 'en' ? 'All warehouses' : '全部仓库' }}</option>
+              <option v-for="warehouse in warehouses" :key="warehouse.id" :value="warehouse.id">
+                {{ warehouse.name }}
+              </option>
+            </select>
+            <label class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+              <input v-model="inventoryFilters.lowStockOnly" type="checkbox" class="size-4 rounded border-slate-300" @change="handleInventorySearch" />
+              {{ localeStore.locale === 'en' ? 'Low stock only' : '仅看低库存' }}
+            </label>
+            <button type="button" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700" @click="resetInventoryFilters">
+              {{ localeStore.locale === 'en' ? 'Reset inventory filters' : '重置库存筛选' }}
+            </button>
+          </div>
+
+          <div class="space-y-2">
+            <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{{ localeStore.locale === 'en' ? 'Transactions' : '流水' }}</p>
+            <input
+              v-model="transactionSearch"
+              type="text"
+              :placeholder="localeStore.locale === 'en' ? 'Search transactions' : '搜索流水'"
+              class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-brand-500"
+              @input="handleTransactionSearch"
+            />
+            <select
+              v-model="transactionFilters.movementType"
+              class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-brand-500"
+              @change="handleTransactionSearch"
+            >
+              <option value="all">{{ localeStore.locale === 'en' ? 'All types' : '全部类型' }}</option>
+              <option value="IN">IN</option>
+              <option value="OUT">OUT</option>
+              <option value="TRANSFER">TRANSFER</option>
+            </select>
+            <button type="button" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700" @click="resetTransactionFilters">
+              {{ localeStore.locale === 'en' ? 'Reset transaction filters' : '重置流水筛选' }}
+            </button>
+          </div>
+        </div>
+      </details>
+    </template>
+
     <section>
       <p class="text-sm uppercase tracking-[0.3em] text-slate-400">
         {{ localeStore.locale === 'en' ? 'Operations' : '运营' }}
@@ -228,270 +448,15 @@ onMounted(async () => {
         {{ errorMessage }}
       </p>
 
-      <div class="mt-6 grid gap-6 2xl:grid-cols-3">
-        <form
-          class="rounded-3xl border border-slate-200 bg-slate-50 p-5"
-          @submit.prevent="submitMovement('/inventory/stock-in', stockInForm)"
-        >
-          <h3 class="text-xl font-semibold text-slate-900">Stock in</h3>
-          <div class="mt-5 space-y-3">
-            <select
-              v-model="stockInForm.productId"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-            >
-              <option value="">Select product</option>
-              <option v-for="product in products" :key="product.id" :value="product.id">
-                {{ product.name }} · {{ product.sku }}
-              </option>
-            </select>
-            <select
-              v-model="stockInForm.warehouseId"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-            >
-              <option value="">Select warehouse</option>
-              <option v-for="warehouse in warehouses" :key="warehouse.id" :value="warehouse.id">
-                {{ warehouse.name }}
-              </option>
-            </select>
-            <input
-              v-model="stockInForm.quantity"
-              type="number"
-              min="1"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              placeholder="Quantity"
-            />
-            <input
-              v-model="stockInForm.referenceNo"
-              type="text"
-              placeholder="Reference no"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-            />
-            <textarea
-              v-model="stockInForm.notes"
-              rows="3"
-              placeholder="Notes"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-            />
-            <button class="w-full rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white">
-              Confirm stock in
-            </button>
-          </div>
-        </form>
-
-        <form
-          class="rounded-3xl border border-slate-200 bg-slate-50 p-5"
-          @submit.prevent="submitMovement('/inventory/stock-out', stockOutForm)"
-        >
-          <h3 class="text-xl font-semibold text-slate-900">Stock out</h3>
-          <div class="mt-5 space-y-3">
-            <select
-              v-model="stockOutForm.productId"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-            >
-              <option value="">Select product</option>
-              <option v-for="product in products" :key="product.id" :value="product.id">
-                {{ product.name }} · {{ product.sku }}
-              </option>
-            </select>
-            <select
-              v-model="stockOutForm.warehouseId"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-            >
-              <option value="">Select warehouse</option>
-              <option v-for="warehouse in warehouses" :key="warehouse.id" :value="warehouse.id">
-                {{ warehouse.name }}
-              </option>
-            </select>
-            <input
-              v-model="stockOutForm.quantity"
-              type="number"
-              min="1"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              placeholder="Quantity"
-            />
-            <input
-              v-model="stockOutForm.referenceNo"
-              type="text"
-              placeholder="Reference no"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-            />
-            <textarea
-              v-model="stockOutForm.notes"
-              rows="3"
-              placeholder="Notes"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-            />
-            <button class="w-full rounded-2xl bg-rose-500 px-4 py-3 text-sm font-semibold text-white">
-              Confirm stock out
-            </button>
-          </div>
-        </form>
-
-        <form
-          v-if="authStore.user?.role === 'ADMIN' || authStore.user?.role === 'MANAGER'"
-          class="rounded-3xl border border-slate-200 bg-slate-50 p-5"
-          @submit.prevent="submitMovement('/inventory/transfer', transferForm)"
-        >
-          <h3 class="text-xl font-semibold text-slate-900">Stock transfer</h3>
-          <div class="mt-5 space-y-3">
-            <select
-              v-model="transferForm.productId"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-            >
-              <option value="">Select product</option>
-              <option v-for="product in products" :key="product.id" :value="product.id">
-                {{ product.name }} · {{ product.sku }}
-              </option>
-            </select>
-            <select
-              v-model="transferForm.sourceWarehouseId"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-            >
-              <option value="">Source warehouse</option>
-              <option v-for="warehouse in warehouses" :key="warehouse.id" :value="warehouse.id">
-                {{ warehouse.name }}
-              </option>
-            </select>
-            <select
-              v-model="transferForm.destinationWarehouseId"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-            >
-              <option value="">Destination warehouse</option>
-              <option v-for="warehouse in warehouses" :key="warehouse.id" :value="warehouse.id">
-                {{ warehouse.name }}
-              </option>
-            </select>
-            <input
-              v-model="transferForm.quantity"
-              type="number"
-              min="1"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              placeholder="Quantity"
-            />
-            <input
-              v-model="transferForm.referenceNo"
-              type="text"
-              placeholder="Reference no"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-            />
-            <textarea
-              v-model="transferForm.notes"
-              rows="3"
-              placeholder="Notes"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-            />
-            <button class="w-full rounded-2xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white">
-              Confirm transfer
-            </button>
-          </div>
-        </form>
-
-        <form
-          class="rounded-3xl border border-slate-200 bg-slate-50 p-5"
-          @submit.prevent="submitMovement('/inventory/allocate', allocationForm)"
-        >
-          <h3 class="text-xl font-semibold text-slate-900">Order allocation</h3>
-          <div class="mt-5 space-y-3">
-            <select
-              v-model="allocationForm.productId"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-            >
-              <option value="">Select product</option>
-              <option v-for="product in products" :key="product.id" :value="product.id">
-                {{ product.name }} · {{ product.sku }}
-              </option>
-            </select>
-            <select
-              v-model="allocationForm.warehouseId"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-            >
-              <option value="">Select warehouse</option>
-              <option v-for="warehouse in warehouses" :key="warehouse.id" :value="warehouse.id">
-                {{ warehouse.name }}
-              </option>
-            </select>
-            <select
-              v-model="allocationForm.mode"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-            >
-              <option value="reserve">Reserve</option>
-              <option value="release">Release</option>
-            </select>
-            <input
-              v-model="allocationForm.quantity"
-              type="number"
-              min="1"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              placeholder="Quantity"
-            />
-            <input
-              v-model="allocationForm.referenceNo"
-              type="text"
-              placeholder="Reference no"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-            />
-            <textarea
-              v-model="allocationForm.notes"
-              rows="3"
-              placeholder="Notes"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-            />
-            <button class="w-full rounded-2xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white">
-              Confirm allocation
-            </button>
-          </div>
-        </form>
-      </div>
-
-      <div class="mt-8 grid gap-6 2xl:grid-cols-[1.25fr_1fr]">
+      <div class="mt-8 space-y-6">
         <div class="overflow-hidden rounded-3xl border border-slate-200">
           <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
             <div>
               <h3 class="text-xl font-semibold text-slate-900">Inventory by warehouse</h3>
               <p class="mt-1 text-sm text-slate-500">
-                {{ localeStore.locale === 'en' ? 'Supports combined filtering by category, warehouse and low stock.' : '支持分类、仓库和低库存组合筛选。' }}
+                {{ localeStore.locale === 'en' ? 'Use the tools panel for filters and search.' : '使用右侧工具面板进行筛选与搜索。' }}
               </p>
             </div>
-            <input
-              v-model="inventorySearch"
-              type="text"
-              :placeholder="localeStore.locale === 'en' ? 'Search inventory' : '搜索库存'"
-              class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500 md:w-64"
-              @input="handleInventorySearch"
-            />
-          </div>
-          <div class="grid gap-3 border-b border-slate-200 px-5 py-4 md:grid-cols-4">
-            <select
-              v-model="inventoryFilters.categoryId"
-              class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              @change="handleInventorySearch"
-            >
-              <option value="">{{ localeStore.locale === 'en' ? 'All categories' : '全部分类' }}</option>
-              <option v-for="category in categories" :key="category.id" :value="category.id">
-                {{ category.name }}
-              </option>
-            </select>
-            <select
-              v-model="inventoryFilters.warehouseId"
-              class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              @change="handleInventorySearch"
-            >
-              <option value="">{{ localeStore.locale === 'en' ? 'All warehouses' : '全部仓库' }}</option>
-              <option v-for="warehouse in warehouses" :key="warehouse.id" :value="warehouse.id">
-                {{ warehouse.name }}
-              </option>
-            </select>
-            <label class="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-600">
-              <input v-model="inventoryFilters.lowStockOnly" type="checkbox" class="size-4 rounded border-slate-300" @change="handleInventorySearch" />
-              {{ localeStore.locale === 'en' ? 'Low stock only' : '仅看低库存' }}
-            </label>
-            <button
-              type="button"
-              class="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
-              @click="resetInventoryFilters"
-            >
-              {{ localeStore.locale === 'en' ? 'Reset inventory filters' : '重置库存筛选' }}
-            </button>
           </div>
           <div v-if="loading" class="px-5 py-4 text-sm text-slate-500">{{ localeStore.locale === 'en' ? 'Loading...' : '加载中...' }}</div>
           <div class="grid gap-3 p-4 md:hidden">
@@ -526,12 +491,12 @@ onMounted(async () => {
             <table class="min-w-full text-left text-sm">
               <thead class="bg-slate-50 text-slate-500">
                 <tr>
-                  <th class="px-4 py-4">Product</th>
-                  <th class="px-4 py-4">Warehouse</th>
-                  <th class="px-4 py-4">On Hand</th>
-                  <th class="px-4 py-4">Allocated</th>
-                  <th class="px-4 py-4">Available</th>
-                  <th class="px-4 py-4">Reorder</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.product') }}</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.warehouse') }}</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.onHand') }}</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.allocated') }}</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.available') }}</th>
+                  <th class="px-4 py-4">{{ localeStore.t('table.reorder') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -565,40 +530,12 @@ onMounted(async () => {
 
         <div class="overflow-hidden rounded-3xl border border-slate-200">
           <div class="border-b border-slate-200 px-5 py-4">
-            <div class="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 class="text-xl font-semibold text-slate-900">Recent transactions</h3>
-                <p class="mt-1 text-sm text-slate-500">
-                  {{ localeStore.locale === 'en' ? 'Supports searching by reference no, product and movement type.' : '支持搜索单号、商品和操作类型。' }}
-                </p>
-              </div>
-              <input
-                v-model="transactionSearch"
-                type="text"
-                :placeholder="localeStore.locale === 'en' ? 'Search transactions' : '搜索流水'"
-                class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500 md:w-56"
-                @input="handleTransactionSearch"
-              />
+            <div>
+              <h3 class="text-xl font-semibold text-slate-900">Recent transactions</h3>
+              <p class="mt-1 text-sm text-slate-500">
+                {{ localeStore.locale === 'en' ? 'Use the tools panel for transaction filters.' : '使用右侧工具面板进行流水筛选。' }}
+              </p>
             </div>
-          </div>
-          <div class="flex flex-wrap gap-3 border-b border-slate-200 px-5 py-4">
-            <select
-              v-model="transactionFilters.movementType"
-              class="rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              @change="handleTransactionSearch"
-            >
-              <option value="all">{{ localeStore.locale === 'en' ? 'All types' : '全部类型' }}</option>
-              <option value="IN">IN</option>
-              <option value="OUT">OUT</option>
-              <option value="TRANSFER">TRANSFER</option>
-            </select>
-            <button
-              type="button"
-              class="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
-              @click="resetTransactionFilters"
-            >
-              {{ localeStore.locale === 'en' ? 'Reset transaction filters' : '重置流水筛选' }}
-            </button>
           </div>
           <div class="space-y-3 p-5">
             <div

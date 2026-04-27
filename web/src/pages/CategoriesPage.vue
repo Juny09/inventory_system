@@ -174,9 +174,9 @@ onMounted(loadCategories)
           <table class="hidden min-w-full text-left text-sm md:table">
             <thead class="bg-slate-50 text-slate-500">
               <tr>
-                <th class="px-4 py-4">Name</th>
-                <th class="px-4 py-4">Description</th>
-                <th class="px-4 py-4">Actions</th>
+                <th class="px-4 py-4">{{ localeStore.t('table.name') }}</th>
+                <th class="px-4 py-4">{{ localeStore.t('table.description') }}</th>
+                <th class="px-4 py-4">{{ localeStore.t('table.actions') }}</th>
               </tr>
             </thead>
             <tbody>

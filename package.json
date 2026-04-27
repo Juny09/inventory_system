@@ -7,7 +7,7 @@
     "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix web\"",
     "dev:server": "npm run dev --prefix server",
     "dev:web": "npm run dev --prefix web",
-    "build": "npm run build --prefix web",
+    "build": "npm ci --prefix web && npm run build --prefix web",
     "start": "npm run start --prefix server"
   },
   "keywords": [],

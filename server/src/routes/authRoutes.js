@@ -3,11 +3,18 @@ const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
 const { query } = require('../config/db')
 const { authenticateToken } = require('../middleware/auth')
+const { createRateLimiter } = require('../middleware/rateLimit')
 
 const router = express.Router()
 
+const loginRateLimit = createRateLimiter({
+  namespace: 'auth-login',
+  windowMs: 60 * 1000,
+  max: 10,
+})
+
 // 登录后返回 token 和当前用户信息，前端可直接保存到状态管理中
-router.post('/login', async (req, res) => {
+router.post('/login', loginRateLimit, async (req, res) => {
   const { email, password } = req.body
 
   if (!email || !password) {
@@ -16,7 +23,7 @@ router.post('/login', async (req, res) => {
 
   try {
     const result = await query(
-      'SELECT id, full_name, email, password_hash, role, is_active FROM users WHERE email = $1',
+      'SELECT id, full_name, email, password_hash, role, is_active, preferred_currency FROM users WHERE email = $1',
       [email],
     )
     const user = result.rows[0]
@@ -48,6 +55,7 @@ router.post('/login', async (req, res) => {
         full_name: user.full_name,
         email: user.email,
         role: user.role,
+        preferred_currency: user.preferred_currency || 'MYR',
       },
     })
   } catch (error) {

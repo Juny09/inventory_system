@@ -4,8 +4,10 @@ import { RouterLink, useRoute } from 'vue-router'
 import AppLayout from '../layouts/AppLayout.vue'
 import api from '../services/api'
 import { useCostAccessStore } from '../stores/costAccess'
+import { useCurrencyStore } from '../stores/currency'
 import { useLocaleStore } from '../stores/locale'
 import { useToastStore } from '../stores/toast'
+import { formatMoney } from '../utils/money'
 import {
   buildProductQrDataUrl,
   downloadDataUrl,
@@ -14,6 +16,7 @@ import {
 
 const route = useRoute()
 const costAccessStore = useCostAccessStore()
+const currencyStore = useCurrencyStore()
 const localeStore = useLocaleStore()
 const toastStore = useToastStore()
 const product = ref(null)
@@ -22,6 +25,8 @@ const recentMovements = ref([])
 const alerts = ref([])
 const images = ref([])
 const pricingRules = ref([])
+const supplier = ref(null)
+const costPriceHistory = ref([])
 const summary = ref({
   totalOnHand: 0,
   totalAllocated: 0,
@@ -42,7 +47,7 @@ function tr(en, cn) {
 }
 
 function formatCurrency(value) {
-  return `$${Number(value || 0).toFixed(2)}`
+  return formatMoney(value, currencyStore.currency, localeStore.locale)
 }
 
 function displayCost(value) {
@@ -65,6 +70,8 @@ async function loadDetail() {
     recentMovements.value = data.recentMovements
     alerts.value = data.alerts
     summary.value = data.summary
+    supplier.value = data.supplier || null
+    costPriceHistory.value = data.costPriceHistory || []
     qrPreview.value = await buildProductQrDataUrl(data.product.product_code)
   } catch (error) {
     errorMessage.value = error.response?.data?.message || 'Failed to load product detail.'
@@ -291,10 +298,14 @@ watch(pricingChannel, (value) => {
                       {{ costAccessStore.loading ? tr('Verifying...', '验证中...') : tr('Unlock Cost', '查看成本') }}
                     </button>
                   </div>
-                  <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                     <div class="rounded-2xl bg-slate-50 px-4 py-3">
                       <p class="text-xs text-slate-400">Cost</p>
                       <p class="mt-1 font-semibold text-slate-900">{{ displayCost(product.cost_price) }}</p>
+                    </div>
+                    <div class="rounded-2xl bg-slate-50 px-4 py-3">
+                      <p class="text-xs text-slate-400">{{ tr('C-code', '成本编码') }}</p>
+                      <p class="mt-1 font-semibold text-slate-900">{{ product.cost_code || '—' }}</p>
                     </div>
                     <div class="rounded-2xl bg-slate-50 px-4 py-3">
                       <p class="text-xs text-slate-400">Markup</p>
@@ -351,6 +362,56 @@ watch(pricingChannel, (value) => {
                   <div class="rounded-3xl border border-slate-200 p-4">
                     <h3 class="text-lg font-semibold text-slate-900">Cons</h3>
                     <p class="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-600">{{ product.cons || tr('No cons listed.', '暂无缺点说明。') }}</p>
+                  </div>
+                </div>
+                <div class="rounded-3xl border border-slate-200 p-4">
+                  <h3 class="text-lg font-semibold text-slate-900">{{ tr('Supplier', '供应商') }}</h3>
+                  <p class="mt-1 text-sm text-slate-500">{{ tr('Primary supplier for replenishment.', '用于补货的主供应商信息。') }}</p>
+                  <div v-if="supplier" class="mt-4 space-y-1 text-sm text-slate-700">
+                    <p class="font-semibold text-slate-900">{{ supplier.name }}</p>
+                    <p class="text-slate-600">{{ supplier.contact_name || '—' }} · {{ supplier.phone || supplier.email || '—' }}</p>
+                    <p class="text-slate-500">{{ tr('Lead time', '交货周期') }}: {{ supplier.lead_time_days }}d</p>
+                  </div>
+                  <p v-else class="mt-4 text-sm text-slate-500">{{ tr('No supplier assigned.', '未指定供应商。') }}</p>
+                  <RouterLink
+                    class="mt-4 inline-flex rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
+                    :to="{ name: 'product-form', query: { id: String(product.id) } }"
+                  >
+                    {{ tr('Edit supplier', '编辑供应商') }}
+                  </RouterLink>
+                </div>
+                <div class="rounded-3xl border border-slate-200 p-4">
+                  <h3 class="text-lg font-semibold text-slate-900">{{ tr('Cost history', '成本历史') }}</h3>
+                  <p class="mt-1 text-sm text-slate-500">{{ tr('Latest 5 cost changes.', '最近 5 次成本变动记录。') }}</p>
+                  <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200">
+                    <table class="min-w-full text-left text-sm">
+                      <thead class="bg-slate-50 text-slate-500">
+                        <tr>
+                          <th class="px-3 py-3">{{ tr('Time', '时间') }}</th>
+                          <th class="px-3 py-3">{{ tr('Old', '旧') }}</th>
+                          <th class="px-3 py-3">{{ tr('New', '新') }}</th>
+                          <th class="px-3 py-3">{{ tr('%', '变动%') }}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="item in costPriceHistory" :key="item.id" class="border-t border-slate-100">
+                          <td class="px-3 py-3 text-slate-600">{{ item.changed_at }}</td>
+                          <td class="px-3 py-3 text-slate-600">{{ displayCost(item.old_cost_price) }}</td>
+                          <td class="px-3 py-3 text-slate-600">{{ displayCost(item.new_cost_price) }}</td>
+                          <td class="px-3 py-3">
+                            <span
+                              class="rounded-full px-2 py-0.5 text-xs font-semibold"
+                              :class="Number(item.percent_change) >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'"
+                            >
+                              {{ Number(item.percent_change).toFixed(2) }}%
+                            </span>
+                          </td>
+                        </tr>
+                        <tr v-if="costPriceHistory.length === 0">
+                          <td class="px-3 py-4 text-sm text-slate-500" colspan="4">{{ tr('No cost history.', '暂无成本历史。') }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>
