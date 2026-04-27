@@ -22,8 +22,23 @@ const pagination = ref({
   totalPages: 1,
 })
 
+const PAYMENT_TERMS_MAP = {
+  '1_month': { en: '1 Month', cn: '1 个月' },
+  '2_months': { en: '2 Months', cn: '2 个月' },
+  '3_months': { en: '3 Months', cn: '3 个月' },
+  '4_months': { en: '4 Months', cn: '4 个月' },
+  others: { en: 'Others', cn: '其他' },
+}
+
 function tr(en, cn) {
   return localeStore.locale === 'en' ? en : cn
+}
+
+function displayPaymentTerms(terms) {
+  if (!terms) return '—'
+  const mapped = PAYMENT_TERMS_MAP[terms]
+  if (mapped) return tr(mapped.en, mapped.cn)
+  return terms
 }
 
 async function loadSuppliers(page = pagination.value.page) {
@@ -79,6 +94,10 @@ function goToDetail(id) {
   router.push({ name: 'supplier-detail', params: { id: String(id) } })
 }
 
+function goToPayments() {
+  router.push({ name: 'supplier-payments' })
+}
+
 onMounted(() => loadSuppliers(1))
 </script>
 
@@ -108,6 +127,9 @@ onMounted(() => loadSuppliers(1))
             class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500 md:w-80"
             @input="handleSearch"
           />
+          <button class="rounded-2xl border border-brand-500 px-4 py-3 text-sm font-semibold text-brand-600" @click="goToPayments">
+            {{ tr('Payment records', '还账记录') }}
+          </button>
           <button class="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white" @click="goToAdd">
             {{ tr('Add supplier', '新增供应商') }}
           </button>
@@ -148,9 +170,12 @@ onMounted(() => loadSuppliers(1))
           <article v-for="supplier in suppliers" :key="supplier.id" class="rounded-3xl border border-slate-200 p-4">
             <div class="flex items-start justify-between gap-3">
               <div>
-                <p class="font-semibold text-slate-900">{{ supplier.company_name || supplier.name }}</p>
-                <p class="mt-1 text-sm text-slate-500">
-                  {{ supplier.contact_name || '—' }} · {{ supplier.phone || '—' }}
+                <p class="font-semibold text-slate-900">{{ supplier.name }}</p>
+                <p v-if="supplier.branch" class="mt-0.5 text-xs text-slate-500">
+                  {{ tr('Branch', '分公司') }}: {{ supplier.branch }}
+                </p>
+                <p v-if="supplier.parent_company" class="mt-0.5 text-xs text-slate-500">
+                  {{ tr('Under', '母公司') }}: {{ supplier.parent_company }}
                 </p>
               </div>
               <span
@@ -160,7 +185,13 @@ onMounted(() => loadSuppliers(1))
                 {{ supplier.is_active ? tr('Active', '启用') : tr('Inactive', '停用') }}
               </span>
             </div>
-            <p class="mt-3 text-xs text-slate-500">
+            <p class="mt-2 text-sm text-slate-500">
+              {{ supplier.contact_name || '—' }} · {{ supplier.phone || '—' }}
+            </p>
+            <p class="mt-1 text-xs text-slate-500">
+              {{ tr('Payment terms', '付款条件') }}: {{ displayPaymentTerms(supplier.payment_terms) }}
+            </p>
+            <p class="mt-1 text-xs text-slate-500">
               {{ tr('Products', '关联商品') }}: {{ supplier.linked_product_count }}
             </p>
             <div class="mt-4 flex gap-2">
@@ -181,7 +212,9 @@ onMounted(() => loadSuppliers(1))
           <thead class="bg-slate-50 text-slate-500">
             <tr>
               <th class="px-4 py-4">{{ tr('Company name', '公司名称') }}</th>
+              <th class="px-4 py-4">{{ tr('Branch', '分公司') }}</th>
               <th class="px-4 py-4">{{ tr('Contact', '联系人') }}</th>
+              <th class="px-4 py-4">{{ tr('Payment terms', '付款条件') }}</th>
               <th class="px-4 py-4">{{ tr('Lead time', '交货周期') }}</th>
               <th class="px-4 py-4">{{ tr('Products', '关联商品') }}</th>
               <th class="px-4 py-4">{{ tr('Status', '状态') }}</th>
@@ -191,14 +224,19 @@ onMounted(() => loadSuppliers(1))
           <tbody>
             <tr v-for="supplier in suppliers" :key="supplier.id" class="border-t border-slate-100">
               <td class="px-4 py-4">
-                <p class="font-semibold text-slate-900">{{ supplier.company_name || supplier.name }}</p>
+                <div>
+                  <p class="font-semibold text-slate-900">{{ supplier.name }}</p>
+                  <p v-if="supplier.parent_company" class="text-xs text-slate-500">{{ tr('Under', '母公司') }}: {{ supplier.parent_company }}</p>
+                </div>
               </td>
+              <td class="px-4 py-4 text-slate-600">{{ supplier.branch || '—' }}</td>
               <td class="px-4 py-4 text-slate-600">
                 <div>
                   <p class="font-medium">{{ supplier.contact_name || '—' }}</p>
                   <p class="text-xs text-slate-500">{{ supplier.phone || supplier.email || '—' }}</p>
                 </div>
               </td>
+              <td class="px-4 py-4 text-slate-600">{{ displayPaymentTerms(supplier.payment_terms) }}</td>
               <td class="px-4 py-4 text-slate-600">{{ supplier.lead_time_days }}d</td>
               <td class="px-4 py-4 text-slate-600">{{ supplier.linked_product_count }}</td>
               <td class="px-4 py-4">

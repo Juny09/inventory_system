@@ -21,6 +21,7 @@ const supplierRoutes = require('./routes/supplierRoutes')
 const notificationRoutes = require('./routes/notificationRoutes')
 const settingsRoutes = require('./routes/settingsRoutes')
 const bankStatementRoutes = require('./routes/bankStatementRoutes')
+const supplierPaymentRoutes = require('./routes/supplierPaymentRoutes')
 
 const app = express()
 
@@ -49,6 +50,7 @@ app.use('/api/marketplace', marketplaceRoutes)
 app.use('/api/orders', orderRoutes)
 app.use('/api/shipping', shippingRoutes)
 app.use('/api/suppliers', supplierRoutes)
+app.use('/api/supplier-payments', supplierPaymentRoutes)
 app.use('/api/notifications', notificationRoutes)
 app.use('/api/settings', settingsRoutes)
 

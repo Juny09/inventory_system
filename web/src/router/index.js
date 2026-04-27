@@ -10,6 +10,7 @@ const ProductDetailPage = () => import('../pages/ProductDetailPage.vue')
 const SuppliersPage = () => import('../pages/SuppliersPage.vue')
 const SupplierFormPage = () => import('../pages/SupplierFormPage.vue')
 const SupplierDetailPage = () => import('../pages/SupplierDetailPage.vue')
+const SupplierPaymentsPage = () => import('../pages/SupplierPaymentsPage.vue')
 const SettingsPage = () => import('../pages/SettingsPage.vue')
 const InventoryPage = () => import('../pages/InventoryPage.vue')
 const ReportsPage = () => import('../pages/ReportsPage.vue')
@@ -90,6 +91,12 @@ const routes = [
     path: '/suppliers/:id',
     name: 'supplier-detail',
     component: SupplierDetailPage,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER'], navKey: 'suppliers' },
+  },
+  {
+    path: '/supplier-payments',
+    name: 'supplier-payments',
+    component: SupplierPaymentsPage,
     meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER'], navKey: 'suppliers' },
   },
   {

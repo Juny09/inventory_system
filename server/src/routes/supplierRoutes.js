@@ -92,10 +92,24 @@ router.get('/', async (req, res) => {
 })
 
 router.post('/', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
-  const { name, companyName, contactName, phone, email, address, paymentTerms, leadTimeDays, notes, isActive } = req.body
+  const {
+    name,
+    contactName,
+    phone,
+    email,
+    address,
+    paymentTerms,
+    leadTimeDays,
+    branch,
+    businessHours,
+    parentCompany,
+    mapLink,
+    notes,
+    isActive,
+  } = req.body
 
   if (!name) {
-    return res.status(400).json({ message: 'Supplier name is required.' })
+    return res.status(400).json({ message: 'Company name is required.' })
   }
 
   try {
@@ -110,24 +124,31 @@ router.post('/', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
           address,
           payment_terms,
           lead_time_days,
+          branch,
+          business_hours,
+          parent_company,
+          map_link,
           notes,
           is_active,
           created_by,
           updated_by,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $11, CURRENT_TIMESTAMP)
+        VALUES ($1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, CURRENT_TIMESTAMP)
         RETURNING *
       `,
       [
         name,
-        companyName || name,
         contactName || null,
         phone || null,
         email || null,
         address || null,
         paymentTerms || null,
         Number(leadTimeDays || 0),
+        branch || null,
+        businessHours || null,
+        parentCompany || null,
+        mapLink || null,
         notes || null,
         isActive ?? true,
         req.user.id,
@@ -211,10 +232,24 @@ router.get('/:id', async (req, res) => {
 })
 
 router.put('/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
-  const { name, companyName, contactName, phone, email, address, paymentTerms, leadTimeDays, notes, isActive } = req.body
+  const {
+    name,
+    contactName,
+    phone,
+    email,
+    address,
+    paymentTerms,
+    leadTimeDays,
+    branch,
+    businessHours,
+    parentCompany,
+    mapLink,
+    notes,
+    isActive,
+  } = req.body
 
   if (!name) {
-    return res.status(400).json({ message: 'Supplier name is required.' })
+    return res.status(400).json({ message: 'Company name is required.' })
   }
 
   try {
@@ -223,16 +258,20 @@ router.put('/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
         UPDATE suppliers
         SET
           name = $2,
-          company_name = $3,
-          contact_name = $4,
-          phone = $5,
-          email = $6,
-          address = $7,
-          payment_terms = $8,
-          lead_time_days = $9,
-          notes = $10,
-          is_active = $11,
-          updated_by = $12,
+          company_name = $2,
+          contact_name = $3,
+          phone = $4,
+          email = $5,
+          address = $6,
+          payment_terms = $7,
+          lead_time_days = $8,
+          branch = $9,
+          business_hours = $10,
+          parent_company = $11,
+          map_link = $12,
+          notes = $13,
+          is_active = $14,
+          updated_by = $15,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = $1
         RETURNING *
@@ -240,13 +279,16 @@ router.put('/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
       [
         req.params.id,
         name,
-        companyName || name,
         contactName || null,
         phone || null,
         email || null,
         address || null,
         paymentTerms || null,
         Number(leadTimeDays || 0),
+        branch || null,
+        businessHours || null,
+        parentCompany || null,
+        mapLink || null,
         notes || null,
         isActive ?? true,
         req.user.id,
