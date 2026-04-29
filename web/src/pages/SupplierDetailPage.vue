@@ -14,8 +14,23 @@ const supplier = ref(null)
 const products = ref([])
 const recentPurchases = ref([])
 
+const PAYMENT_TERMS_MAP = {
+  '1_month': { en: '1 Month', cn: '1 个月' },
+  '2_months': { en: '2 Months', cn: '2 个月' },
+  '3_months': { en: '3 Months', cn: '3 个月' },
+  '4_months': { en: '4 Months', cn: '4 个月' },
+  others: { en: 'Others', cn: '其他' },
+}
+
 function tr(en, cn) {
   return localeStore.locale === 'en' ? en : cn
+}
+
+function displayPaymentTerms(terms) {
+  if (!terms) return '—'
+  const mapped = PAYMENT_TERMS_MAP[terms]
+  if (mapped) return tr(mapped.en, mapped.cn)
+  return terms
 }
 
 async function loadDetail() {
@@ -41,6 +56,16 @@ function edit() {
   router.push({ name: 'supplier-form', query: { id: String(route.params.id) } })
 }
 
+function goToPayments() {
+  router.push({ name: 'supplier-payments', query: { supplierId: String(route.params.id) } })
+}
+
+function openMapLink() {
+  if (supplier.value?.map_link) {
+    window.open(supplier.value.map_link, '_blank')
+  }
+}
+
 onMounted(loadDetail)
 </script>
 
@@ -50,9 +75,14 @@ onMounted(loadDetail)
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p class="text-sm uppercase tracking-[0.3em] text-slate-400">Master Data</p>
-          <h2 class="mt-2 text-3xl font-semibold text-slate-900">{{ supplier?.company_name || supplier?.name || tr('Supplier detail', '供应商详情') }}</h2>
+          <h2 class="mt-2 text-3xl font-semibold text-slate-900">{{ supplier?.name || tr('Supplier detail', '供应商详情') }}</h2>
+          <p v-if="supplier?.branch" class="mt-1 text-sm text-slate-500">{{ tr('Branch', '分公司') }}: {{ supplier.branch }}</p>
+          <p v-if="supplier?.parent_company" class="mt-0.5 text-sm text-slate-500">{{ tr('Under company', '母公司') }}: {{ supplier.parent_company }}</p>
         </div>
         <div class="flex gap-2">
+          <button class="rounded-2xl border border-brand-500 px-4 py-3 text-sm font-semibold text-brand-600" @click="goToPayments">
+            {{ tr('Payment records', '还账记录') }}
+          </button>
           <button class="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700" @click="back">
             {{ tr('Back', '返回') }}
           </button>
@@ -74,15 +104,24 @@ onMounted(loadDetail)
         <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
           <h3 class="text-xl font-semibold text-slate-900">{{ tr('Supplier info', '供应商信息') }}</h3>
           <div class="mt-4 space-y-2 text-sm text-slate-700">
-            <p v-if="supplier?.company_name && supplier?.company_name !== supplier?.name">
-              <span class="text-slate-500">{{ tr('Supplier name', '供应商名称') }}:</span> {{ supplier?.name || '—' }}
-            </p>
+            <p><span class="text-slate-500">{{ tr('Company name', '公司名称') }}:</span> {{ supplier?.name || '—' }}</p>
+            <p v-if="supplier?.branch"><span class="text-slate-500">{{ tr('Branch', '分公司') }}:</span> {{ supplier.branch }}</p>
+            <p v-if="supplier?.parent_company"><span class="text-slate-500">{{ tr('Under company', '母公司') }}:</span> {{ supplier.parent_company }}</p>
             <p><span class="text-slate-500">{{ tr('Contact', '联系人') }}:</span> {{ supplier?.contact_name || '—' }}</p>
             <p><span class="text-slate-500">{{ tr('Phone', '电话') }}:</span> {{ supplier?.phone || '—' }}</p>
             <p><span class="text-slate-500">{{ tr('Email', '邮箱') }}:</span> {{ supplier?.email || '—' }}</p>
+            <p v-if="supplier?.business_hours"><span class="text-slate-500">{{ tr('Business hours', '营业时间') }}:</span> {{ supplier.business_hours }}</p>
             <p><span class="text-slate-500">{{ tr('Lead time', '交货周期') }}:</span> {{ supplier?.lead_time_days ?? 0 }}d</p>
-            <p><span class="text-slate-500">{{ tr('Payment terms', '付款条件') }}:</span> {{ supplier?.payment_terms || '—' }}</p>
+            <p><span class="text-slate-500">{{ tr('Payment terms', '付款条件') }}:</span> {{ displayPaymentTerms(supplier?.payment_terms) }}</p>
+            <p>
+              <span class="text-slate-500">{{ tr('Map link', '地图链接') }}:</span>
+              <template v-if="supplier?.map_link">
+                <a :href="supplier.map_link" target="_blank" class="text-brand-600 underline">{{ tr('Open map', '打开地图') }}</a>
+              </template>
+              <template v-else>—</template>
+            </p>
             <p><span class="text-slate-500">{{ tr('Address', '地址') }}:</span> {{ supplier?.address || '—' }}</p>
+            <p v-if="supplier?.notes"><span class="text-slate-500">{{ tr('Notes', '备注') }}:</span> {{ supplier.notes }}</p>
             <p>
               <span class="text-slate-500">{{ tr('Status', '状态') }}:</span>
               <span

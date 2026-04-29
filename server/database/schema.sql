@@ -320,6 +320,31 @@ CREATE TABLE IF NOT EXISTS suppliers (
 ALTER TABLE suppliers
   ADD COLUMN IF NOT EXISTS company_name VARCHAR(180);
 
+ALTER TABLE suppliers
+  ADD COLUMN IF NOT EXISTS branch VARCHAR(120);
+
+ALTER TABLE suppliers
+  ADD COLUMN IF NOT EXISTS business_hours VARCHAR(200);
+
+ALTER TABLE suppliers
+  ADD COLUMN IF NOT EXISTS parent_company VARCHAR(180);
+
+ALTER TABLE suppliers
+  ADD COLUMN IF NOT EXISTS map_link TEXT;
+
+CREATE TABLE IF NOT EXISTS supplier_payment_records (
+  id SERIAL PRIMARY KEY,
+  supplier_id INTEGER NOT NULL REFERENCES suppliers(id) ON DELETE CASCADE,
+  period_month INTEGER NOT NULL CHECK (period_month >= 1 AND period_month <= 12),
+  period_year INTEGER NOT NULL CHECK (period_year >= 2000),
+  paid_date DATE,
+  amount NUMERIC(12, 2),
+  notes TEXT,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (supplier_id, period_month, period_year)
+);
+
 CREATE TABLE IF NOT EXISTS product_suppliers (
   id SERIAL PRIMARY KEY,
   product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
@@ -415,5 +440,7 @@ CREATE INDEX IF NOT EXISTS idx_product_cost_price_histories_product_id ON produc
 CREATE INDEX IF NOT EXISTS idx_product_cost_price_histories_changed_at ON product_cost_price_histories(changed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_system_notifications_created_at ON system_notifications(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_system_notifications_type ON system_notifications(notification_type);
+CREATE INDEX IF NOT EXISTS idx_supplier_payment_records_supplier_id ON supplier_payment_records(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_supplier_payment_records_period ON supplier_payment_records(period_year DESC, period_month DESC);
 CREATE INDEX IF NOT EXISTS idx_bank_statements_uploaded_by ON bank_statements(uploaded_by);
 CREATE INDEX IF NOT EXISTS idx_bank_statements_statement_month ON bank_statements(statement_month DESC);
