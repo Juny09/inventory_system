@@ -1,6 +1,7 @@
 const express = require('express')
 const { query } = require('../config/db')
 const { authenticateToken, authorizeRoles } = require('../middleware/auth')
+const { getTenantId } = require('../utils/tenant')
 
 const router = express.Router()
 
@@ -34,26 +35,33 @@ function normalizeCurrency(value) {
   return allowed.has(normalized) ? normalized : null
 }
 
-async function getSetting(settingKey) {
-  const result = await query('SELECT setting_value FROM system_settings WHERE setting_key = $1', [settingKey])
+async function getSetting(settingKey, tenantId) {
+  const result = await query(
+    'SELECT setting_value FROM system_settings WHERE setting_key = $1 AND tenant_id = $2',
+    [settingKey, tenantId],
+  )
   return result.rows[0]?.setting_value ?? null
 }
 
-async function upsertSetting(settingKey, settingValue, userId) {
+async function upsertSetting(settingKey, settingValue, userId, tenantId) {
   await query(
     `
-      INSERT INTO system_settings (setting_key, setting_value, updated_by, updated_at)
-      VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-      ON CONFLICT (setting_key)
+      INSERT INTO system_settings (tenant_id, setting_key, setting_value, updated_by, updated_at)
+      VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+      ON CONFLICT (tenant_id, setting_key)
       DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
     `,
-    [settingKey, String(settingValue), userId || null],
+    [tenantId, settingKey, String(settingValue), userId || null],
   )
 }
 
 router.get('/preferences', async (req, res) => {
+  const tenantId = getTenantId(req)
   try {
-    const result = await query('SELECT preferred_currency FROM users WHERE id = $1', [req.user.id])
+    const result = await query(
+      'SELECT preferred_currency FROM users WHERE id = $1 AND tenant_id = $2',
+      [req.user.id, tenantId],
+    )
     return res.json({
       currency: result.rows[0]?.preferred_currency || 'MYR',
     })
@@ -63,13 +71,17 @@ router.get('/preferences', async (req, res) => {
 })
 
 router.put('/preferences', async (req, res) => {
+  const tenantId = getTenantId(req)
   const currency = normalizeCurrency(req.body?.currency)
   if (!currency) {
     return res.status(400).json({ message: 'currency must be MYR or USD.' })
   }
 
   try {
-    await query('UPDATE users SET preferred_currency = $2 WHERE id = $1', [req.user.id, currency])
+    await query(
+      'UPDATE users SET preferred_currency = $2 WHERE id = $1 AND tenant_id = $3',
+      [req.user.id, currency, tenantId],
+    )
     req.auditContext = {
       action: 'SETTINGS_UPDATE',
       entityType: 'USER_PREFERENCES',
@@ -82,12 +94,13 @@ router.put('/preferences', async (req, res) => {
   }
 })
 
-router.get('/price-change', authorizeRoles('ADMIN'), async (_req, res) => {
+router.get('/price-change', authorizeRoles('ADMIN'), async (req, res) => {
+  const tenantId = getTenantId(req)
   try {
     const [thresholdValue, enabledValue, rolesValue] = await Promise.all([
-      getSetting('PRICE_CHANGE_ALERT_THRESHOLD_PERCENT'),
-      getSetting('PRICE_CHANGE_NOTIFICATIONS_ENABLED'),
-      getSetting('PRICE_CHANGE_NOTIFY_ROLES'),
+      getSetting('PRICE_CHANGE_ALERT_THRESHOLD_PERCENT', tenantId),
+      getSetting('PRICE_CHANGE_NOTIFICATIONS_ENABLED', tenantId),
+      getSetting('PRICE_CHANGE_NOTIFY_ROLES', tenantId),
     ])
 
     const threshold = Number(thresholdValue ?? process.env.PRICE_CHANGE_ALERT_THRESHOLD_PERCENT ?? '10')
@@ -106,6 +119,7 @@ router.get('/price-change', authorizeRoles('ADMIN'), async (_req, res) => {
 })
 
 router.put('/price-change', authorizeRoles('ADMIN'), async (req, res) => {
+  const tenantId = getTenantId(req)
   const { thresholdPercent, enabled, roles } = req.body
   const parsedThreshold = Number(thresholdPercent)
 
@@ -122,9 +136,9 @@ router.put('/price-change', authorizeRoles('ADMIN'), async (req, res) => {
 
   try {
     await Promise.all([
-      upsertSetting('PRICE_CHANGE_ALERT_THRESHOLD_PERCENT', parsedThreshold, req.user.id),
-      upsertSetting('PRICE_CHANGE_NOTIFICATIONS_ENABLED', normalizedEnabled ? 'true' : 'false', req.user.id),
-      upsertSetting('PRICE_CHANGE_NOTIFY_ROLES', normalizedRoles.join(','), req.user.id),
+      upsertSetting('PRICE_CHANGE_ALERT_THRESHOLD_PERCENT', parsedThreshold, req.user.id, tenantId),
+      upsertSetting('PRICE_CHANGE_NOTIFICATIONS_ENABLED', normalizedEnabled ? 'true' : 'false', req.user.id, tenantId),
+      upsertSetting('PRICE_CHANGE_NOTIFY_ROLES', normalizedRoles.join(','), req.user.id, tenantId),
     ])
 
     req.auditContext = {

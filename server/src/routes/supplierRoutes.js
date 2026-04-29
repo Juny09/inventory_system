@@ -26,6 +26,7 @@ router.get('/', async (req, res) => {
   const resolvedSortBy = normalizeSort(sortBy)
   const resolvedSortOrder = normalizeSortOrder(sortOrder)
   const { page, pageSize, offset } = getPaginationParams(req.query)
+  const tenantId = req.tenantId
 
   try {
     const [itemsResult, totalResult] = await Promise.all([
@@ -35,15 +36,18 @@ router.get('/', async (req, res) => {
             suppliers.*,
             COUNT(product_suppliers.product_id)::int AS linked_product_count
           FROM suppliers
-          LEFT JOIN product_suppliers ON product_suppliers.supplier_id = suppliers.id
-          WHERE (
-            $1 = '%%'
-            OR suppliers.name ILIKE $1
-            OR suppliers.company_name ILIKE $1
-            OR suppliers.contact_name ILIKE $1
-            OR suppliers.phone ILIKE $1
-            OR suppliers.email ILIKE $1
-          )
+          LEFT JOIN product_suppliers
+            ON product_suppliers.supplier_id = suppliers.id
+            AND product_suppliers.tenant_id = suppliers.tenant_id
+          WHERE suppliers.tenant_id = $6
+            AND (
+              $1 = '%%'
+              OR suppliers.name ILIKE $1
+              OR suppliers.company_name ILIKE $1
+              OR suppliers.contact_name ILIKE $1
+              OR suppliers.phone ILIKE $1
+              OR suppliers.email ILIKE $1
+            )
             AND (
               $2 = 'all'
               OR ($2 = 'active' AND suppliers.is_active = TRUE)
@@ -58,27 +62,28 @@ router.get('/', async (req, res) => {
             suppliers.id DESC
           LIMIT $4 OFFSET $5
         `,
-        [searchPattern, status, resolvedSortBy, pageSize, offset],
+        [searchPattern, status, resolvedSortBy, pageSize, offset, tenantId],
       ),
       query(
         `
           SELECT COUNT(*)::int AS total
           FROM suppliers
-          WHERE (
-            $1 = '%%'
-            OR suppliers.name ILIKE $1
-            OR suppliers.company_name ILIKE $1
-            OR suppliers.contact_name ILIKE $1
-            OR suppliers.phone ILIKE $1
-            OR suppliers.email ILIKE $1
-          )
+          WHERE suppliers.tenant_id = $3
+            AND (
+              $1 = '%%'
+              OR suppliers.name ILIKE $1
+              OR suppliers.company_name ILIKE $1
+              OR suppliers.contact_name ILIKE $1
+              OR suppliers.phone ILIKE $1
+              OR suppliers.email ILIKE $1
+            )
             AND (
               $2 = 'all'
               OR ($2 = 'active' AND suppliers.is_active = TRUE)
               OR ($2 = 'inactive' AND suppliers.is_active = FALSE)
             )
         `,
-        [searchPattern, status],
+        [searchPattern, status, tenantId],
       ),
     ])
 
@@ -116,6 +121,7 @@ router.post('/', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
     const result = await query(
       `
         INSERT INTO suppliers (
+          tenant_id,
           name,
           company_name,
           contact_name,
@@ -134,7 +140,7 @@ router.post('/', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
           updated_by,
           updated_at
         )
-        VALUES ($1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, CURRENT_TIMESTAMP)
+        VALUES ($15, $1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, CURRENT_TIMESTAMP)
         RETURNING *
       `,
       [
@@ -152,6 +158,7 @@ router.post('/', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
         notes || null,
         isActive ?? true,
         req.user.id,
+        req.tenantId,
       ],
     )
 
@@ -171,7 +178,7 @@ router.post('/', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const [supplierResult, productsResult, recentPurchasesResult] = await Promise.all([
-      query(`SELECT * FROM suppliers WHERE id = $1`, [req.params.id]),
+      query(`SELECT * FROM suppliers WHERE id = $1 AND tenant_id = $2`, [req.params.id, req.tenantId]),
       query(
         `
           SELECT
@@ -186,9 +193,10 @@ router.get('/:id', async (req, res) => {
           INNER JOIN products ON products.id = product_suppliers.product_id
           LEFT JOIN categories ON categories.id = products.category_id
           WHERE product_suppliers.supplier_id = $1
+            AND product_suppliers.tenant_id = $2
           ORDER BY product_suppliers.is_primary DESC, products.name ASC
         `,
-        [req.params.id],
+        [req.params.id, req.tenantId],
       ),
       query(
         `
@@ -210,10 +218,11 @@ router.get('/:id', async (req, res) => {
           LEFT JOIN users ON users.id = stock_movements.created_by
           WHERE stock_movements.movement_type = 'IN'
             AND stock_movements.supplier_id = $1
+            AND stock_movements.tenant_id = $2
           ORDER BY stock_movements.created_at DESC
           LIMIT 10
         `,
-        [req.params.id],
+        [req.params.id, req.tenantId],
       ),
     ])
 
@@ -273,7 +282,7 @@ router.put('/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
           is_active = $14,
           updated_by = $15,
           updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1
+        WHERE id = $1 AND tenant_id = $16
         RETURNING *
       `,
       [
@@ -292,6 +301,7 @@ router.put('/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
         notes || null,
         isActive ?? true,
         req.user.id,
+        req.tenantId,
       ],
     )
 
@@ -320,10 +330,10 @@ router.patch('/:id/status', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
       `
         UPDATE suppliers
         SET is_active = $2, updated_by = $3, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1
+        WHERE id = $1 AND tenant_id = $4
         RETURNING *
       `,
-      [req.params.id, Boolean(isActive), req.user.id],
+      [req.params.id, Boolean(isActive), req.user.id, req.tenantId],
     )
 
     if (!result.rows[0]) {
@@ -345,13 +355,16 @@ router.patch('/:id/status', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
 
 router.delete('/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
   try {
-    const existing = await query('SELECT id, name FROM suppliers WHERE id = $1', [req.params.id])
+    const existing = await query(
+      'SELECT id, name FROM suppliers WHERE id = $1 AND tenant_id = $2',
+      [req.params.id, req.tenantId],
+    )
     const row = existing.rows[0]
     if (!row) {
       return res.status(404).json({ message: 'Supplier not found.' })
     }
 
-    await query('DELETE FROM suppliers WHERE id = $1', [req.params.id])
+    await query('DELETE FROM suppliers WHERE id = $1 AND tenant_id = $2', [req.params.id, req.tenantId])
 
     req.auditContext = {
       action: 'SUPPLIER_DELETE',

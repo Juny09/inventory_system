@@ -25,12 +25,36 @@ const supplierPaymentRoutes = require('./routes/supplierPaymentRoutes')
 
 const app = express()
 
+// CORS 白名单：只允许指定的前端域名访问 API
+const allowedOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+
+const corsOptions = {
+  origin(origin, callback) {
+    // 允许无 origin 的请求（如 Postman / 同源请求）
+    if (!origin) return callback(null, true)
+    if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+      return callback(null, true)
+    }
+    return callback(new Error(`CORS blocked: ${origin}`))
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+}
+
 // 基础中间件：安全头、跨域、日志、JSON 解析
-app.use(helmet())
-app.use(cors())
+app.use(
+  helmet({
+    contentSecurityPolicy: false, // 前端是 SPA，CSP 在 nginx 层处理
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  })
+)
+app.use(cors(corsOptions))
 app.use(express.json({ limit: '8mb' }))
 app.use(responseMiddleware)
-app.use(morgan('dev'))
+app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'))
 app.use(auditTrail)
 
 app.get('/api/health', (_req, res) => {

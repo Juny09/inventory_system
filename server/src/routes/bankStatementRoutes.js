@@ -5,6 +5,7 @@ const multer = require('multer')
 const { query } = require('../config/db')
 const { authenticateToken } = require('../middleware/auth')
 const { getPaginationParams, buildPagination } = require('../utils/pagination')
+const { getTenantId } = require('../utils/tenant')
 
 const router = express.Router()
 
@@ -78,6 +79,7 @@ const upload = multer({
 })
 
 router.get('/', async (req, res) => {
+  const tenantId = getTenantId(req)
   const { page, pageSize, offset } = getPaginationParams(req.query)
 
   try {
@@ -86,19 +88,19 @@ router.get('/', async (req, res) => {
         `
           SELECT id, statement_month, original_name, mime_type, file_size, created_at
           FROM bank_statements
-          WHERE uploaded_by = $1
+          WHERE uploaded_by = $1 AND tenant_id = $2
           ORDER BY statement_month DESC, created_at DESC
-          LIMIT $2 OFFSET $3
+          LIMIT $3 OFFSET $4
         `,
-        [req.user.id, pageSize, offset],
+        [req.user.id, tenantId, pageSize, offset],
       ),
       query(
         `
           SELECT COUNT(*)::int AS total
           FROM bank_statements
-          WHERE uploaded_by = $1
+          WHERE uploaded_by = $1 AND tenant_id = $2
         `,
-        [req.user.id],
+        [req.user.id, tenantId],
       ),
     ])
 
@@ -112,6 +114,7 @@ router.get('/', async (req, res) => {
 })
 
 router.post('/', upload.single('file'), async (req, res) => {
+  const tenantId = getTenantId(req)
   const month = normalizeMonth(req.body.month)
   if (!month) {
     if (req.file?.path) {
@@ -128,6 +131,7 @@ router.post('/', upload.single('file'), async (req, res) => {
     const result = await query(
       `
         INSERT INTO bank_statements (
+          tenant_id,
           uploaded_by,
           statement_month,
           original_name,
@@ -135,7 +139,7 @@ router.post('/', upload.single('file'), async (req, res) => {
           mime_type,
           file_size
         )
-        VALUES ($1, $2, $3, $4, $5, $6)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (uploaded_by, statement_month)
         DO UPDATE SET
           original_name = EXCLUDED.original_name,
@@ -145,7 +149,7 @@ router.post('/', upload.single('file'), async (req, res) => {
           created_at = CURRENT_TIMESTAMP
         RETURNING id, statement_month, original_name, mime_type, file_size, created_at
       `,
-      [req.user.id, month, req.file.originalname, req.file.filename, req.file.mimetype, req.file.size],
+      [tenantId, req.user.id, month, req.file.originalname, req.file.filename, req.file.mimetype, req.file.size],
     )
 
     req.auditContext = {
@@ -165,14 +169,15 @@ router.post('/', upload.single('file'), async (req, res) => {
 })
 
 router.get('/:id/download', async (req, res) => {
+  const tenantId = getTenantId(req)
   try {
     const result = await query(
       `
         SELECT id, uploaded_by, original_name, storage_path, mime_type
         FROM bank_statements
-        WHERE id = $1
+        WHERE id = $1 AND tenant_id = $2
       `,
-      [req.params.id],
+      [req.params.id, tenantId],
     )
 
     const row = result.rows[0]
@@ -197,14 +202,15 @@ router.get('/:id/download', async (req, res) => {
 })
 
 router.delete('/:id', async (req, res) => {
+  const tenantId = getTenantId(req)
   try {
     const existing = await query(
       `
         SELECT id, uploaded_by, storage_path
         FROM bank_statements
-        WHERE id = $1
+        WHERE id = $1 AND tenant_id = $2
       `,
-      [req.params.id],
+      [req.params.id, tenantId],
     )
 
     const row = existing.rows[0]
@@ -216,7 +222,7 @@ router.delete('/:id', async (req, res) => {
       return res.status(403).json({ message: 'Permission denied.' })
     }
 
-    await query('DELETE FROM bank_statements WHERE id = $1', [req.params.id])
+    await query('DELETE FROM bank_statements WHERE id = $1 AND tenant_id = $2', [req.params.id, tenantId])
 
     const filePath = path.join(UPLOAD_DIR, row.storage_path)
     if (fs.existsSync(filePath)) {

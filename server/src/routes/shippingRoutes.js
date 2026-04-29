@@ -2,12 +2,14 @@ const express = require('express')
 const { query } = require('../config/db')
 const { authenticateToken, authorizeRoles } = require('../middleware/auth')
 const { getPaginationParams, buildPagination } = require('../utils/pagination')
+const { getTenantId } = require('../utils/tenant')
 
 const router = express.Router()
 
 router.use(authenticateToken)
 
 router.get('/shipments', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (req, res) => {
+  const tenantId = getTenantId(req)
   const { status = 'all', search = '' } = req.query
   const { page, pageSize, offset } = getPaginationParams(req.query)
   const searchPattern = `%${String(search || '').trim()}%`
@@ -23,7 +25,9 @@ router.get('/shipments', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (req
             marketplace_orders.buyer_name
           FROM shipping_shipments
           LEFT JOIN marketplace_orders ON marketplace_orders.id = shipping_shipments.marketplace_order_id
-          WHERE ($1 = 'all' OR shipping_shipments.shipment_status = $1)
+            AND marketplace_orders.tenant_id = shipping_shipments.tenant_id
+          WHERE shipping_shipments.tenant_id = $5
+            AND ($1 = 'all' OR shipping_shipments.shipment_status = $1)
             AND (
               $2 = '%%'
               OR COALESCE(shipping_shipments.tracking_no, '') ILIKE $2
@@ -33,14 +37,16 @@ router.get('/shipments', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (req
           ORDER BY shipping_shipments.updated_at DESC
           LIMIT $3 OFFSET $4
         `,
-        [String(status).toUpperCase(), searchPattern, pageSize, offset],
+        [String(status).toUpperCase(), searchPattern, pageSize, offset, tenantId],
       ),
       query(
         `
           SELECT COUNT(*)::int AS total
           FROM shipping_shipments
           LEFT JOIN marketplace_orders ON marketplace_orders.id = shipping_shipments.marketplace_order_id
-          WHERE ($1 = 'all' OR shipping_shipments.shipment_status = $1)
+            AND marketplace_orders.tenant_id = shipping_shipments.tenant_id
+          WHERE shipping_shipments.tenant_id = $3
+            AND ($1 = 'all' OR shipping_shipments.shipment_status = $1)
             AND (
               $2 = '%%'
               OR COALESCE(shipping_shipments.tracking_no, '') ILIKE $2
@@ -48,7 +54,7 @@ router.get('/shipments', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (req
               OR COALESCE(marketplace_orders.buyer_name, '') ILIKE $2
             )
         `,
-        [String(status).toUpperCase(), searchPattern],
+        [String(status).toUpperCase(), searchPattern, tenantId],
       ),
     ])
 
@@ -62,11 +68,15 @@ router.get('/shipments', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (req
 })
 
 router.post('/shipments/:orderId/create', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  const tenantId = getTenantId(req)
   const { orderId } = req.params
   const { carrier = 'MANUAL', serviceLevel = 'STANDARD', trackingNo = '', labelUrl = '' } = req.body
 
   try {
-    const orderResult = await query(`SELECT id, channel FROM marketplace_orders WHERE id = $1`, [orderId])
+    const orderResult = await query(
+      `SELECT id, channel FROM marketplace_orders WHERE id = $1 AND tenant_id = $2`,
+      [orderId, tenantId],
+    )
 
     if (!orderResult.rows[0]) {
       return res.status(404).json({ message: 'Order not found.' })
@@ -75,6 +85,7 @@ router.post('/shipments/:orderId/create', authorizeRoles('ADMIN', 'MANAGER'), as
     const shipmentResult = await query(
       `
         INSERT INTO shipping_shipments (
+          tenant_id,
           channel,
           marketplace_order_id,
           shipment_status,
@@ -85,10 +96,11 @@ router.post('/shipments/:orderId/create', authorizeRoles('ADMIN', 'MANAGER'), as
           shipped_at,
           updated_by
         )
-        VALUES ($1, $2, 'SHIPPED', $3, $4, $5, $6, CURRENT_TIMESTAMP, $7)
+        VALUES ($1, $2, $3, 'SHIPPED', $4, $5, $6, $7, CURRENT_TIMESTAMP, $8)
         RETURNING *
       `,
       [
+        tenantId,
         orderResult.rows[0].channel,
         orderId,
         carrier || 'MANUAL',
@@ -106,6 +118,7 @@ router.post('/shipments/:orderId/create', authorizeRoles('ADMIN', 'MANAGER'), as
 })
 
 router.put('/shipments/:id/status', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  const tenantId = getTenantId(req)
   const { status, trackingNo, labelUrl, carrier, serviceLevel } = req.body
   const normalizedStatus = String(status || '').toUpperCase()
 
@@ -127,7 +140,7 @@ router.put('/shipments/:id/status', authorizeRoles('ADMIN', 'MANAGER'), async (r
           delivered_at = CASE WHEN $2 = 'DELIVERED' THEN CURRENT_TIMESTAMP ELSE delivered_at END,
           updated_by = $7,
           updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1
+        WHERE id = $1 AND tenant_id = $8
         RETURNING *
       `,
       [
@@ -138,6 +151,7 @@ router.put('/shipments/:id/status', authorizeRoles('ADMIN', 'MANAGER'), async (r
         carrier || null,
         serviceLevel || null,
         req.user.id,
+        tenantId,
       ],
     )
 

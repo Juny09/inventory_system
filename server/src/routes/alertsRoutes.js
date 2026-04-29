@@ -2,6 +2,7 @@ const express = require('express')
 const { query } = require('../config/db')
 const { authenticateToken } = require('../middleware/auth')
 const { getPaginationParams, buildPagination } = require('../utils/pagination')
+const { getTenantId } = require('../utils/tenant')
 
 const router = express.Router()
 
@@ -11,10 +12,11 @@ function getSearchPattern(search) {
   return `%${String(search || '').trim()}%`
 }
 
-async function saveAlertState({ productId, warehouseId, status, assignedTo, notes, userId }) {
+async function saveAlertState({ productId, warehouseId, status, assignedTo, notes, userId, tenantId }) {
   const result = await query(
     `
       INSERT INTO low_stock_alert_states (
+        tenant_id,
         product_id,
         warehouse_id,
         status,
@@ -23,7 +25,7 @@ async function saveAlertState({ productId, warehouseId, status, assignedTo, note
         updated_by,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
       ON CONFLICT (product_id, warehouse_id)
       DO UPDATE SET
         status = EXCLUDED.status,
@@ -33,21 +35,23 @@ async function saveAlertState({ productId, warehouseId, status, assignedTo, note
         updated_at = CURRENT_TIMESTAMP
       RETURNING *
     `,
-    [productId, warehouseId, status, assignedTo || null, notes || null, userId],
+    [tenantId, productId, warehouseId, status, assignedTo || null, notes || null, userId],
   )
 
   return result.rows[0]
 }
 
+// 基础 FROM + WHERE 条件（$1=searchPattern, $2=warehouseId, $3=status, $4=tenantId）
 function getAlertBaseQuery() {
   return `
     FROM stock_levels
-    INNER JOIN products ON products.id = stock_levels.product_id
-    INNER JOIN warehouses ON warehouses.id = stock_levels.warehouse_id
-    LEFT JOIN categories ON categories.id = products.category_id
+    INNER JOIN products ON products.id = stock_levels.product_id AND products.tenant_id = stock_levels.tenant_id
+    INNER JOIN warehouses ON warehouses.id = stock_levels.warehouse_id AND warehouses.tenant_id = stock_levels.tenant_id
+    LEFT JOIN categories ON categories.id = products.category_id AND categories.tenant_id = products.tenant_id
     LEFT JOIN product_suppliers ON product_suppliers.product_id = products.id
       AND product_suppliers.is_primary = TRUE
-    LEFT JOIN suppliers ON suppliers.id = product_suppliers.supplier_id
+      AND product_suppliers.tenant_id = products.tenant_id
+    LEFT JOIN suppliers ON suppliers.id = product_suppliers.supplier_id AND suppliers.tenant_id = products.tenant_id
     LEFT JOIN LATERAL (
       SELECT
         stock_movements.created_at,
@@ -58,13 +62,16 @@ function getAlertBaseQuery() {
       FROM stock_movements
       WHERE stock_movements.product_id = products.id
         AND stock_movements.movement_type = 'IN'
+        AND stock_movements.tenant_id = products.tenant_id
       ORDER BY stock_movements.created_at DESC
       LIMIT 1
     ) last_purchase ON TRUE
     LEFT JOIN low_stock_alert_states ON low_stock_alert_states.product_id = stock_levels.product_id
       AND low_stock_alert_states.warehouse_id = stock_levels.warehouse_id
-    LEFT JOIN users AS assignees ON assignees.id = low_stock_alert_states.assigned_to
-    WHERE stock_levels.quantity <= products.reorder_level
+      AND low_stock_alert_states.tenant_id = stock_levels.tenant_id
+    LEFT JOIN users AS assignees ON assignees.id = low_stock_alert_states.assigned_to AND assignees.tenant_id = stock_levels.tenant_id
+    WHERE stock_levels.tenant_id = $4
+      AND stock_levels.quantity <= products.reorder_level
       AND (
         $1 = '%%'
         OR products.name ILIKE $1
@@ -78,13 +85,14 @@ function getAlertBaseQuery() {
 }
 
 router.get('/low-stock', async (req, res) => {
+  const tenantId = getTenantId(req)
   const { search = '', warehouseId = '', status = 'all', all = 'false' } = req.query
   const loadAll = all === 'true'
   const { page, pageSize, offset } = getPaginationParams(req.query)
   const searchPattern = getSearchPattern(search)
 
   try {
-    const itemsParams = [searchPattern, warehouseId || null, status]
+    const itemsParams = [searchPattern, warehouseId || null, status, tenantId]
 
     if (loadAll) {
       const result = await query(
@@ -163,7 +171,7 @@ router.get('/low-stock', async (req, res) => {
             last_purchase.reference_no AS last_purchase_reference_no
           ${getAlertBaseQuery()}
           ORDER BY shortage DESC, products.name ASC
-          LIMIT $4 OFFSET $5
+          LIMIT $5 OFFSET $6
         `,
         [...itemsParams, pageSize, offset],
       ),
@@ -197,6 +205,7 @@ router.get('/low-stock', async (req, res) => {
 })
 
 router.put('/low-stock/:productId/:warehouseId', async (req, res) => {
+  const tenantId = getTenantId(req)
   const { status = 'OPEN', assignedTo = null, notes = '' } = req.body
   const allowedStatuses = ['OPEN', 'READ', 'IGNORED']
 
@@ -209,6 +218,15 @@ router.put('/low-stock/:productId/:warehouseId', async (req, res) => {
   }
 
   try {
+    // 先校验 product/warehouse 属于当前租户，避免跨租户写入告警状态
+    const [productCheck, warehouseCheck] = await Promise.all([
+      query('SELECT id FROM products WHERE id = $1 AND tenant_id = $2', [req.params.productId, tenantId]),
+      query('SELECT id FROM warehouses WHERE id = $1 AND tenant_id = $2', [req.params.warehouseId, tenantId]),
+    ])
+    if (!productCheck.rows[0] || !warehouseCheck.rows[0]) {
+      return res.status(404).json({ message: 'Product or warehouse not found in current company.' })
+    }
+
     const result = await saveAlertState({
       productId: req.params.productId,
       warehouseId: req.params.warehouseId,
@@ -216,6 +234,7 @@ router.put('/low-stock/:productId/:warehouseId', async (req, res) => {
       assignedTo,
       notes,
       userId: req.user.id,
+      tenantId,
     })
 
     req.auditContext = {
@@ -232,6 +251,7 @@ router.put('/low-stock/:productId/:warehouseId', async (req, res) => {
 })
 
 router.post('/low-stock/bulk-update', async (req, res) => {
+  const tenantId = getTenantId(req)
   const { items = [], status = 'OPEN', assignedTo = null, notes = '' } = req.body
   const allowedStatuses = ['OPEN', 'READ', 'IGNORED']
 
@@ -267,6 +287,7 @@ router.post('/low-stock/bulk-update', async (req, res) => {
           assignedTo: resolvedAssignedTo,
           notes: resolvedNotes,
           userId: req.user.id,
+          tenantId,
         })
       }),
     )

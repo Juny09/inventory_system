@@ -4,6 +4,7 @@ async function writeAuditLog(executor, payload) {
   await executor.query(
     `
       INSERT INTO audit_logs (
+        tenant_id,
         user_id,
         user_email,
         user_role,
@@ -15,9 +16,10 @@ async function writeAuditLog(executor, payload) {
         description,
         metadata
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
     `,
     [
+      payload.tenantId || null,
       payload.userId || null,
       payload.userEmail || null,
       payload.userRole || null,

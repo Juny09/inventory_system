@@ -4,6 +4,7 @@ const { authenticateToken, authorizeRoles } = require('../middleware/auth')
 const { ensureStockRow, getStockQuantity, updateStock } = require('../utils/inventoryService')
 const { getPaginationParams, buildPagination } = require('../utils/pagination')
 const { canViewCost } = require('../utils/costAccess')
+const { getTenantId } = require('../utils/tenant')
 
 const router = express.Router()
 
@@ -21,6 +22,7 @@ router.get('/', async (req, res) => {
   const searchPattern = getSearchPattern(search)
   const onlyLowStock = lowStockOnly === 'true'
   const allowCostAccess = canViewCost(req)
+  const tenantId = getTenantId(req)
 
   try {
     if (loadAll) {
@@ -44,24 +46,25 @@ router.get('/', async (req, res) => {
             warehouses.name AS warehouse_name,
             warehouses.code AS warehouse_code
           FROM stock_levels
-          INNER JOIN products ON products.id = stock_levels.product_id
-          INNER JOIN warehouses ON warehouses.id = stock_levels.warehouse_id
-          LEFT JOIN categories ON categories.id = products.category_id
-          WHERE (
-            $1 = '%%'
-            OR products.name ILIKE $1
-            OR products.sku ILIKE $1
-            OR products.barcode ILIKE $1
-            OR categories.name ILIKE $1
-            OR warehouses.name ILIKE $1
-            OR warehouses.code ILIKE $1
-          )
+          INNER JOIN products ON products.id = stock_levels.product_id AND products.tenant_id = stock_levels.tenant_id
+          INNER JOIN warehouses ON warehouses.id = stock_levels.warehouse_id AND warehouses.tenant_id = stock_levels.tenant_id
+          LEFT JOIN categories ON categories.id = products.category_id AND categories.tenant_id = products.tenant_id
+          WHERE stock_levels.tenant_id = $5
+            AND (
+              $1 = '%%'
+              OR products.name ILIKE $1
+              OR products.sku ILIKE $1
+              OR products.barcode ILIKE $1
+              OR categories.name ILIKE $1
+              OR warehouses.name ILIKE $1
+              OR warehouses.code ILIKE $1
+            )
             AND ($2::int IS NULL OR products.category_id = $2::int)
             AND ($3::int IS NULL OR stock_levels.warehouse_id = $3::int)
             AND ($4 = FALSE OR GREATEST(stock_levels.quantity - stock_levels.allocated_quantity, 0) <= products.reorder_level)
           ORDER BY stock_levels.updated_at DESC
         `,
-        [searchPattern, categoryId || null, warehouseId || null, onlyLowStock],
+        [searchPattern, categoryId || null, warehouseId || null, onlyLowStock, tenantId],
       )
 
       return res.json({
@@ -94,47 +97,49 @@ router.get('/', async (req, res) => {
             warehouses.name AS warehouse_name,
             warehouses.code AS warehouse_code
           FROM stock_levels
-          INNER JOIN products ON products.id = stock_levels.product_id
-          INNER JOIN warehouses ON warehouses.id = stock_levels.warehouse_id
-          LEFT JOIN categories ON categories.id = products.category_id
-          WHERE (
-            $1 = '%%'
-            OR products.name ILIKE $1
-            OR products.sku ILIKE $1
-            OR products.barcode ILIKE $1
-            OR categories.name ILIKE $1
-            OR warehouses.name ILIKE $1
-            OR warehouses.code ILIKE $1
-          )
+          INNER JOIN products ON products.id = stock_levels.product_id AND products.tenant_id = stock_levels.tenant_id
+          INNER JOIN warehouses ON warehouses.id = stock_levels.warehouse_id AND warehouses.tenant_id = stock_levels.tenant_id
+          LEFT JOIN categories ON categories.id = products.category_id AND categories.tenant_id = products.tenant_id
+          WHERE stock_levels.tenant_id = $7
+            AND (
+              $1 = '%%'
+              OR products.name ILIKE $1
+              OR products.sku ILIKE $1
+              OR products.barcode ILIKE $1
+              OR categories.name ILIKE $1
+              OR warehouses.name ILIKE $1
+              OR warehouses.code ILIKE $1
+            )
             AND ($2::int IS NULL OR products.category_id = $2::int)
             AND ($3::int IS NULL OR stock_levels.warehouse_id = $3::int)
             AND ($4 = FALSE OR GREATEST(stock_levels.quantity - stock_levels.allocated_quantity, 0) <= products.reorder_level)
           ORDER BY stock_levels.updated_at DESC
           LIMIT $5 OFFSET $6
         `,
-        [searchPattern, categoryId || null, warehouseId || null, onlyLowStock, pageSize, offset],
+        [searchPattern, categoryId || null, warehouseId || null, onlyLowStock, pageSize, offset, tenantId],
       ),
       query(
         `
           SELECT COUNT(*)::int AS total
           FROM stock_levels
-          INNER JOIN products ON products.id = stock_levels.product_id
-          INNER JOIN warehouses ON warehouses.id = stock_levels.warehouse_id
-          LEFT JOIN categories ON categories.id = products.category_id
-          WHERE (
-            $1 = '%%'
-            OR products.name ILIKE $1
-            OR products.sku ILIKE $1
-            OR products.barcode ILIKE $1
-            OR categories.name ILIKE $1
-            OR warehouses.name ILIKE $1
-            OR warehouses.code ILIKE $1
-          )
+          INNER JOIN products ON products.id = stock_levels.product_id AND products.tenant_id = stock_levels.tenant_id
+          INNER JOIN warehouses ON warehouses.id = stock_levels.warehouse_id AND warehouses.tenant_id = stock_levels.tenant_id
+          LEFT JOIN categories ON categories.id = products.category_id AND categories.tenant_id = products.tenant_id
+          WHERE stock_levels.tenant_id = $5
+            AND (
+              $1 = '%%'
+              OR products.name ILIKE $1
+              OR products.sku ILIKE $1
+              OR products.barcode ILIKE $1
+              OR categories.name ILIKE $1
+              OR warehouses.name ILIKE $1
+              OR warehouses.code ILIKE $1
+            )
             AND ($2::int IS NULL OR products.category_id = $2::int)
             AND ($3::int IS NULL OR stock_levels.warehouse_id = $3::int)
             AND ($4 = FALSE OR GREATEST(stock_levels.quantity - stock_levels.allocated_quantity, 0) <= products.reorder_level)
         `,
-        [searchPattern, categoryId || null, warehouseId || null, onlyLowStock],
+        [searchPattern, categoryId || null, warehouseId || null, onlyLowStock, tenantId],
       ),
     ])
 
@@ -155,6 +160,7 @@ router.get('/transactions', async (req, res) => {
   const { search = '', movementType = 'all' } = req.query
   const { page, pageSize, offset } = getPaginationParams(req.query)
   const searchPattern = getSearchPattern(search)
+  const tenantId = getTenantId(req)
 
   try {
     const [itemsResult, totalResult] = await Promise.all([
@@ -173,47 +179,49 @@ router.get('/transactions', async (req, res) => {
             destination_warehouse.name AS destination_warehouse_name,
             users.full_name AS created_by_name
           FROM stock_movements
-          INNER JOIN products ON products.id = stock_movements.product_id
+          INNER JOIN products ON products.id = stock_movements.product_id AND products.tenant_id = stock_movements.tenant_id
           LEFT JOIN warehouses AS source_warehouse ON source_warehouse.id = stock_movements.source_warehouse_id
           LEFT JOIN warehouses AS destination_warehouse ON destination_warehouse.id = stock_movements.destination_warehouse_id
           LEFT JOIN users ON users.id = stock_movements.created_by
-          WHERE (
-            $1 = '%%'
-            OR products.name ILIKE $1
-            OR products.sku ILIKE $1
-            OR stock_movements.reference_no ILIKE $1
-            OR stock_movements.movement_type ILIKE $1
-            OR source_warehouse.name ILIKE $1
-            OR destination_warehouse.name ILIKE $1
-            OR users.full_name ILIKE $1
-          )
+          WHERE stock_movements.tenant_id = $5
+            AND (
+              $1 = '%%'
+              OR products.name ILIKE $1
+              OR products.sku ILIKE $1
+              OR stock_movements.reference_no ILIKE $1
+              OR stock_movements.movement_type ILIKE $1
+              OR source_warehouse.name ILIKE $1
+              OR destination_warehouse.name ILIKE $1
+              OR users.full_name ILIKE $1
+            )
             AND ($2 = 'all' OR stock_movements.movement_type = $2)
           ORDER BY stock_movements.created_at DESC
           LIMIT $3 OFFSET $4
         `,
-        [searchPattern, movementType, pageSize, offset],
+        [searchPattern, movementType, pageSize, offset, tenantId],
       ),
       query(
         `
           SELECT COUNT(*)::int AS total
           FROM stock_movements
-          INNER JOIN products ON products.id = stock_movements.product_id
+          INNER JOIN products ON products.id = stock_movements.product_id AND products.tenant_id = stock_movements.tenant_id
           LEFT JOIN warehouses AS source_warehouse ON source_warehouse.id = stock_movements.source_warehouse_id
           LEFT JOIN warehouses AS destination_warehouse ON destination_warehouse.id = stock_movements.destination_warehouse_id
           LEFT JOIN users ON users.id = stock_movements.created_by
-          WHERE (
-            $1 = '%%'
-            OR products.name ILIKE $1
-            OR products.sku ILIKE $1
-            OR stock_movements.reference_no ILIKE $1
-            OR stock_movements.movement_type ILIKE $1
-            OR source_warehouse.name ILIKE $1
-            OR destination_warehouse.name ILIKE $1
-            OR users.full_name ILIKE $1
-          )
+          WHERE stock_movements.tenant_id = $3
+            AND (
+              $1 = '%%'
+              OR products.name ILIKE $1
+              OR products.sku ILIKE $1
+              OR stock_movements.reference_no ILIKE $1
+              OR stock_movements.movement_type ILIKE $1
+              OR source_warehouse.name ILIKE $1
+              OR destination_warehouse.name ILIKE $1
+              OR users.full_name ILIKE $1
+            )
             AND ($2 = 'all' OR stock_movements.movement_type = $2)
         `,
-        [searchPattern, movementType],
+        [searchPattern, movementType, tenantId],
       ),
     ])
 
@@ -230,6 +238,7 @@ async function createMovement(req, res, movementType) {
   const { productId, warehouseId, sourceWarehouseId, destinationWarehouseId, quantity, referenceNo, notes, supplierId, unitCost, purchaseReason } =
     req.body
   const movementQty = Number(quantity)
+  const tenantId = getTenantId(req)
 
   if (!productId || !movementQty || movementQty <= 0) {
     return res.status(400).json({ message: 'productId and positive quantity are required.' })
@@ -240,24 +249,34 @@ async function createMovement(req, res, movementType) {
   try {
     await client.query('BEGIN')
 
+    // 校验 product 与 warehouse 同属当前租户
+    const productCheck = await client.query('SELECT id FROM products WHERE id = $1 AND tenant_id = $2', [productId, tenantId])
+    if (!productCheck.rows[0]) {
+      throw new Error('Product not found in current company.')
+    }
+
     if (movementType === 'IN') {
       if (!warehouseId) {
         throw new Error('warehouseId is required for stock in.')
       }
+      const wh = await client.query('SELECT id FROM warehouses WHERE id = $1 AND tenant_id = $2', [warehouseId, tenantId])
+      if (!wh.rows[0]) throw new Error('Warehouse not found in current company.')
 
-      await ensureStockRow(client, productId, warehouseId)
-      const currentStock = await getStockQuantity(client, productId, warehouseId)
+      await ensureStockRow(client, productId, warehouseId, tenantId)
+      const currentStock = await getStockQuantity(client, productId, warehouseId, tenantId)
       await updateStock(
         client,
         productId,
         warehouseId,
         currentStock.onHandQuantity + movementQty,
         currentStock.allocatedQuantity,
+        tenantId,
       )
 
       const result = await client.query(
         `
           INSERT INTO stock_movements (
+            tenant_id,
             movement_type,
             product_id,
             destination_warehouse_id,
@@ -269,10 +288,11 @@ async function createMovement(req, res, movementType) {
             purchase_reason,
             created_by
           )
-          VALUES ('IN', $1, $2, $3, $4, $5, $6, $7, $8, $9)
+          VALUES ($1, 'IN', $2, $3, $4, $5, $6, $7, $8, $9, $10)
           RETURNING *
         `,
         [
+          tenantId,
           productId,
           warehouseId,
           movementQty,
@@ -293,9 +313,11 @@ async function createMovement(req, res, movementType) {
       if (!warehouseId) {
         throw new Error('warehouseId is required for stock out.')
       }
+      const wh = await client.query('SELECT id FROM warehouses WHERE id = $1 AND tenant_id = $2', [warehouseId, tenantId])
+      if (!wh.rows[0]) throw new Error('Warehouse not found in current company.')
 
-      await ensureStockRow(client, productId, warehouseId)
-      const currentStock = await getStockQuantity(client, productId, warehouseId)
+      await ensureStockRow(client, productId, warehouseId, tenantId)
+      const currentStock = await getStockQuantity(client, productId, warehouseId, tenantId)
       const currentAvailable = currentStock.onHandQuantity - currentStock.allocatedQuantity
 
       if (currentAvailable < movementQty) {
@@ -308,11 +330,13 @@ async function createMovement(req, res, movementType) {
         warehouseId,
         currentStock.onHandQuantity - movementQty,
         currentStock.allocatedQuantity,
+        tenantId,
       )
 
       const result = await client.query(
         `
           INSERT INTO stock_movements (
+            tenant_id,
             movement_type,
             product_id,
             source_warehouse_id,
@@ -321,10 +345,10 @@ async function createMovement(req, res, movementType) {
             notes,
             created_by
           )
-          VALUES ('OUT', $1, $2, $3, $4, $5, $6)
+          VALUES ($1, 'OUT', $2, $3, $4, $5, $6, $7)
           RETURNING *
         `,
-        [productId, warehouseId, movementQty, referenceNo || null, notes || null, req.user.id],
+        [tenantId, productId, warehouseId, movementQty, referenceNo || null, notes || null, req.user.id],
       )
 
       await client.query('COMMIT')
@@ -339,17 +363,23 @@ async function createMovement(req, res, movementType) {
       throw new Error('Source and destination warehouses must be different.')
     }
 
-    await ensureStockRow(client, productId, sourceWarehouseId)
-    await ensureStockRow(client, productId, destinationWarehouseId)
+    const whCheck = await client.query(
+      'SELECT id FROM warehouses WHERE id = ANY($1::int[]) AND tenant_id = $2',
+      [[sourceWarehouseId, destinationWarehouseId], tenantId],
+    )
+    if (whCheck.rows.length !== 2) throw new Error('Warehouse not found in current company.')
 
-    const sourceStock = await getStockQuantity(client, productId, sourceWarehouseId)
+    await ensureStockRow(client, productId, sourceWarehouseId, tenantId)
+    await ensureStockRow(client, productId, destinationWarehouseId, tenantId)
+
+    const sourceStock = await getStockQuantity(client, productId, sourceWarehouseId, tenantId)
     const sourceAvailable = sourceStock.onHandQuantity - sourceStock.allocatedQuantity
 
     if (sourceAvailable < movementQty) {
       throw new Error('Not enough stock for transfer.')
     }
 
-    const destinationStock = await getStockQuantity(client, productId, destinationWarehouseId)
+    const destinationStock = await getStockQuantity(client, productId, destinationWarehouseId, tenantId)
 
     await updateStock(
       client,
@@ -357,6 +387,7 @@ async function createMovement(req, res, movementType) {
       sourceWarehouseId,
       sourceStock.onHandQuantity - movementQty,
       sourceStock.allocatedQuantity,
+      tenantId,
     )
     await updateStock(
       client,
@@ -364,11 +395,13 @@ async function createMovement(req, res, movementType) {
       destinationWarehouseId,
       destinationStock.onHandQuantity + movementQty,
       destinationStock.allocatedQuantity,
+      tenantId,
     )
 
     const result = await client.query(
       `
         INSERT INTO stock_movements (
+          tenant_id,
           movement_type,
           product_id,
           source_warehouse_id,
@@ -378,10 +411,11 @@ async function createMovement(req, res, movementType) {
           notes,
           created_by
         )
-        VALUES ('TRANSFER', $1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, 'TRANSFER', $2, $3, $4, $5, $6, $7, $8)
         RETURNING *
       `,
       [
+        tenantId,
         productId,
         sourceWarehouseId,
         destinationWarehouseId,
@@ -418,6 +452,7 @@ router.post('/allocate', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (req
   const { productId, warehouseId, quantity, mode = 'reserve', referenceNo, notes } = req.body
   const allocationQty = Number(quantity)
   const normalizedMode = String(mode || '').toLowerCase()
+  const tenantId = getTenantId(req)
 
   if (!productId || !warehouseId || !allocationQty || allocationQty <= 0) {
     return res.status(400).json({ message: 'productId, warehouseId and positive quantity are required.' })
@@ -431,9 +466,15 @@ router.post('/allocate', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (req
 
   try {
     await client.query('BEGIN')
-    await ensureStockRow(client, productId, warehouseId)
 
-    const currentStock = await getStockQuantity(client, productId, warehouseId)
+    const productCheck = await client.query('SELECT id FROM products WHERE id = $1 AND tenant_id = $2', [productId, tenantId])
+    if (!productCheck.rows[0]) throw new Error('Product not found in current company.')
+    const wh = await client.query('SELECT id FROM warehouses WHERE id = $1 AND tenant_id = $2', [warehouseId, tenantId])
+    if (!wh.rows[0]) throw new Error('Warehouse not found in current company.')
+
+    await ensureStockRow(client, productId, warehouseId, tenantId)
+
+    const currentStock = await getStockQuantity(client, productId, warehouseId, tenantId)
     const nextAllocated =
       normalizedMode === 'reserve'
         ? currentStock.allocatedQuantity + allocationQty
@@ -447,11 +488,12 @@ router.post('/allocate', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (req
       throw new Error('Allocated quantity cannot exceed on hand quantity.')
     }
 
-    await updateStock(client, productId, warehouseId, currentStock.onHandQuantity, nextAllocated)
+    await updateStock(client, productId, warehouseId, currentStock.onHandQuantity, nextAllocated, tenantId)
 
     const result = await client.query(
       `
         INSERT INTO stock_movements (
+          tenant_id,
           movement_type,
           product_id,
           source_warehouse_id,
@@ -460,10 +502,11 @@ router.post('/allocate', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (req
           notes,
           created_by
         )
-        VALUES ('OUT', $1, $2, $3, $4, $5, $6)
+        VALUES ($1, 'OUT', $2, $3, $4, $5, $6, $7)
         RETURNING *
       `,
       [
+        tenantId,
         productId,
         warehouseId,
         allocationQty,

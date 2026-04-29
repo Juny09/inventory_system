@@ -19,24 +19,33 @@ function normalizeUser(rawUser) {
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem('inventory_token') || '')
   const user = ref(normalizeUser(JSON.parse(localStorage.getItem('inventory_user') || 'null')))
+  const tenant = ref(JSON.parse(localStorage.getItem('inventory_tenant') || 'null'))
   const loading = ref(false)
   const currencyStore = useCurrencyStore()
   const notificationsStore = useNotificationsStore()
 
   const isAuthenticated = computed(() => Boolean(token.value))
 
-  function persistAuth(nextToken, nextUser) {
+  function persistAuth(nextToken, nextUser, nextTenant) {
     token.value = nextToken
     user.value = normalizeUser(nextUser)
+    tenant.value = nextTenant || null
     localStorage.setItem('inventory_token', nextToken)
     localStorage.setItem('inventory_user', JSON.stringify(user.value))
+    if (nextTenant) {
+      localStorage.setItem('inventory_tenant', JSON.stringify(nextTenant))
+    } else {
+      localStorage.removeItem('inventory_tenant')
+    }
   }
 
   function clearAuth() {
     token.value = ''
     user.value = null
+    tenant.value = null
     localStorage.removeItem('inventory_token')
     localStorage.removeItem('inventory_user')
+    localStorage.removeItem('inventory_tenant')
     notificationsStore.reset()
   }
 
@@ -46,12 +55,27 @@ export const useAuthStore = defineStore('auth', () => {
 
     try {
       const { data } = await api.post('/auth/login', payload)
-      persistAuth(data.token, data.user)
+      persistAuth(data.token, data.user, data.tenant)
       if (data.user?.preferred_currency) {
         currencyStore.setCurrency(data.user.preferred_currency)
       }
       await notificationsStore.refresh().catch(() => {})
       return data.user
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // 注册新公司（租户）并自动登录
+  async function registerTenant(payload) {
+    loading.value = true
+    try {
+      const { data } = await api.post('/auth/register-tenant', payload)
+      persistAuth(data.token, data.user, data.tenant)
+      if (data.user?.preferred_currency) {
+        currencyStore.setCurrency(data.user.preferred_currency)
+      }
+      return data
     } finally {
       loading.value = false
     }
@@ -65,6 +89,10 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const { data } = await api.get('/auth/me')
       user.value = normalizeUser(data.user)
+      if (data.tenant) {
+        tenant.value = data.tenant
+        localStorage.setItem('inventory_tenant', JSON.stringify(data.tenant))
+      }
       localStorage.setItem('inventory_user', JSON.stringify(user.value))
       if (data.user?.preferred_currency) {
         currencyStore.setCurrency(data.user.preferred_currency)
@@ -80,9 +108,11 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     token,
     user,
+    tenant,
     loading,
     isAuthenticated,
     login,
+    registerTenant,
     fetchMe,
     clearAuth,
   }

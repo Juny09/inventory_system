@@ -2,6 +2,7 @@ const express = require('express')
 const { query } = require('../config/db')
 const { authenticateToken, authorizeRoles } = require('../middleware/auth')
 const { getPaginationParams, buildPagination } = require('../utils/pagination')
+const { getTenantId } = require('../utils/tenant')
 
 const router = express.Router()
 
@@ -13,6 +14,7 @@ function normalizeType(type) {
 }
 
 router.get('/', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (req, res) => {
+  const tenantId = getTenantId(req)
   const { type = '', unreadOnly = 'false' } = req.query
   const normalizedType = normalizeType(type)
   const onlyUnread = unreadOnly === 'true'
@@ -24,23 +26,25 @@ router.get('/', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (req, res) =>
         `
           SELECT *
           FROM system_notifications
-          WHERE (target_role IS NULL OR target_role = $1)
+          WHERE tenant_id = $6
+            AND (target_role IS NULL OR target_role = $1)
             AND ($2 = '' OR notification_type = $2)
             AND ($3 = FALSE OR is_read = FALSE)
           ORDER BY created_at DESC
           LIMIT $4 OFFSET $5
         `,
-        [req.user.role, normalizedType, onlyUnread, pageSize, offset],
+        [req.user.role, normalizedType, onlyUnread, pageSize, offset, tenantId],
       ),
       query(
         `
           SELECT COUNT(*)::int AS total
           FROM system_notifications
-          WHERE (target_role IS NULL OR target_role = $1)
+          WHERE tenant_id = $4
+            AND (target_role IS NULL OR target_role = $1)
             AND ($2 = '' OR notification_type = $2)
             AND ($3 = FALSE OR is_read = FALSE)
         `,
-        [req.user.role, normalizedType, onlyUnread],
+        [req.user.role, normalizedType, onlyUnread, tenantId],
       ),
     ])
 
@@ -54,15 +58,16 @@ router.get('/', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (req, res) =>
 })
 
 router.post('/:id/read', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (req, res) => {
+  const tenantId = getTenantId(req)
   try {
     const result = await query(
       `
         UPDATE system_notifications
         SET is_read = TRUE
-        WHERE id = $1
+        WHERE id = $1 AND tenant_id = $2
         RETURNING *
       `,
-      [req.params.id],
+      [req.params.id, tenantId],
     )
 
     if (!result.rows[0]) {

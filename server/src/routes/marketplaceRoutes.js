@@ -6,6 +6,8 @@ const { writeAuditLog } = require('../utils/auditLog')
 const { createRateLimiter } = require('../middleware/rateLimit')
 const { syncMarketplaceInventory, getChannelConfig } = require('../services/marketplaceSyncService')
 const { syncMarketplaceOrders } = require('../services/orderSyncService')
+const { getTenantId } = require('../utils/tenant')
+const { getPaginationParams, buildPagination } = require('../utils/pagination')
 
 const router = express.Router()
 const syncRateLimit = createRateLimiter({ namespace: 'marketplace-sync', windowMs: 60 * 1000, max: 12 })
@@ -17,20 +19,21 @@ function isSupportedChannel(channel) {
   return ['shopee', 'lazada', 'tiktok'].includes(channel)
 }
 
-async function logMarketplaceError({ channel, operation, errorCode, message, details, requestId, userId }) {
+async function logMarketplaceError({ channel, operation, errorCode, message, details, requestId, userId, tenantId }) {
   await query(
     `
       INSERT INTO marketplace_error_logs (
-        channel, operation, error_code, message, details, request_id, created_by
+        tenant_id, channel, operation, error_code, message, details, request_id, created_by
       )
-      VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
     `,
-    [channel, operation, errorCode, message, JSON.stringify(details || {}), requestId || null, userId || null],
+    [tenantId, channel, operation, errorCode, message, JSON.stringify(details || {}), requestId || null, userId || null],
   )
 }
 
 async function logMarketplaceAudit(req, { action, entityId = null, description, metadata = {} }) {
   await writeAuditLog(query, {
+    tenantId: req.tenantId || req.user?.tenantId || null,
     userId: req.user?.id || null,
     userEmail: req.user?.email || null,
     userRole: req.user?.role || null,
@@ -44,7 +47,8 @@ async function logMarketplaceAudit(req, { action, entityId = null, description, 
   })
 }
 
-router.get('/connections', authorizeRoles('ADMIN', 'MANAGER'), async (_req, res) => {
+router.get('/connections', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  const tenantId = getTenantId(req)
   try {
     const result = await query(
       `
@@ -59,8 +63,10 @@ router.get('/connections', authorizeRoles('ADMIN', 'MANAGER'), async (_req, res)
           updated_by,
           updated_at
         FROM marketplace_connections
+        WHERE tenant_id = $1
         ORDER BY channel ASC
       `,
+      [tenantId],
     )
 
     return res.success({ items: result.rows })
@@ -70,6 +76,7 @@ router.get('/connections', authorizeRoles('ADMIN', 'MANAGER'), async (_req, res)
 })
 
 router.put('/connections/:channel', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  const tenantId = getTenantId(req)
   const channel = String(req.params.channel || '').toLowerCase()
   const {
     shopName = '',
@@ -88,10 +95,10 @@ router.put('/connections/:channel', authorizeRoles('ADMIN', 'MANAGER'), async (r
     const result = await query(
       `
         INSERT INTO marketplace_connections (
-          channel, shop_name, api_base_url, access_token, refresh_token, metadata, is_active, updated_by, updated_at
+          tenant_id, channel, shop_name, api_base_url, access_token, refresh_token, metadata, is_active, updated_by, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, CURRENT_TIMESTAMP)
-        ON CONFLICT (channel)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, CURRENT_TIMESTAMP)
+        ON CONFLICT (tenant_id, channel)
         DO UPDATE SET
           shop_name = EXCLUDED.shop_name,
           api_base_url = EXCLUDED.api_base_url,
@@ -104,6 +111,7 @@ router.put('/connections/:channel', authorizeRoles('ADMIN', 'MANAGER'), async (r
         RETURNING id, channel, shop_name, api_base_url, is_active, updated_at
       `,
       [
+        tenantId,
         channel,
         shopName || null,
         apiBaseUrl || null,
@@ -136,6 +144,7 @@ router.put('/connections/:channel', authorizeRoles('ADMIN', 'MANAGER'), async (r
       details: { body: { shopName, apiBaseUrl, isActive } },
       requestId: req.requestId,
       userId: req.user?.id,
+      tenantId,
     })
     return res.fail('MARKETPLACE_CONNECTION_SAVE_FAILED', 'Failed to save marketplace connection.', { error: error.message }, 500)
   }
@@ -146,6 +155,7 @@ router.post(
   authorizeRoles('ADMIN', 'MANAGER'),
   syncRateLimit,
   async (req, res) => {
+    const tenantId = getTenantId(req)
     const channel = String(req.params.channel || '').toLowerCase()
 
     if (!isSupportedChannel(channel)) {
@@ -153,7 +163,7 @@ router.post(
     }
 
     try {
-      const result = await syncMarketplaceInventory(channel, req.user?.id)
+      const result = await syncMarketplaceInventory(channel, req.user?.id, tenantId)
       await logMarketplaceAudit(req, {
         action: 'MARKETPLACE_INVENTORY_SYNC',
         entityId: channel,
@@ -172,10 +182,10 @@ router.post(
     } catch (error) {
       await query(
         `
-          INSERT INTO marketplace_sync_logs (channel, sync_type, status, records_count, raw_response, synced_by)
-          VALUES ($1, 'inventory', 'FAILED', 0, $2::jsonb, $3)
+          INSERT INTO marketplace_sync_logs (tenant_id, channel, sync_type, status, records_count, raw_response, synced_by)
+          VALUES ($1, $2, 'inventory', 'FAILED', 0, $3::jsonb, $4)
         `,
-        [channel, JSON.stringify({ error: error.message }), req.user?.id || null],
+        [tenantId, channel, JSON.stringify({ error: error.message }), req.user?.id || null],
       )
       await logMarketplaceError({
         channel,
@@ -185,6 +195,7 @@ router.post(
         details: {},
         requestId: req.requestId,
         userId: req.user?.id,
+        tenantId,
       })
       await logMarketplaceAudit(req, {
         action: 'MARKETPLACE_INVENTORY_SYNC',
@@ -202,6 +213,7 @@ router.post(
 )
 
 router.post('/oauth/:channel/start', authorizeRoles('ADMIN', 'MANAGER'), oauthRateLimit, async (req, res) => {
+  const tenantId = getTenantId(req)
   const channel = String(req.params.channel || '').toLowerCase()
   const redirectUri = String(req.body?.redirectUri || '').trim()
 
@@ -220,10 +232,10 @@ router.post('/oauth/:channel/start', authorizeRoles('ADMIN', 'MANAGER'), oauthRa
       `
         SELECT api_base_url, metadata
         FROM marketplace_connections
-        WHERE channel = $1
+        WHERE channel = $1 AND tenant_id = $2
         LIMIT 1
       `,
-      [channel],
+      [channel, tenantId],
     )
     const metadata = connectionResult.rows[0]?.metadata || {}
     const authPath = metadata.authPath || '/oauth/authorize'
@@ -234,10 +246,10 @@ router.post('/oauth/:channel/start', authorizeRoles('ADMIN', 'MANAGER'), oauthRa
 
     await query(
       `
-        INSERT INTO marketplace_oauth_states (channel, state_token, redirect_uri, expires_at, created_by)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO marketplace_oauth_states (tenant_id, channel, state_token, redirect_uri, expires_at, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6)
       `,
-      [channel, stateToken, redirectUri, expiresAt, req.user.id],
+      [tenantId, channel, stateToken, redirectUri, expiresAt, req.user.id],
     )
 
     await logMarketplaceAudit(req, {
@@ -263,12 +275,14 @@ router.post('/oauth/:channel/start', authorizeRoles('ADMIN', 'MANAGER'), oauthRa
       details: { redirectUri },
       requestId: req.requestId,
       userId: req.user?.id,
+      tenantId,
     })
     return res.fail('MARKETPLACE_OAUTH_START_FAILED', 'Failed to start OAuth flow.', { error: error.message }, 500)
   }
 })
 
 router.get('/oauth/:channel/callback', authorizeRoles('ADMIN', 'MANAGER'), oauthRateLimit, async (req, res) => {
+  const tenantId = getTenantId(req)
   const channel = String(req.params.channel || '').toLowerCase()
   const state = String(req.query.state || '')
   const code = String(req.query.code || '')
@@ -287,10 +301,10 @@ router.get('/oauth/:channel/callback', authorizeRoles('ADMIN', 'MANAGER'), oauth
       `
         SELECT *
         FROM marketplace_oauth_states
-        WHERE channel = $1 AND state_token = $2
+        WHERE channel = $1 AND state_token = $2 AND tenant_id = $3
         LIMIT 1
       `,
-      [channel, state],
+      [channel, state, tenantId],
     )
     const stateRow = stateResult.rows[0]
 
@@ -311,6 +325,7 @@ router.get('/oauth/:channel/callback', authorizeRoles('ADMIN', 'MANAGER'), oauth
         details: { state, code },
         requestId: req.requestId,
         userId: req.user?.id,
+        tenantId,
       })
       return res.fail('MARKETPLACE_OAUTH_FAILED', 'OAuth callback returned error.', { oauthError }, 400)
     }
@@ -319,10 +334,10 @@ router.get('/oauth/:channel/callback', authorizeRoles('ADMIN', 'MANAGER'), oauth
       `
         SELECT metadata
         FROM marketplace_connections
-        WHERE channel = $1
+        WHERE channel = $1 AND tenant_id = $2
         LIMIT 1
       `,
-      [channel],
+      [channel, tenantId],
     )
     const metadata = connectionResult.rows[0]?.metadata || {}
     metadata.oauth = {
@@ -334,19 +349,22 @@ router.get('/oauth/:channel/callback', authorizeRoles('ADMIN', 'MANAGER'), oauth
 
     await query(
       `
-        INSERT INTO marketplace_connections (channel, metadata, updated_by, updated_at, is_active)
-        VALUES ($1, $2::jsonb, $3, CURRENT_TIMESTAMP, TRUE)
-        ON CONFLICT (channel)
+        INSERT INTO marketplace_connections (tenant_id, channel, metadata, updated_by, updated_at, is_active)
+        VALUES ($1, $2, $3::jsonb, $4, CURRENT_TIMESTAMP, TRUE)
+        ON CONFLICT (tenant_id, channel)
         DO UPDATE SET
           metadata = EXCLUDED.metadata,
           updated_by = EXCLUDED.updated_by,
           updated_at = CURRENT_TIMESTAMP,
           is_active = TRUE
       `,
-      [channel, JSON.stringify(metadata), req.user.id],
+      [tenantId, channel, JSON.stringify(metadata), req.user.id],
     )
 
-    await query(`DELETE FROM marketplace_oauth_states WHERE id = $1`, [stateRow.id])
+    await query(
+      `DELETE FROM marketplace_oauth_states WHERE id = $1 AND tenant_id = $2`,
+      [stateRow.id, tenantId],
+    )
     await logMarketplaceAudit(req, {
       action: 'MARKETPLACE_OAUTH_CALLBACK',
       entityId: channel,
@@ -369,19 +387,21 @@ router.get('/oauth/:channel/callback', authorizeRoles('ADMIN', 'MANAGER'), oauth
       details: { state, code },
       requestId: req.requestId,
       userId: req.user?.id,
+      tenantId,
     })
     return res.fail('MARKETPLACE_OAUTH_CALLBACK_FAILED', 'Failed to handle OAuth callback.', { error: error.message }, 500)
   }
 })
 
 router.post('/connections/:channel/test', authorizeRoles('ADMIN', 'MANAGER'), syncRateLimit, async (req, res) => {
+  const tenantId = getTenantId(req)
   const channel = String(req.params.channel || '').toLowerCase()
   if (!isSupportedChannel(channel)) {
     return res.fail('UNSUPPORTED_CHANNEL', 'Unsupported channel.', { channel }, 400)
   }
 
   try {
-    const config = await getChannelConfig(channel)
+    const config = await getChannelConfig(channel, tenantId)
 
     if (!config?.endpoint || !config?.token) {
       return res.fail('MISSING_CHANNEL_CONFIG', 'Channel endpoint/token not configured.', { channel }, 400)
@@ -423,6 +443,7 @@ router.post('/connections/:channel/test', authorizeRoles('ADMIN', 'MANAGER'), sy
       details: {},
       requestId: req.requestId,
       userId: req.user?.id,
+      tenantId,
     })
     await logMarketplaceAudit(req, {
       action: 'MARKETPLACE_CONNECTION_TEST',
@@ -434,7 +455,8 @@ router.post('/connections/:channel/test', authorizeRoles('ADMIN', 'MANAGER'), sy
   }
 })
 
-router.get('/sync-logs', authorizeRoles('ADMIN', 'MANAGER'), async (_req, res) => {
+router.get('/sync-logs', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  const tenantId = getTenantId(req)
   try {
     const result = await query(
       `
@@ -442,10 +464,12 @@ router.get('/sync-logs', authorizeRoles('ADMIN', 'MANAGER'), async (_req, res) =
           marketplace_sync_logs.*,
           users.full_name AS synced_by_name
         FROM marketplace_sync_logs
-        LEFT JOIN users ON users.id = marketplace_sync_logs.synced_by
+        LEFT JOIN users ON users.id = marketplace_sync_logs.synced_by AND users.tenant_id = marketplace_sync_logs.tenant_id
+        WHERE marketplace_sync_logs.tenant_id = $1
         ORDER BY marketplace_sync_logs.synced_at DESC
         LIMIT 50
       `,
+      [tenantId],
     )
 
     return res.success({ items: result.rows })
@@ -455,6 +479,7 @@ router.get('/sync-logs', authorizeRoles('ADMIN', 'MANAGER'), async (_req, res) =
 })
 
 router.get('/snapshots', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  const tenantId = getTenantId(req)
   const channel = String(req.query.channel || '').toLowerCase()
 
   try {
@@ -467,12 +492,15 @@ router.get('/snapshots', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =>
           warehouses.name AS warehouse_name
         FROM marketplace_inventory_snapshots
         LEFT JOIN products ON products.id = marketplace_inventory_snapshots.product_id
+          AND products.tenant_id = marketplace_inventory_snapshots.tenant_id
         LEFT JOIN warehouses ON warehouses.id = marketplace_inventory_snapshots.warehouse_id
-        WHERE ($1 = '' OR marketplace_inventory_snapshots.channel = $1)
+          AND warehouses.tenant_id = marketplace_inventory_snapshots.tenant_id
+        WHERE marketplace_inventory_snapshots.tenant_id = $2
+          AND ($1 = '' OR marketplace_inventory_snapshots.channel = $1)
         ORDER BY marketplace_inventory_snapshots.synced_at DESC
         LIMIT 500
       `,
-      [channel],
+      [channel, tenantId],
     )
 
     return res.success({ items: result.rows })
@@ -481,44 +509,55 @@ router.get('/snapshots', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =>
   }
 })
 
-router.get('/status/overview', authorizeRoles('ADMIN', 'MANAGER'), async (_req, res) => {
+router.get('/status/overview', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  const tenantId = getTenantId(req)
   try {
     const [connectionsResult, syncResult, orderResult, shippingResult, errorsResult] = await Promise.all([
       query(
         `
           SELECT channel, shop_name, is_active, updated_at
           FROM marketplace_connections
+          WHERE tenant_id = $1
           ORDER BY channel ASC
         `,
+        [tenantId],
       ),
       query(
         `
           SELECT channel, MAX(synced_at) AS last_sync_at, COUNT(*) FILTER (WHERE status = 'FAILED')::int AS failed_sync_count
           FROM marketplace_sync_logs
+          WHERE tenant_id = $1
           GROUP BY channel
         `,
+        [tenantId],
       ),
       query(
         `
           SELECT channel, COUNT(*)::int AS total_orders
           FROM marketplace_orders
+          WHERE tenant_id = $1
           GROUP BY channel
         `,
+        [tenantId],
       ),
       query(
         `
           SELECT channel, COUNT(*)::int AS total_shipments
           FROM shipping_shipments
+          WHERE tenant_id = $1
           GROUP BY channel
         `,
+        [tenantId],
       ),
       query(
         `
           SELECT channel, COUNT(*)::int AS total_errors
           FROM marketplace_error_logs
-          WHERE created_at >= NOW() - INTERVAL '7 days'
+          WHERE tenant_id = $1
+            AND created_at >= NOW() - INTERVAL '7 days'
           GROUP BY channel
         `,
+        [tenantId],
       ),
     ])
 
@@ -554,8 +593,9 @@ router.get('/status/overview', authorizeRoles('ADMIN', 'MANAGER'), async (_req, 
 })
 
 router.get('/errors', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  const tenantId = getTenantId(req)
   const channel = String(req.query.channel || '').toLowerCase()
-  const { page, pageSize, offset } = require('../utils/pagination').getPaginationParams(req.query)
+  const { page, pageSize, offset } = getPaginationParams(req.query)
 
   if (channel && !isSupportedChannel(channel)) {
     return res.fail('UNSUPPORTED_CHANNEL', 'Unsupported channel.', { channel }, 400)
@@ -567,25 +607,27 @@ router.get('/errors', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
         `
           SELECT id, channel, operation, error_code, message, details, request_id, created_by, created_at
           FROM marketplace_error_logs
-          WHERE ($1 = '' OR channel = $1)
+          WHERE tenant_id = $4
+            AND ($1 = '' OR channel = $1)
           ORDER BY created_at DESC
           LIMIT $2 OFFSET $3
         `,
-        [channel, pageSize, offset],
+        [channel, pageSize, offset, tenantId],
       ),
       query(
         `
           SELECT COUNT(*)::int AS total
           FROM marketplace_error_logs
-          WHERE ($1 = '' OR channel = $1)
+          WHERE tenant_id = $2
+            AND ($1 = '' OR channel = $1)
         `,
-        [channel],
+        [channel, tenantId],
       ),
     ])
 
     return res.success({
       items: itemsResult.rows,
-      pagination: require('../utils/pagination').buildPagination(totalResult.rows[0].total, page, pageSize),
+      pagination: buildPagination(totalResult.rows[0].total, page, pageSize),
     })
   } catch (error) {
     return res.fail('MARKETPLACE_ERRORS_LOAD_FAILED', 'Failed to load marketplace errors.', { error: error.message }, 500)
@@ -593,13 +635,14 @@ router.get('/errors', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
 })
 
 router.post('/orders/sync/:channel', authorizeRoles('ADMIN', 'MANAGER'), syncRateLimit, async (req, res) => {
+  const tenantId = getTenantId(req)
   const channel = String(req.params.channel || '').toLowerCase()
   if (!isSupportedChannel(channel)) {
     return res.fail('UNSUPPORTED_CHANNEL', 'Unsupported channel.', { channel }, 400)
   }
 
   try {
-    const result = await syncMarketplaceOrders(channel, req.user?.id)
+    const result = await syncMarketplaceOrders(channel, req.user?.id, tenantId)
     await logMarketplaceAudit(req, {
       action: 'MARKETPLACE_ORDER_SYNC',
       entityId: channel,
@@ -613,10 +656,10 @@ router.post('/orders/sync/:channel', authorizeRoles('ADMIN', 'MANAGER'), syncRat
   } catch (error) {
     await query(
       `
-        INSERT INTO marketplace_sync_logs (channel, sync_type, status, records_count, raw_response, synced_by)
-        VALUES ($1, 'orders', 'FAILED', 0, $2::jsonb, $3)
+        INSERT INTO marketplace_sync_logs (tenant_id, channel, sync_type, status, records_count, raw_response, synced_by)
+        VALUES ($1, $2, 'orders', 'FAILED', 0, $3::jsonb, $4)
       `,
-      [channel, JSON.stringify({ error: error.message }), req.user?.id || null],
+      [tenantId, channel, JSON.stringify({ error: error.message }), req.user?.id || null],
     )
     await logMarketplaceError({
       channel,
@@ -626,6 +669,7 @@ router.post('/orders/sync/:channel', authorizeRoles('ADMIN', 'MANAGER'), syncRat
       details: {},
       requestId: req.requestId,
       userId: req.user?.id,
+      tenantId,
     })
     await logMarketplaceAudit(req, {
       action: 'MARKETPLACE_ORDER_SYNC',

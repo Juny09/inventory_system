@@ -16,8 +16,8 @@ function normalizeOrders(payload) {
   }))
 }
 
-async function syncMarketplaceOrders(channel, userId) {
-  const config = await getChannelConfig(channel)
+async function syncMarketplaceOrders(channel, userId, tenantId) {
+  const config = await getChannelConfig(channel, tenantId)
 
   if (!config?.endpoint || !config?.token) {
     throw new Error(`Missing ${channel} endpoint or token. Please configure marketplace connection first.`)
@@ -43,10 +43,10 @@ async function syncMarketplaceOrders(channel, userId) {
     const orderResult = await query(
       `
         INSERT INTO marketplace_orders (
-          channel, external_order_id, order_status, buyer_name, total_amount, currency, order_created_at, payload, synced_at
+          tenant_id, channel, external_order_id, order_status, buyer_name, total_amount, currency, order_created_at, payload, synced_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, CURRENT_TIMESTAMP)
-        ON CONFLICT (channel, external_order_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, CURRENT_TIMESTAMP)
+        ON CONFLICT (tenant_id, channel, external_order_id)
         DO UPDATE SET
           order_status = EXCLUDED.order_status,
           buyer_name = EXCLUDED.buyer_name,
@@ -58,6 +58,7 @@ async function syncMarketplaceOrders(channel, userId) {
         RETURNING id
       `,
       [
+        tenantId,
         channel,
         order.externalOrderId,
         order.orderStatus,
@@ -71,22 +72,30 @@ async function syncMarketplaceOrders(channel, userId) {
 
     const marketplaceOrderId = orderResult.rows[0].id
 
-    await query(`DELETE FROM marketplace_order_items WHERE marketplace_order_id = $1`, [marketplaceOrderId])
+    // 租户内清空旧明细
+    await query(
+      `DELETE FROM marketplace_order_items WHERE marketplace_order_id = $1 AND tenant_id = $2`,
+      [marketplaceOrderId, tenantId],
+    )
 
     for (const item of order.items) {
       const externalSku = String(item.sku || item.externalSku || '').trim()
       const matchedProduct = externalSku
-        ? await query(`SELECT id FROM products WHERE sku = $1 LIMIT 1`, [externalSku])
+        ? await query(
+            `SELECT id FROM products WHERE sku = $1 AND tenant_id = $2 LIMIT 1`,
+            [externalSku, tenantId],
+          )
         : { rows: [] }
 
       await query(
         `
           INSERT INTO marketplace_order_items (
-            marketplace_order_id, external_item_id, external_sku, product_id, quantity, unit_price, payload
+            tenant_id, marketplace_order_id, external_item_id, external_sku, product_id, quantity, unit_price, payload
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
         `,
         [
+          tenantId,
           marketplaceOrderId,
           String(item.itemId || item.externalItemId || ''),
           externalSku || null,
@@ -101,10 +110,10 @@ async function syncMarketplaceOrders(channel, userId) {
 
   await query(
     `
-      INSERT INTO marketplace_sync_logs (channel, sync_type, status, records_count, raw_response, synced_by)
-      VALUES ($1, 'orders', 'SUCCESS', $2, $3::jsonb, $4)
+      INSERT INTO marketplace_sync_logs (tenant_id, channel, sync_type, status, records_count, raw_response, synced_by)
+      VALUES ($1, $2, 'orders', 'SUCCESS', $3, $4::jsonb, $5)
     `,
-    [channel, normalizedOrders.length, JSON.stringify(payload || {}), userId || null],
+    [tenantId, channel, normalizedOrders.length, JSON.stringify(payload || {}), userId || null],
   )
 
   return {

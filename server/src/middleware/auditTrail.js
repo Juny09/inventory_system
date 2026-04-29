@@ -53,9 +53,11 @@ function auditTrail(req, res, next) {
     }
 
     const actor = req.auditUser || req.user || null
+    const tenantId = req.tenantId || req.auditUser?.tenantId || req.user?.tenantId || null
 
     try {
       await writeAuditLog(pool, {
+        tenantId,
         userId: actor?.id || null,
         userEmail: actor?.email || null,
         userRole: actor?.role || null,
