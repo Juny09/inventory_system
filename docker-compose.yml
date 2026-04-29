@@ -27,7 +27,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: 4000
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/inventory_system
+      DATABASE_URL: postgresql://inventory_user:euInvooTScNGIweuFuz2yDCHnz8KFaPO@db:5432/inventory_system
       JWT_SECRET: change_this_to_a_secure_secret
       SHOPEE_SYNC_ENDPOINT: ""
       SHOPEE_ACCESS_TOKEN: ""
