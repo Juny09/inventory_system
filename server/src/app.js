@@ -22,6 +22,7 @@ const notificationRoutes = require('./routes/notificationRoutes')
 const settingsRoutes = require('./routes/settingsRoutes')
 const bankStatementRoutes = require('./routes/bankStatementRoutes')
 const supplierPaymentRoutes = require('./routes/supplierPaymentRoutes')
+const adminRoutes = require('./routes/adminRoutes')
 
 const app = express()
 
@@ -62,6 +63,7 @@ app.get('/api/health', (_req, res) => {
 })
 
 app.use('/api/auth', authRoutes)
+app.use('/api/admin', adminRoutes)
 app.use('/api/bank-statements', bankStatementRoutes)
 app.use('/api', masterRoutes)
 app.use('/api/inventory', inventoryRoutes)

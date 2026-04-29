@@ -79,8 +79,17 @@ function requireTenant(req, res, next) {
   next()
 }
 
+// 仅允许平台级 Super Admin 访问（跨租户管理）
+function requireSuperAdmin(req, res, next) {
+  if (!req.user || req.user.role !== 'SUPER_ADMIN') {
+    return res.status(403).json({ message: 'Super Admin permission required.' })
+  }
+  next()
+}
+
 module.exports = {
   authenticateToken,
   authorizeRoles,
   requireTenant,
+  requireSuperAdmin,
 }

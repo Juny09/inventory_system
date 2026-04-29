@@ -41,7 +41,17 @@ router.post('/login', loginRateLimit, async (req, res) => {
     }
 
     if (tenant.status !== 'ACTIVE') {
-      return res.status(403).json({ message: 'Company account is suspended.' })
+      // 按状态返回具体提示，方便前端区分
+      const statusMessages = {
+        PENDING: 'Your company registration is pending Super Admin approval. Please wait.',
+        REJECTED: 'Your company registration has been rejected. Please contact the platform administrator.',
+        SUSPENDED: 'Company account is suspended. Please contact the platform administrator.',
+        DELETED: 'Company account has been deleted.',
+      }
+      return res.status(403).json({
+        message: statusMessages[tenant.status] || 'Company account is not active.',
+        tenantStatus: tenant.status,
+      })
     }
 
     // 2. 在该租户下找用户
@@ -129,16 +139,16 @@ router.post('/register-tenant', registerRateLimit, async (req, res) => {
       return res.status(409).json({ message: 'Company code already taken.' })
     }
 
-    // 创建租户
+    // 创建租户（status=PENDING，需要 Super Admin 审核）
     const tenantResult = await client.query(
       `INSERT INTO tenants (code, name, status, plan, max_users, contact_email, contact_phone)
-       VALUES ($1, $2, 'ACTIVE', 'FREE', 5, $3, $4)
-       RETURNING id, code, name`,
+       VALUES ($1, $2, 'PENDING', 'FREE', 5, $3, $4)
+       RETURNING id, code, name, status`,
       [code, tenantName, adminEmail, contactPhone || null],
     )
     const tenant = tenantResult.rows[0]
 
-    // 创建管理员账号
+    // 创建管理员账号（账号激活但要等租户 approved 才能登录）
     const passwordHash = await bcrypt.hash(password, 10)
     const userResult = await client.query(
       `INSERT INTO users (full_name, email, password_hash, role, tenant_id)
@@ -150,18 +160,12 @@ router.post('/register-tenant', registerRateLimit, async (req, res) => {
 
     await client.query('COMMIT')
 
-    // 签发 token 自动登录
-    const token = jwt.sign(
-      { userId: user.id, role: user.role, tenantId: user.tenant_id },
-      process.env.JWT_SECRET,
-      { expiresIn: '8h' },
-    )
-
+    // 不签发 token：须等 Super Admin 批准后才能登录
     return res.status(201).json({
-      token,
       user,
       tenant,
-      message: 'Company registered successfully.',
+      pending: true,
+      message: 'Registration submitted. Your account is pending Super Admin approval, you will be notified once approved.',
     })
   } catch (error) {
     await client.query('ROLLBACK')

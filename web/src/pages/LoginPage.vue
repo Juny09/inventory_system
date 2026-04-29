@@ -79,11 +79,16 @@ async function submitLogin() {
       ...form,
       tenantCode: (form.tenantCode || '').trim().toUpperCase(),
     }
-    await authStore.login(normalized)
+    const loggedInUser = await authStore.login(normalized)
     // 记住公司代码 + 邮箱，下次自动回填（密码不保存）
     localStorage.setItem('inventory_last_tenant_code', normalized.tenantCode)
     localStorage.setItem('inventory_last_email', normalized.email || '')
-    router.push({ name: 'dashboard' })
+    // Super Admin 登录后跳到租户审核页
+    if (loggedInUser?.role === 'SUPER_ADMIN') {
+      router.push({ name: 'admin-tenants' })
+    } else {
+      router.push({ name: 'dashboard' })
+    }
   } catch (error) {
     errorMessage.value = error.response?.data?.message || 'Unable to login.'
   }
@@ -104,9 +109,20 @@ async function submitRegister() {
   }
 
   try {
-    await authStore.registerTenant(registerForm)
-    successMessage.value = 'Company registered successfully! Redirecting...'
-    setTimeout(() => router.push({ name: 'dashboard' }), 800)
+    const result = await authStore.registerTenant(registerForm)
+    if (result?.pending) {
+      // 新租户需等 Super Admin 审核，停留在登录页显示提示
+      successMessage.value = result.message || 'Registration submitted. Pending Super Admin approval.'
+      // 清空注册表单，自动切回登录 tab 便于审核后登录
+      Object.keys(registerForm).forEach((k) => (registerForm[k] = ''))
+      setTimeout(() => {
+        mode.value = 'login'
+      }, 2500)
+    } else if (result?.token) {
+      // 向后兼容：如后端直接签发 token，保留原路径
+      successMessage.value = 'Company registered successfully! Redirecting...'
+      setTimeout(() => router.push({ name: 'dashboard' }), 800)
+    }
   } catch (error) {
     errorMessage.value = error.response?.data?.message || 'Unable to register.'
   }

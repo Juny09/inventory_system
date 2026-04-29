@@ -25,6 +25,7 @@ const MarketplaceOAuthCallbackPage = () => import('../pages/MarketplaceOAuthCall
 const OrdersPage = () => import('../pages/OrdersPage.vue')
 const OrderDetailPage = () => import('../pages/OrderDetailPage.vue')
 const BankStatementsPage = () => import('../pages/BankStatementsPage.vue')
+const AdminTenantsPage = () => import('../pages/AdminTenantsPage.vue')
 
 const routes = [
   {
@@ -177,6 +178,12 @@ const routes = [
     component: MarketplaceOAuthCallbackPage,
     meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER'] },
   },
+  {
+    path: '/admin/tenants',
+    name: 'admin-tenants',
+    component: AdminTenantsPage,
+    meta: { requiresAuth: true, roles: ['SUPER_ADMIN'] },
+  },
 ]
 
 const router = createRouter({
@@ -195,7 +202,14 @@ router.beforeEach((to) => {
   }
 
   if (to.meta.guestOnly && token) {
+    // Super Admin 登录后不该回到普通 dashboard
+    if (user?.role === 'SUPER_ADMIN') return { name: 'admin-tenants' }
     return { name: 'dashboard' }
+  }
+
+  // Super Admin 只允许进入 /admin/* 管理页，其它页面统一重定向到租户审核页
+  if (user?.role === 'SUPER_ADMIN' && to.meta.requiresAuth && !to.path.startsWith('/admin')) {
+    return { name: 'admin-tenants' }
   }
 
   if (to.meta.roles?.length && !to.meta.roles.includes(user?.role)) {

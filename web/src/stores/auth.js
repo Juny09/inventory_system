@@ -66,20 +66,25 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  // 注册新公司（租户）并自动登录
+  // 注册新公司（租户）：后端不立即签发 token，需 Super Admin 审核
   async function registerTenant(payload) {
     loading.value = true
     try {
       const { data } = await api.post('/auth/register-tenant', payload)
-      persistAuth(data.token, data.user, data.tenant)
-      if (data.user?.preferred_currency) {
-        currencyStore.setCurrency(data.user.preferred_currency)
+      // pending=true 时不保存认证信息，由页面展示等待审核提示
+      if (data?.token) {
+        persistAuth(data.token, data.user, data.tenant)
+        if (data.user?.preferred_currency) {
+          currencyStore.setCurrency(data.user.preferred_currency)
+        }
       }
       return data
     } finally {
       loading.value = false
     }
   }
+
+  const isSuperAdmin = computed(() => user.value?.role === 'SUPER_ADMIN')
 
   async function fetchMe() {
     if (!token.value) {
@@ -111,6 +116,7 @@ export const useAuthStore = defineStore('auth', () => {
     tenant,
     loading,
     isAuthenticated,
+    isSuperAdmin,
     login,
     registerTenant,
     fetchMe,
