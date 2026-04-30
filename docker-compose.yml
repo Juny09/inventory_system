@@ -37,6 +37,8 @@ services:
       TIKTOK_ACCESS_TOKEN: ""
     ports:
       - "4000:4000"
+    volumes:
+      - uploads_data:/app/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -54,3 +56,4 @@ services:
 
 volumes:
   inventory_db_data:
+  uploads_data:

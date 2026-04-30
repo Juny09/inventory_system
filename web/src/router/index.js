@@ -25,6 +25,7 @@ const MarketplaceOAuthCallbackPage = () => import('../pages/MarketplaceOAuthCall
 const OrdersPage = () => import('../pages/OrdersPage.vue')
 const OrderDetailPage = () => import('../pages/OrderDetailPage.vue')
 const BankStatementsPage = () => import('../pages/BankStatementsPage.vue')
+const SupplierDocumentsPage = () => import('../pages/SupplierDocumentsPage.vue')
 const AdminTenantsPage = () => import('../pages/AdminTenantsPage.vue')
 
 const routes = [
@@ -165,6 +166,12 @@ const routes = [
     name: 'bank-statements',
     component: BankStatementsPage,
     meta: { requiresAuth: true },
+  },
+  {
+    path: '/supplier-documents',
+    name: 'supplier-documents',
+    component: SupplierDocumentsPage,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER', 'STAFF'] },
   },
   {
     path: '/marketplace-center',
