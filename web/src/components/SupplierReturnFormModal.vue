@@ -1,21 +1,24 @@
 <template>
-  <div class="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/60 p-4" @click.self="$emit('close')">
-    <div class="my-8 w-full max-w-5xl rounded-lg bg-white shadow-xl">
-      <div class="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+  <div class="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/60 p-2" @click.self="$emit('close')">
+    <div class="flex max-h-[95vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
+      <div class="flex flex-shrink-0 items-center justify-between border-b border-slate-200 px-5 py-3">
         <h3 class="text-lg font-semibold text-slate-800">
           {{ form.id ? `${form.doc_type} #${form.document_no}` : 'New Return / Claim / Repair' }}
         </h3>
         <button class="text-slate-400 hover:text-slate-600" @click="$emit('close')">×</button>
       </div>
 
-      <form class="space-y-4 px-5 py-4" @submit.prevent="submit">
+      <form class="flex min-h-0 flex-1 flex-col" @submit.prevent="submit">
+        <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-3">
         <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
           <div>
             <label class="block text-xs font-medium text-slate-600">Supplier Company <span class="text-red-500">*</span></label>
-            <select v-model="form.supplier_id" required class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm">
-              <option value="">-- Select --</option>
-              <option v-for="s in suppliers" :key="s.id" :value="s.id">{{ s.company_name || s.name }}</option>
-            </select>
+            <SupplierSearchSelect
+              v-model="form.supplier_id"
+              :options="suppliers"
+              placeholder="-- Select --"
+              search-placeholder="Search supplier..."
+            />
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-600">Type <span class="text-red-500">*</span></label>
@@ -84,21 +87,22 @@
         </div>
 
         <AttachmentSection
-          v-if="form.id"
+          ref="attachmentRef"
           :parent-id="form.id"
           resource="supplier-returns"
           :attachments="attachments"
           @refresh="reloadAttachments"
         />
-        <p v-else class="text-xs text-slate-500">Attachments can be uploaded after saving.</p>
+        </div>
 
-        <p v-if="errorMessage" class="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ errorMessage }}</p>
-
-        <div class="flex justify-end gap-2 border-t border-slate-200 pt-3">
-          <button type="button" class="rounded border border-slate-300 px-3 py-1.5 text-sm" @click="$emit('close')">Cancel</button>
-          <button type="submit" :disabled="submitting" class="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60">
-            {{ submitting ? 'Saving...' : 'Save' }}
-          </button>
+        <div class="flex flex-shrink-0 flex-col gap-2 border-t border-slate-200 px-5 py-3">
+          <p v-if="errorMessage" class="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ errorMessage }}</p>
+          <div class="flex justify-end gap-2">
+            <button type="button" class="rounded border border-slate-300 px-3 py-1.5 text-sm" @click="$emit('close')">Cancel</button>
+            <button type="submit" :disabled="submitting" class="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60">
+              {{ submitting ? 'Saving...' : 'Save' }}
+            </button>
+          </div>
         </div>
       </form>
     </div>
@@ -110,6 +114,7 @@ import { reactive, ref, onMounted } from 'vue'
 import api from '../services/api'
 import ProductSelector from './ProductSelector.vue'
 import AttachmentSection from './AttachmentSection.vue'
+import SupplierSearchSelect from './SupplierSearchSelect.vue'
 
 const props = defineProps({
   id: { type: [Number, String, null], default: null },
@@ -127,6 +132,7 @@ const form = reactive({
   items: [],
 })
 const attachments = ref([])
+const attachmentRef = ref(null)
 const submitting = ref(false)
 const errorMessage = ref('')
 
@@ -202,6 +208,9 @@ async function submit() {
     } else {
       const { data } = await api.post('/supplier-returns', payload)
       form.id = data.id
+    }
+    if (attachmentRef.value && typeof attachmentRef.value.flush === 'function') {
+      await attachmentRef.value.flush(form.id)
     }
     emit('saved', form.id)
   } catch (error) {

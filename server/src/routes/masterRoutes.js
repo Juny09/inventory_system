@@ -944,9 +944,11 @@ router.get('/products', async (req, res) => {
         `
           SELECT
             products.*,
-            categories.name AS category_name
+            categories.name AS category_name,
+            brands.name AS brand_name
           FROM products
           LEFT JOIN categories ON categories.id = products.category_id AND categories.tenant_id = products.tenant_id
+          LEFT JOIN brands ON brands.id = products.brand_id AND brands.tenant_id = products.tenant_id
           WHERE products.tenant_id = $5
             AND (
               $1 = '%%'
@@ -986,9 +988,11 @@ router.get('/products', async (req, res) => {
         `
           SELECT
             products.*,
-            categories.name AS category_name
+            categories.name AS category_name,
+            brands.name AS brand_name
           FROM products
           LEFT JOIN categories ON categories.id = products.category_id AND categories.tenant_id = products.tenant_id
+          LEFT JOIN brands ON brands.id = products.brand_id AND brands.tenant_id = products.tenant_id
           WHERE products.tenant_id = $7
             AND (
               $1 = '%%'
@@ -1097,9 +1101,11 @@ router.get('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
         `
           SELECT
             products.*,
-            categories.name AS category_name
+            categories.name AS category_name,
+            brands.name AS brand_name
           FROM products
           LEFT JOIN categories ON categories.id = products.category_id AND categories.tenant_id = products.tenant_id
+          LEFT JOIN brands ON brands.id = products.brand_id AND brands.tenant_id = products.tenant_id
           WHERE products.id = $1 AND products.tenant_id = $2
         `,
         [req.params.id, tenantId],
@@ -1327,6 +1333,7 @@ router.post('/products', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =>
     reorderLevel,
     isActive,
     primarySupplierId,
+    brandId,
   } = req.body
 
   if (!name || !sku) {
@@ -1358,9 +1365,10 @@ router.post('/products', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =>
           markup_percentage,
           suggested_price,
           reorder_level,
-          is_active
+          is_active,
+          brand_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
         RETURNING *
       `,
       [
@@ -1383,6 +1391,7 @@ router.post('/products', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =>
         normalizePrice(defaultPricingRule.suggestedPrice),
         Number(reorderLevel || 0),
         isActive ?? true,
+        brandId ? Number(brandId) : null,
       ],
     )
 
@@ -1437,6 +1446,7 @@ router.put('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
     isActive,
     primarySupplierId,
     costChangeReason,
+    brandId,
   } = req.body
 
   if (!name || !sku) {
@@ -1488,6 +1498,7 @@ router.put('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
           suggested_price = $17,
           reorder_level = $18,
           is_active = $19,
+          brand_id = $21,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = $1 AND tenant_id = $20
         RETURNING *
@@ -1513,6 +1524,7 @@ router.put('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
         Number(reorderLevel || 0),
         isActive ?? true,
         tenantId,
+        brandId === undefined ? null : (brandId ? Number(brandId) : null),
       ],
     )
 

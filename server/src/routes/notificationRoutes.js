@@ -3,6 +3,7 @@ const { query } = require('../config/db')
 const { authenticateToken, authorizeRoles } = require('../middleware/auth')
 const { getPaginationParams, buildPagination } = require('../utils/pagination')
 const { getTenantId } = require('../utils/tenant')
+const { materializeReminders } = require('../utils/paymentScheduleReminder')
 
 const router = express.Router()
 
@@ -21,6 +22,14 @@ router.get('/', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (req, res) =>
   const { page, pageSize, offset } = getPaginationParams(req.query)
 
   try {
+    // Materialize pending payment-schedule reminders into system_notifications before fetching
+    try {
+      await materializeReminders(tenantId)
+    } catch (remErr) {
+      // Do not block bell on reminder materialization errors
+      console.error('materializeReminders failed:', remErr.message)
+    }
+
     const [itemsResult, totalResult] = await Promise.all([
       query(
         `

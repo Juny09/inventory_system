@@ -1,0 +1,66 @@
+[
+  {
+    "category": "Pump（水泵）",
+    "brands": [
+      {"name": "Pedrollo", "description": "意大利知名水泵品牌"},
+      {"name": "Pumpman", "description": "专业水泵制造商"},
+      {"name": "Stream", "description": "流体控制解决方案品牌"},
+      {"name": "Unoflow", "description": "高效水泵技术品牌"},
+      {"name": "Opalflo", "description": "工业水泵品牌"},
+      {"name": "Kawamoto", "description": "日本水泵制造商"},
+      {"name": "Meudy", "description": "专业水泵品牌"},
+      {"name": "Showfou", "description": "水泵设备品牌"}
+    ]
+  },
+  {
+    "category": "Cleaning Equipment（清洁设备）",
+    "brands": [
+      {"name": "Benma", "description": "清洁设备制造商"},
+      {"name": "Kranzle", "description": "德国高压清洗机品牌"}
+    ]
+  },
+  {
+    "category": "Pipe Threading Machine（套丝机）",
+    "brands": [
+      {"name": "Kama", "description": "套丝机专业制造商"},
+      {"name": "Qing Yang", "description": "中国套丝机品牌"}
+    ]
+  },
+  {
+    "category": "Power Tools（电动工具）",
+    "brands": [
+      {"name": "ZhongYue", "description": "电动工具品牌"}
+    ]
+  },
+  {
+    "category": "Generator / Engine（发电机 / 引擎）",
+    "brands": [
+      {"name": "Benma", "description": "发电机制造商"},
+      {"name": "ZongShen", "description": "宗申发动机品牌"},
+      {"name": "Kama", "description": "发电机设备品牌"}
+    ]
+  },
+  {
+    "category": "Food Machine（食品设备）",
+    "brands": [
+      {"name": "Golden Bull", "description": "食品加工设备品牌"},
+      {"name": "Golden Tortoise", "description": "食品机械品牌"}
+    ]
+  },
+  {
+    "category": "Machinery（机械设备）",
+    "brands": [
+      {"name": "Greenco", "description": "绿色机械设备品牌"},
+      {"name": "Mixtec", "description": "混合机械设备品牌"},
+      {"name": "SiFang", "description": "四方机械设备品牌"},
+      {"name": "WestLing", "description": "西方机械设备品牌"},
+      {"name": "Wufu", "description": "五福机械设备品牌"}
+    ]
+  },
+  {
+    "category": "Varem（压力罐）",
+    "brands": [
+      {"name": "Varem", "description": "意大利压力罐品牌"}
+    ]
+  }
+]

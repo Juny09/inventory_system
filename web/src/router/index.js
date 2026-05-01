@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 const DashboardPage = () => import('../pages/DashboardPage.vue')
 const LoginPage = () => import('../pages/LoginPage.vue')
 const CategoriesPage = () => import('../pages/CategoriesPage.vue')
+const BrandsPage = () => import('../pages/BrandsPage.vue')
 const WarehousesPage = () => import('../pages/WarehousesPage.vue')
 const ProductsPage = () => import('../pages/ProductsPage.vue')
 const ProductFormPage = () => import('../pages/ProductFormPage.vue')
@@ -45,6 +46,12 @@ const routes = [
     path: '/categories',
     name: 'categories',
     component: CategoriesPage,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER'] },
+  },
+  {
+    path: '/brands',
+    name: 'brands',
+    component: BrandsPage,
     meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER'] },
   },
   {

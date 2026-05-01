@@ -11,6 +11,7 @@ const localeStore = useLocaleStore()
 const loading = ref(false)
 const errorMessage = ref('')
 const supplierList = ref([])
+const brands = ref([])
 const form = reactive({
   id: null,
   name: '',
@@ -26,6 +27,7 @@ const form = reactive({
   mapLink: '',
   notes: '',
   isActive: true,
+  brandIds: [],
 })
 
 const paymentTermsOptions = [
@@ -44,6 +46,15 @@ async function loadSupplierList() {
   try {
     const { data } = await api.get('/suppliers', { params: { pageSize: 200 } })
     supplierList.value = (data.items || []).filter(s => s.id !== form.id)
+  } catch {
+    // ignore
+  }
+}
+
+async function loadBrandsList() {
+  try {
+    const { data } = await api.get('/brands', { params: { all: 'true', status: 'active' } })
+    brands.value = data.items || []
   } catch {
     // ignore
   }
@@ -69,6 +80,7 @@ async function loadSupplier(id) {
       mapLink: data.supplier.map_link || '',
       notes: data.supplier.notes || '',
       isActive: Boolean(data.supplier.is_active),
+      brandIds: Array.isArray(data.brands) ? data.brands.map(b => Number(b.id)) : [],
     })
   } catch (error) {
     errorMessage.value = error.response?.data?.message || tr('Failed to load supplier.', '加载供应商失败。')
@@ -95,6 +107,7 @@ async function saveSupplier() {
       mapLink: form.mapLink,
       notes: form.notes,
       isActive: form.isActive,
+      brandIds: Array.isArray(form.brandIds) ? form.brandIds.map(Number) : [],
     }
 
     if (form.id) {
@@ -118,6 +131,7 @@ function cancel() {
 onMounted(() => {
   const id = route.query.id ? Number(route.query.id) : null
   loadSupplierList()
+  loadBrandsList()
   if (id) {
     loadSupplier(id)
   }
@@ -253,6 +267,32 @@ onMounted(() => {
             <label class="pointer-events-none absolute left-4 top-3 text-xs text-slate-500 transition-all peer-placeholder-shown:top-5 peer-placeholder-shown:text-sm peer-placeholder-shown:text-slate-400 peer-focus:top-3 peer-focus:text-xs peer-focus:text-slate-500">
               {{ tr('Notes', '备注') }}
             </label>
+          </div>
+
+          <!-- Brands responsible -->
+          <div class="sm:col-span-2 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              {{ tr('Brands represented', '代理品牌') }}
+            </p>
+            <p v-if="!brands.length" class="mt-2 text-sm text-slate-400">
+              {{ tr('No brands available. Create brands in Master Data → Brands.', '暂无品牌，请先到 主数据 → 品牌 中创建。') }}
+            </p>
+            <div v-else class="mt-3 flex flex-wrap gap-2">
+              <label
+                v-for="b in brands"
+                :key="b.id"
+                class="flex cursor-pointer items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700 hover:border-brand-400"
+                :class="form.brandIds.includes(Number(b.id)) ? 'border-brand-500 bg-brand-50 text-brand-700' : ''"
+              >
+                <input
+                  type="checkbox"
+                  :value="Number(b.id)"
+                  v-model="form.brandIds"
+                  class="size-3.5 rounded border-slate-300"
+                />
+                <span>{{ b.name }}</span>
+              </label>
+            </div>
           </div>
 
           <!-- Active -->

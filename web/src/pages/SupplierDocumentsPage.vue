@@ -6,7 +6,7 @@
           <p class="text-sm uppercase tracking-[0.3em] text-slate-400">Suppliers</p>
           <h2 class="mt-2 text-3xl font-semibold text-slate-900">Supplier Documents</h2>
           <p class="mt-2 text-sm text-slate-500">
-            Record purchase orders, invoices, and returns / claim / repair documents issued by suppliers.
+            Record delivery orders, invoices, and returns / claim / repair documents issued by suppliers.
           </p>
         </div>
       </div>
@@ -36,6 +36,22 @@
             @keyup.enter="applySearch"
           />
           <select
+            v-model.number="yearFilter"
+            class="rounded border border-slate-300 px-3 py-2 text-sm"
+            @change="loadList(1)"
+          >
+            <option :value="0">All years</option>
+            <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}</option>
+          </select>
+          <select
+            v-model.number="monthFilter"
+            class="rounded border border-slate-300 px-3 py-2 text-sm"
+            @change="loadList(1)"
+          >
+            <option :value="0">All months</option>
+            <option v-for="m in 12" :key="m" :value="m">{{ monthName(m) }}</option>
+          </select>
+          <select
             v-if="activeTab === 'returns'"
             v-model="docTypeFilter"
             class="rounded border border-slate-300 px-3 py-2 text-sm"
@@ -48,6 +64,14 @@
           </select>
           <button type="button" class="rounded border border-slate-300 px-3 py-2 text-sm" @click="applySearch">
             Search
+          </button>
+          <button
+            v-if="searchInput || yearFilter || monthFilter || docTypeFilter"
+            type="button"
+            class="rounded border border-slate-300 px-3 py-2 text-sm text-slate-500 hover:bg-slate-50"
+            @click="resetFilters"
+          >
+            Reset
           </button>
         </div>
         <button
@@ -66,12 +90,12 @@
       <div class="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white">
         <div v-if="loading" class="px-5 py-6 text-sm text-slate-500">Loading...</div>
 
-        <!-- Purchase Orders table -->
-        <div v-else-if="activeTab === 'po'" class="overflow-x-auto">
+        <!-- Delivery Orders table -->
+        <div v-else-if="activeTab === 'do'" class="overflow-x-auto">
           <table class="min-w-full text-left text-sm">
             <thead class="bg-slate-50 text-xs uppercase text-slate-600">
               <tr>
-                <th class="px-4 py-3">PO No</th>
+                <th class="px-4 py-3">DO No</th>
                 <th class="px-4 py-3">Date</th>
                 <th class="px-4 py-3">Supplier</th>
                 <th class="px-4 py-3 text-right">Items</th>
@@ -82,8 +106,8 @@
             </thead>
             <tbody>
               <tr v-for="row in items" :key="row.id" class="border-t border-slate-100 hover:bg-slate-50">
-                <td class="px-4 py-3 font-medium text-slate-900">{{ row.po_no }}</td>
-                <td class="px-4 py-3 text-slate-600">{{ formatDate(row.po_date) }}</td>
+                <td class="px-4 py-3 font-medium text-slate-900">{{ row.do_no }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ formatDate(row.do_date) }}</td>
                 <td class="px-4 py-3 text-slate-600">{{ row.supplier_company_name || row.supplier_name || '—' }}</td>
                 <td class="px-4 py-3 text-right text-slate-600">{{ row.item_count || 0 }}</td>
                 <td class="px-4 py-3 text-right text-slate-600">{{ row.attachment_count || 0 }}</td>
@@ -96,7 +120,7 @@
                 </td>
               </tr>
               <tr v-if="items.length === 0">
-                <td colspan="7" class="px-4 py-8 text-center text-sm text-slate-400">No purchase orders yet.</td>
+                <td colspan="7" class="px-4 py-8 text-center text-sm text-slate-400">No delivery orders yet.</td>
               </tr>
             </tbody>
           </table>
@@ -110,7 +134,7 @@
                 <th class="px-4 py-3">Invoice No</th>
                 <th class="px-4 py-3">Date</th>
                 <th class="px-4 py-3">Supplier</th>
-                <th class="px-4 py-3">Ref PO</th>
+                <th class="px-4 py-3">Ref DO</th>
                 <th class="px-4 py-3 text-right">Total Qty</th>
                 <th class="px-4 py-3 text-right">Total Amount</th>
                 <th class="px-4 py-3 text-right">Att.</th>
@@ -122,7 +146,7 @@
                 <td class="px-4 py-3 font-medium text-slate-900">{{ row.invoice_no }}</td>
                 <td class="px-4 py-3 text-slate-600">{{ formatDate(row.invoice_date) }}</td>
                 <td class="px-4 py-3 text-slate-600">{{ row.supplier_company_name || row.supplier_name || '—' }}</td>
-                <td class="px-4 py-3 text-slate-600">{{ row.po_no || '—' }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ row.do_no || '—' }}</td>
                 <td class="px-4 py-3 text-right text-slate-600">{{ formatNumber(row.total_quantity) }}</td>
                 <td class="px-4 py-3 text-right font-medium text-slate-900">{{ formatMoney(row.total_amount) }}</td>
                 <td class="px-4 py-3 text-right text-slate-600">{{ row.attachment_count || 0 }}</td>
@@ -184,8 +208,8 @@
       </div>
     </section>
 
-    <PurchaseOrderFormModal
-      v-if="modal === 'po'"
+    <DeliveryOrderFormModal
+      v-if="modal === 'do'"
       :id="editingId"
       :suppliers="suppliers"
       @close="closeModal"
@@ -212,7 +236,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import AppLayout from '../layouts/AppLayout.vue'
 import PaginationBar from '../components/PaginationBar.vue'
-import PurchaseOrderFormModal from '../components/PurchaseOrderFormModal.vue'
+import DeliveryOrderFormModal from '../components/DeliveryOrderFormModal.vue'
 import SupplierInvoiceFormModal from '../components/SupplierInvoiceFormModal.vue'
 import SupplierReturnFormModal from '../components/SupplierReturnFormModal.vue'
 import api from '../services/api'
@@ -221,15 +245,17 @@ import { useToastStore } from '../stores/toast'
 const toastStore = useToastStore()
 
 const tabs = [
-  { key: 'po', label: 'Purchase Orders', singular: 'Purchase Order', resource: '/purchase-orders' },
+  { key: 'do', label: 'Delivery Orders', singular: 'Delivery Order', resource: '/delivery-orders' },
   { key: 'invoice', label: 'Invoices', singular: 'Invoice', resource: '/supplier-invoices' },
   { key: 'returns', label: 'Returns / Claim / Repair', singular: 'Return / Claim / Repair', resource: '/supplier-returns' },
 ]
 
-const activeTab = ref('po')
+const activeTab = ref('do')
 const searchInput = ref('')
 const search = ref('')
 const docTypeFilter = ref('')
+const yearFilter = ref(0)
+const monthFilter = ref(0)
 const loading = ref(false)
 const errorMessage = ref('')
 const items = ref([])
@@ -241,10 +267,25 @@ const editingId = ref(null)
 const currentTab = computed(() => tabs.find((t) => t.key === activeTab.value))
 const currentTabLabelSingular = computed(() => currentTab.value?.singular || '')
 const searchPlaceholder = computed(() => {
-  if (activeTab.value === 'po') return 'Search PO no or supplier'
+  if (activeTab.value === 'do') return 'Search DO no or supplier'
   if (activeTab.value === 'invoice') return 'Search invoice no or supplier'
   return 'Search document no or supplier'
 })
+
+const yearOptions = computed(() => {
+  const current = new Date().getFullYear()
+  const arr = []
+  for (let y = current + 1; y >= current - 5; y--) arr.push(y)
+  return arr
+})
+
+const MONTH_NAMES = [
+  '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+]
+function monthName(m) {
+  return MONTH_NAMES[m] || m
+}
 
 function formatDate(v) {
   if (!v) return '—'
@@ -276,12 +317,23 @@ function switchTab(key) {
   searchInput.value = ''
   search.value = ''
   docTypeFilter.value = ''
+  yearFilter.value = 0
+  monthFilter.value = 0
   pagination.value.page = 1
   loadList(1)
 }
 
 function applySearch() {
   search.value = searchInput.value.trim()
+  loadList(1)
+}
+
+function resetFilters() {
+  searchInput.value = ''
+  search.value = ''
+  yearFilter.value = 0
+  monthFilter.value = 0
+  docTypeFilter.value = ''
   loadList(1)
 }
 
@@ -306,6 +358,8 @@ async function loadList(page = 1) {
   try {
     const params = { page, pageSize: pagination.value.pageSize }
     if (search.value) params.search = search.value
+    if (yearFilter.value) params.year = yearFilter.value
+    if (monthFilter.value) params.month = monthFilter.value
     if (activeTab.value === 'returns' && docTypeFilter.value) params.docType = docTypeFilter.value
     const { data } = await api.get(currentTab.value.resource, { params })
     items.value = data?.items || []

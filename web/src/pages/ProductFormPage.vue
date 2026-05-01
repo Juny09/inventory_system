@@ -18,6 +18,7 @@ const costAccessStore = useCostAccessStore()
 const categories = ref([])
 const products = ref([])
 const suppliers = ref([])
+const brands = ref([])
 const errorMessage = ref('')
 const loading = ref(false)
 const imageProcessing = ref(false)
@@ -47,6 +48,7 @@ const form = reactive({
   reorderLevel: 0,
   isActive: true,
   primarySupplierId: '',
+  brandId: '',
 })
 
 const qrPreview = ref('')
@@ -82,6 +84,13 @@ async function loadSelectors() {
     params: { status: 'active', page: 1, pageSize: 200 },
   })
   suppliers.value = supplierResponse.data.items
+
+  try {
+    const brandResponse = await api.get('/brands', { params: { all: 'true', status: 'active' } })
+    brands.value = brandResponse.data.items || []
+  } catch {
+    brands.value = []
+  }
 }
 
 async function loadProductById(id) {
@@ -117,6 +126,7 @@ async function loadProductById(id) {
     reorderLevel: toNumber(data.product.reorder_level),
     isActive: Boolean(data.product.is_active),
     primarySupplierId: data.supplier?.id ? String(data.supplier.id) : '',
+    brandId: data.product.brand_id ? String(data.product.brand_id) : '',
   })
   if (costAccessStore.isUnlocked || data.product.cost_price !== null) {
     recalculateSuggested()
@@ -142,6 +152,7 @@ async function saveProduct() {
       pricingRules: form.pricingRules,
       productCode: form.productCode || undefined,
       primarySupplierId: form.primarySupplierId || null,
+      brandId: form.brandId ? Number(form.brandId) : null,
       costChangeReason: costChanged ? String(costChangeReason.value || '').trim() : undefined,
     }
 
@@ -365,6 +376,12 @@ onMounted(async () => {
             <option value="">{{ localeStore.locale === 'en' ? 'Select supplier (optional)' : '选择供应商（可选）' }}</option>
             <option v-for="item in suppliers" :key="item.id" :value="String(item.id)">
               {{ item.name }}
+            </option>
+          </select>
+          <select v-model="form.brandId" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+            <option value="">{{ localeStore.locale === 'en' ? 'Select brand (optional)' : '选择品牌（可选）' }}</option>
+            <option v-for="b in brands" :key="b.id" :value="String(b.id)">
+              {{ b.name }}
             </option>
           </select>
           <div class="relative">

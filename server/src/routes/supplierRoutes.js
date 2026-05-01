@@ -1,5 +1,5 @@
 const express = require('express')
-const { query } = require('../config/db')
+const { query, pool } = require('../config/db')
 const { authenticateToken, authorizeRoles } = require('../middleware/auth')
 const { getPaginationParams, buildPagination } = require('../utils/pagination')
 
@@ -111,14 +111,17 @@ router.post('/', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
     mapLink,
     notes,
     isActive,
+    brandIds,
   } = req.body
 
   if (!name) {
     return res.status(400).json({ message: 'Company name is required.' })
   }
 
+  const client = await pool.connect()
   try {
-    const result = await query(
+    await client.query('BEGIN')
+    const result = await client.query(
       `
         INSERT INTO suppliers (
           tenant_id,
@@ -162,22 +165,42 @@ router.post('/', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
       ],
     )
 
+    const supplierId = result.rows[0].id
+
+    // 写入 supplier_brands 关联
+    if (Array.isArray(brandIds) && brandIds.length) {
+      const uniqueIds = Array.from(new Set(brandIds.map((v) => Number(v)).filter((v) => Number.isFinite(v) && v > 0)))
+      for (const bid of uniqueIds) {
+        await client.query(
+          `INSERT INTO supplier_brands (supplier_id, brand_id, tenant_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT DO NOTHING`,
+          [supplierId, bid, req.tenantId],
+        )
+      }
+    }
+
+    await client.query('COMMIT')
+
     req.auditContext = {
       action: 'SUPPLIER_CREATE',
       entityType: 'SUPPLIER',
-      entityId: String(result.rows[0].id),
+      entityId: String(supplierId),
       description: `Created supplier ${result.rows[0].name}`,
     }
 
     return res.status(201).json(result.rows[0])
   } catch (error) {
+    await client.query('ROLLBACK').catch(() => {})
     return res.status(500).json({ message: 'Failed to create supplier.', error: error.message })
+  } finally {
+    client.release()
   }
 })
 
 router.get('/:id', async (req, res) => {
   try {
-    const [supplierResult, productsResult, recentPurchasesResult] = await Promise.all([
+    const [supplierResult, productsResult, recentPurchasesResult, brandsResult] = await Promise.all([
       query(`SELECT * FROM suppliers WHERE id = $1 AND tenant_id = $2`, [req.params.id, req.tenantId]),
       query(
         `
@@ -224,6 +247,16 @@ router.get('/:id', async (req, res) => {
         `,
         [req.params.id, req.tenantId],
       ),
+      query(
+        `
+          SELECT b.id, b.name, b.description, b.is_active
+          FROM supplier_brands sb
+          INNER JOIN brands b ON b.id = sb.brand_id
+          WHERE sb.supplier_id = $1 AND sb.tenant_id = $2
+          ORDER BY b.name ASC
+        `,
+        [req.params.id, req.tenantId],
+      ),
     ])
 
     if (!supplierResult.rows[0]) {
@@ -234,6 +267,7 @@ router.get('/:id', async (req, res) => {
       supplier: supplierResult.rows[0],
       products: productsResult.rows,
       recentPurchases: recentPurchasesResult.rows,
+      brands: brandsResult.rows,
     })
   } catch (error) {
     return res.status(500).json({ message: 'Failed to fetch supplier detail.', error: error.message })
@@ -255,14 +289,17 @@ router.put('/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
     mapLink,
     notes,
     isActive,
+    brandIds,
   } = req.body
 
   if (!name) {
     return res.status(400).json({ message: 'Company name is required.' })
   }
 
+  const client = await pool.connect()
   try {
-    const result = await query(
+    await client.query('BEGIN')
+    const result = await client.query(
       `
         UPDATE suppliers
         SET
@@ -306,8 +343,28 @@ router.put('/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
     )
 
     if (!result.rows[0]) {
+      await client.query('ROLLBACK')
       return res.status(404).json({ message: 'Supplier not found.' })
     }
+
+    // 当前端明确传入 brandIds（包括空数组）时，重建关联
+    if (Array.isArray(brandIds)) {
+      await client.query(
+        'DELETE FROM supplier_brands WHERE supplier_id = $1 AND tenant_id = $2',
+        [req.params.id, req.tenantId],
+      )
+      const uniqueIds = Array.from(new Set(brandIds.map((v) => Number(v)).filter((v) => Number.isFinite(v) && v > 0)))
+      for (const bid of uniqueIds) {
+        await client.query(
+          `INSERT INTO supplier_brands (supplier_id, brand_id, tenant_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT DO NOTHING`,
+          [req.params.id, bid, req.tenantId],
+        )
+      }
+    }
+
+    await client.query('COMMIT')
 
     req.auditContext = {
       action: 'SUPPLIER_UPDATE',
@@ -318,7 +375,10 @@ router.put('/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
 
     return res.json(result.rows[0])
   } catch (error) {
+    await client.query('ROLLBACK').catch(() => {})
     return res.status(500).json({ message: 'Failed to update supplier.', error: error.message })
+  } finally {
+    client.release()
   }
 })
 

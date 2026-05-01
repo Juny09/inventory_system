@@ -881,6 +881,7 @@ watch(
                 </span>
               </div>
               <p class="mt-3 text-sm text-slate-500">Category: {{ product.category_name || '—' }}</p>
+              <p class="mt-1 text-sm text-slate-500">{{ localeStore.locale === 'en' ? 'Brand' : '品牌' }}: {{ product.brand_name || '—' }}</p>
               <p class="mt-1 text-sm text-slate-500">Cost {{ displayCost(product.cost_price) }}</p>
               <p class="mt-1 text-sm text-slate-500">C-code {{ displayCostCodeFromProduct(product) }}</p>
               <p class="mt-1 text-sm text-slate-500">
@@ -919,6 +920,8 @@ watch(
                   <th class="px-3 py-3">{{ localeStore.t('table.product') }}</th>
                   <th class="px-3 py-3">{{ localeStore.t('table.code') }}</th>
                   <th class="px-3 py-3">{{ localeStore.t('table.category') }}</th>
+                  <th class="px-3 py-3">{{ localeStore.locale === 'en' ? 'Brand' : '品牌' }}</th>
+                  <th class="px-3 py-3">{{ localeStore.t('table.description') }}</th>
                   <th class="px-3 py-3">{{ localeStore.t('table.pricing') }}</th>
                   <th class="px-3 py-3">{{ localeStore.t('table.status') }}</th>
                   <th class="px-3 py-3">{{ localeStore.t('table.actions') }}</th>
@@ -950,6 +953,12 @@ watch(
                     <p class="font-medium text-slate-900">{{ product.product_code || '—' }}</p>
                   </td>
                   <td class="px-3 py-3">{{ product.category_name || '—' }}</td>
+                  <td class="px-3 py-3">{{ product.brand_name || '—' }}</td>
+                  <td class="px-3 py-3 max-w-[200px]">
+                    <p class="truncate text-sm text-slate-600" :title="product.description || '—'">
+                      {{ product.description || '—' }}
+                    </p>
+                  </td>
                   <td class="px-3 py-3">
                     <p>Cost: {{ displayCost(product.cost_price) }}</p>
                     <p>C-code: {{ displayCostCodeFromProduct(product) }}</p>

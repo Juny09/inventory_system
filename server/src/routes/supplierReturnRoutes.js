@@ -39,6 +39,14 @@ router.get('/', async (req, res) => {
     params.push(`%${req.query.search}%`)
     idx++
   }
+  if (req.query.year) {
+    filters.push(`EXTRACT(YEAR FROM r.document_date) = $${idx++}`)
+    params.push(Number(req.query.year))
+  }
+  if (req.query.month) {
+    filters.push(`EXTRACT(MONTH FROM r.document_date) = $${idx++}`)
+    params.push(Number(req.query.month))
+  }
 
   const whereClause = filters.join(' AND ')
 

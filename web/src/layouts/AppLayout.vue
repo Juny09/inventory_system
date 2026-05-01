@@ -136,6 +136,7 @@ const navItems = [
   { label: 'Stock Counts', routeName: 'stock-counts', roles: ['ADMIN', 'MANAGER', 'STAFF'], shortLabel: 'SC', icon: 'counts', group: 'Operations' },
   { label: 'Marketplace', routeName: 'marketplace-center', roles: ['ADMIN', 'MANAGER'], shortLabel: 'MP', icon: 'alerts', group: 'Operations' },
   { label: 'Categories', routeName: 'categories', roles: ['ADMIN', 'MANAGER'], shortLabel: 'CT', icon: 'categories', group: 'Master Data' },
+  { label: 'Brands', routeName: 'brands', roles: ['ADMIN', 'MANAGER'], shortLabel: 'BR', icon: 'categories', group: 'Master Data' },
   { label: 'Warehouses', routeName: 'warehouses', roles: ['ADMIN', 'MANAGER'], shortLabel: 'WH', icon: 'warehouses', group: 'Master Data' },
   { label: 'Products', routeName: 'products', roles: ['ADMIN', 'MANAGER'], shortLabel: 'PD', icon: 'products', group: 'Master Data' },
   { label: 'Suppliers', routeName: 'suppliers', roles: ['ADMIN', 'MANAGER'], shortLabel: 'SP', icon: 'guide', group: 'Master Data' },
@@ -158,6 +159,7 @@ const navLabelMap = {
   'Stock Counts': { en: 'Stock Counts', cn: '盘点单' },
   Marketplace: { en: 'Marketplace', cn: '电商连接' },
   Categories: { en: 'Categories', cn: '分类' },
+  Brands: { en: 'Brands', cn: '品牌' },
   Warehouses: { en: 'Warehouses', cn: '仓库' },
   Products: { en: 'Products', cn: '商品' },
   Suppliers: { en: 'Suppliers', cn: '供应商' },
@@ -302,6 +304,28 @@ async function refreshNotifications() {
 
 async function markNotificationRead(notificationId) {
   await notificationsStore.markAsRead(notificationId).catch(() => {})
+}
+
+function notificationBadge(type) {
+  switch (type) {
+    case 'PAYMENT_DUE':
+      return { label: localeStore.locale === 'en' ? 'Due' : '到期', cls: 'bg-amber-100 text-amber-700' }
+    case 'PAYMENT_OVERDUE':
+      return { label: localeStore.locale === 'en' ? 'Overdue' : '逾期', cls: 'bg-rose-100 text-rose-700' }
+    case 'COST_CHANGE':
+      return { label: localeStore.locale === 'en' ? 'Cost' : '成本', cls: 'bg-indigo-100 text-indigo-700' }
+    default:
+      return null
+  }
+}
+
+async function handleNotificationClick(item) {
+  const type = item.notification_type || item.type
+  await markNotificationRead(item.id)
+  notificationsOpen.value = false
+  if (type === 'PAYMENT_DUE' || type === 'PAYMENT_OVERDUE') {
+    router.push({ name: 'supplier-payments', query: { tab: 'schedules' } })
+  }
 }
 
 function openNotificationsCenter() {
@@ -761,9 +785,18 @@ watch(
                           :key="item.id"
                           type="button"
                           class="w-full rounded-2xl border border-slate-200 px-3 py-2 text-left transition hover:bg-slate-50"
-                          @click="markNotificationRead(item.id)"
+                          @click="handleNotificationClick(item)"
                         >
-                          <p class="text-sm font-semibold text-slate-900">{{ item.title }}</p>
+                          <div class="flex items-start justify-between gap-2">
+                            <p class="text-sm font-semibold text-slate-900">{{ item.title }}</p>
+                            <span
+                              v-if="notificationBadge(item.notification_type || item.type)"
+                              class="inline-flex flex-shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                              :class="notificationBadge(item.notification_type || item.type).cls"
+                            >
+                              {{ notificationBadge(item.notification_type || item.type).label }}
+                            </span>
+                          </div>
                           <p class="mt-1 line-clamp-2 text-xs text-slate-500">{{ item.message }}</p>
                         </button>
                         <p v-if="notificationsStore.items.length === 0" class="px-2 text-sm text-slate-500">

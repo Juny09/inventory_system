@@ -4,6 +4,7 @@ const { pool, query } = require('../config/db')
 const { authenticateToken } = require('../middleware/auth')
 const { getTenantId } = require('../utils/tenant')
 const { getPaginationParams, buildPagination } = require('../utils/pagination')
+const { postItemsToStock } = require('../utils/inventoryService')
 const {
   createUploader,
   buildAttachmentPath,
@@ -61,14 +62,22 @@ router.get('/', async (req, res) => {
     filters.push(`inv.supplier_id = $${idx++}`)
     params.push(Number(req.query.supplierId))
   }
-  if (req.query.poId) {
-    filters.push(`inv.po_id = $${idx++}`)
-    params.push(Number(req.query.poId))
+  if (req.query.doId) {
+    filters.push(`inv.do_id = $${idx++}`)
+    params.push(Number(req.query.doId))
   }
   if (req.query.search) {
     filters.push(`(inv.invoice_no ILIKE $${idx} OR s.company_name ILIKE $${idx} OR s.name ILIKE $${idx})`)
     params.push(`%${req.query.search}%`)
     idx++
+  }
+  if (req.query.year) {
+    filters.push(`EXTRACT(YEAR FROM inv.invoice_date) = $${idx++}`)
+    params.push(Number(req.query.year))
+  }
+  if (req.query.month) {
+    filters.push(`EXTRACT(MONTH FROM inv.invoice_date) = $${idx++}`)
+    params.push(Number(req.query.month))
   }
 
   const whereClause = filters.join(' AND ')
@@ -79,15 +88,15 @@ router.get('/', async (req, res) => {
         `
           SELECT inv.id, inv.invoice_no, inv.invoice_date, inv.notes,
                  inv.total_amount, inv.total_quantity,
-                 inv.supplier_id, inv.po_id,
-                 po.po_no,
+                 inv.supplier_id, inv.do_id,
+                 d.do_no,
                  COALESCE(s.company_name, s.name) AS supplier_name,
                  inv.created_at, inv.updated_at,
                  (SELECT COUNT(*)::int FROM supplier_invoice_items WHERE invoice_id = inv.id) AS item_count,
                  (SELECT COUNT(*)::int FROM supplier_invoice_attachments WHERE invoice_id = inv.id) AS attachment_count
           FROM supplier_invoices inv
           LEFT JOIN suppliers s ON s.id = inv.supplier_id
-          LEFT JOIN purchase_orders po ON po.id = inv.po_id
+          LEFT JOIN delivery_orders d ON d.id = inv.do_id
           WHERE ${whereClause}
           ORDER BY inv.invoice_date DESC, inv.id DESC
           LIMIT $${idx} OFFSET $${idx + 1}
@@ -118,13 +127,15 @@ router.get('/:id', async (req, res) => {
     const header = await query(
       `SELECT inv.id, inv.invoice_no, inv.invoice_date, inv.notes,
               inv.total_amount, inv.total_quantity,
-              inv.supplier_id, inv.po_id,
-              po.po_no,
+              inv.supplier_id, inv.do_id, inv.warehouse_id, inv.posted_to_inventory,
+              d.do_no,
+              w.name AS warehouse_name,
               COALESCE(s.company_name, s.name) AS supplier_name,
               inv.created_at, inv.updated_at
        FROM supplier_invoices inv
        LEFT JOIN suppliers s ON s.id = inv.supplier_id
-       LEFT JOIN purchase_orders po ON po.id = inv.po_id
+       LEFT JOIN delivery_orders d ON d.id = inv.do_id
+       LEFT JOIN warehouses w ON w.id = inv.warehouse_id
        WHERE inv.id = $1 AND inv.tenant_id = $2`,
       [req.params.id, tenantId],
     )
@@ -160,10 +171,15 @@ router.get('/:id', async (req, res) => {
 
 router.post('/', async (req, res) => {
   const tenantId = getTenantId(req)
-  const { supplier_id, po_id, invoice_no, invoice_date, notes, items = [] } = req.body || {}
-  if (!supplier_id || !po_id || !invoice_no || !invoice_date) {
-    return res.status(400).json({ message: 'supplier_id, po_id, invoice_no, invoice_date are required.' })
+  const { supplier_id, do_id, invoice_no, invoice_date, notes, warehouse_id, post_to_inventory, items = [] } = req.body || {}
+  if (!supplier_id || !invoice_no || !invoice_date) {
+    return res.status(400).json({ message: 'supplier_id, invoice_no, invoice_date are required.' })
   }
+
+  const normalizedDoId = do_id ? Number(do_id) : null
+  const normalizedWarehouseId = warehouse_id ? Number(warehouse_id) : null
+  // 规则：有 DO 的 invoice 不入库（已由 DO 处理）；无 DO 且勾选 Post 且选了仓库 才入库
+  const willPostStock = !normalizedDoId && Boolean(post_to_inventory) && Boolean(normalizedWarehouseId)
 
   const client = await pool.connect()
   try {
@@ -178,27 +194,31 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ message: 'Invalid supplier.' })
     }
 
-    const poCheck = await client.query(
-      `SELECT id, supplier_id FROM purchase_orders WHERE id = $1 AND tenant_id = $2`,
-      [po_id, tenantId],
-    )
-    if (!poCheck.rows[0]) {
-      await client.query('ROLLBACK')
-      return res.status(400).json({ message: 'Invalid purchase order.' })
-    }
-    if (Number(poCheck.rows[0].supplier_id) !== Number(supplier_id)) {
-      await client.query('ROLLBACK')
-      return res.status(400).json({ message: 'PO supplier mismatch.' })
+    if (normalizedDoId) {
+      const doCheck = await client.query(
+        `SELECT id, supplier_id FROM delivery_orders WHERE id = $1 AND tenant_id = $2`,
+        [normalizedDoId, tenantId],
+      )
+      if (!doCheck.rows[0]) {
+        await client.query('ROLLBACK')
+        return res.status(400).json({ message: 'Invalid delivery order.' })
+      }
+      if (Number(doCheck.rows[0].supplier_id) !== Number(supplier_id)) {
+        await client.query('ROLLBACK')
+        return res.status(400).json({ message: 'DO supplier mismatch.' })
+      }
     }
 
     const { items: normItems, totalQty, totalAmount } = computeTotals(items)
 
     const header = await client.query(
       `INSERT INTO supplier_invoices
-         (tenant_id, supplier_id, po_id, invoice_no, invoice_date, total_amount, total_quantity, notes, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         (tenant_id, supplier_id, do_id, invoice_no, invoice_date, total_amount, total_quantity,
+          notes, warehouse_id, posted_to_inventory, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING id`,
-      [tenantId, supplier_id, po_id, invoice_no, invoice_date, totalAmount, totalQty, notes || null, req.user.id],
+      [tenantId, supplier_id, normalizedDoId, invoice_no, invoice_date, totalAmount, totalQty,
+       notes || null, willPostStock ? normalizedWarehouseId : null, willPostStock, req.user.id],
     )
     const invId = header.rows[0].id
 
@@ -211,13 +231,27 @@ router.post('/', async (req, res) => {
       )
     }
 
+    // 入库
+    if (willPostStock) {
+      await postItemsToStock(client, {
+        tenantId,
+        warehouseId: normalizedWarehouseId,
+        items: normItems,
+        direction: 1,
+        referenceNo: `INV-${invoice_no}`,
+        notes: `Supplier Invoice ${invoice_no} (no DO)`,
+        supplierId: Number(supplier_id),
+        userId: req.user.id,
+      })
+    }
+
     await client.query('COMMIT')
 
     req.auditContext = {
       action: 'SUPPLIER_INVOICE_CREATE',
       entityType: 'SUPPLIER_INVOICE',
       entityId: String(invId),
-      description: `Created invoice ${invoice_no}`,
+      description: `Created invoice ${invoice_no}${willPostStock ? ' (stock posted)' : ''}`,
     }
 
     return res.status(201).json({ id: invId })
@@ -234,41 +268,71 @@ router.post('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   const tenantId = getTenantId(req)
-  const { supplier_id, po_id, invoice_no, invoice_date, notes, items = [] } = req.body || {}
-  if (!supplier_id || !po_id || !invoice_no || !invoice_date) {
-    return res.status(400).json({ message: 'supplier_id, po_id, invoice_no, invoice_date are required.' })
+  const { supplier_id, do_id, invoice_no, invoice_date, notes, warehouse_id, post_to_inventory, items = [] } = req.body || {}
+  if (!supplier_id || !invoice_no || !invoice_date) {
+    return res.status(400).json({ message: 'supplier_id, invoice_no, invoice_date are required.' })
   }
+
+  const normalizedDoId = do_id ? Number(do_id) : null
+  const normalizedWarehouseId = warehouse_id ? Number(warehouse_id) : null
+  const willPostStock = !normalizedDoId && Boolean(post_to_inventory) && Boolean(normalizedWarehouseId)
 
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
 
     const existing = await client.query(
-      `SELECT id FROM supplier_invoices WHERE id = $1 AND tenant_id = $2`,
+      `SELECT id, warehouse_id, posted_to_inventory FROM supplier_invoices
+       WHERE id = $1 AND tenant_id = $2`,
       [req.params.id, tenantId],
     )
     if (!existing.rows[0]) {
       await client.query('ROLLBACK')
       return res.status(404).json({ message: 'Invoice not found.' })
     }
+    const wasPosted = Boolean(existing.rows[0].posted_to_inventory)
+    const oldWarehouseId = existing.rows[0].warehouse_id ? Number(existing.rows[0].warehouse_id) : null
 
-    const poCheck = await client.query(
-      `SELECT id, supplier_id FROM purchase_orders WHERE id = $1 AND tenant_id = $2`,
-      [po_id, tenantId],
-    )
-    if (!poCheck.rows[0] || Number(poCheck.rows[0].supplier_id) !== Number(supplier_id)) {
-      await client.query('ROLLBACK')
-      return res.status(400).json({ message: 'Invalid PO or supplier mismatch.' })
+    if (normalizedDoId) {
+      const doCheck = await client.query(
+        `SELECT id, supplier_id FROM delivery_orders WHERE id = $1 AND tenant_id = $2`,
+        [normalizedDoId, tenantId],
+      )
+      if (!doCheck.rows[0] || Number(doCheck.rows[0].supplier_id) !== Number(supplier_id)) {
+        await client.query('ROLLBACK')
+        return res.status(400).json({ message: 'Invalid DO or supplier mismatch.' })
+      }
+    }
+
+    // 1) 原先已入库则先反扣
+    if (wasPosted && oldWarehouseId) {
+      const oldItems = await client.query(
+        `SELECT product_id, quantity FROM supplier_invoice_items WHERE invoice_id = $1`,
+        [req.params.id],
+      )
+      await postItemsToStock(client, {
+        tenantId,
+        warehouseId: oldWarehouseId,
+        items: oldItems.rows,
+        direction: -1,
+        referenceNo: `INV-${invoice_no}-REVERT`,
+        notes: `Revert invoice ${invoice_no} before update`,
+        supplierId: Number(supplier_id),
+        userId: req.user.id,
+      })
     }
 
     const { items: normItems, totalQty, totalAmount } = computeTotals(items)
 
     await client.query(
       `UPDATE supplier_invoices
-       SET supplier_id = $1, po_id = $2, invoice_no = $3, invoice_date = $4,
-           total_amount = $5, total_quantity = $6, notes = $7, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $8 AND tenant_id = $9`,
-      [supplier_id, po_id, invoice_no, invoice_date, totalAmount, totalQty, notes || null, req.params.id, tenantId],
+       SET supplier_id = $1, do_id = $2, invoice_no = $3, invoice_date = $4,
+           total_amount = $5, total_quantity = $6, notes = $7,
+           warehouse_id = $8, posted_to_inventory = $9,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $10 AND tenant_id = $11`,
+      [supplier_id, normalizedDoId, invoice_no, invoice_date, totalAmount, totalQty,
+       notes || null, willPostStock ? normalizedWarehouseId : null, willPostStock, req.params.id, tenantId],
     )
 
     await client.query('DELETE FROM supplier_invoice_items WHERE invoice_id = $1', [req.params.id])
@@ -279,6 +343,20 @@ router.put('/:id', async (req, res) => {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [req.params.id, it.product_id, it.item_code, it.description, it.serial_no, it.quantity, it.unit_price, it.discount, it.amount, it.sort_order],
       )
+    }
+
+    // 2) 新设置需入库则正向入库
+    if (willPostStock) {
+      await postItemsToStock(client, {
+        tenantId,
+        warehouseId: normalizedWarehouseId,
+        items: normItems,
+        direction: 1,
+        referenceNo: `INV-${invoice_no}`,
+        notes: `Supplier Invoice ${invoice_no} (updated)`,
+        supplierId: Number(supplier_id),
+        userId: req.user.id,
+      })
     }
 
     await client.query('COMMIT')
@@ -304,20 +382,52 @@ router.put('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   const tenantId = getTenantId(req)
+  const client = await pool.connect()
   try {
-    const attachments = await query(
-      `SELECT storage_path FROM supplier_invoice_attachments
-       WHERE invoice_id = $1 AND invoice_id IN (SELECT id FROM supplier_invoices WHERE tenant_id = $2)`,
+    await client.query('BEGIN')
+
+    const existing = await client.query(
+      `SELECT id, invoice_no, supplier_id, warehouse_id, posted_to_inventory
+       FROM supplier_invoices WHERE id = $1 AND tenant_id = $2`,
       [req.params.id, tenantId],
     )
-    const result = await query(
-      `DELETE FROM supplier_invoices WHERE id = $1 AND tenant_id = $2 RETURNING id`,
-      [req.params.id, tenantId],
-    )
-    if (!result.rows[0]) {
+    if (!existing.rows[0]) {
+      await client.query('ROLLBACK')
       return res.status(404).json({ message: 'Invoice not found.' })
     }
-    attachments.rows.forEach((row) => removeFileQuiet(buildAttachmentPath(SUB_DIR, row.storage_path)))
+    const row = existing.rows[0]
+
+    // 反扣库存
+    if (row.posted_to_inventory && row.warehouse_id) {
+      const oldItems = await client.query(
+        `SELECT product_id, quantity FROM supplier_invoice_items WHERE invoice_id = $1`,
+        [req.params.id],
+      )
+      await postItemsToStock(client, {
+        tenantId,
+        warehouseId: Number(row.warehouse_id),
+        items: oldItems.rows,
+        direction: -1,
+        referenceNo: `INV-${row.invoice_no}-DELETE`,
+        notes: `Revert invoice ${row.invoice_no} on delete`,
+        supplierId: Number(row.supplier_id),
+        userId: req.user.id,
+      })
+    }
+
+    const attachments = await client.query(
+      `SELECT storage_path FROM supplier_invoice_attachments WHERE invoice_id = $1`,
+      [req.params.id],
+    )
+
+    await client.query(
+      `DELETE FROM supplier_invoices WHERE id = $1 AND tenant_id = $2`,
+      [req.params.id, tenantId],
+    )
+
+    await client.query('COMMIT')
+
+    attachments.rows.forEach((r) => removeFileQuiet(buildAttachmentPath(SUB_DIR, r.storage_path)))
 
     req.auditContext = {
       action: 'SUPPLIER_INVOICE_DELETE',
@@ -328,7 +438,10 @@ router.delete('/:id', async (req, res) => {
 
     return res.status(204).send()
   } catch (error) {
+    await client.query('ROLLBACK').catch(() => {})
     return res.status(500).json({ message: 'Failed to delete invoice.', error: error.message })
+  } finally {
+    client.release()
   }
 })
 

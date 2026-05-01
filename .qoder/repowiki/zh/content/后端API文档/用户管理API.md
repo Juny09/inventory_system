@@ -4,6 +4,7 @@
 **本文档引用的文件**
 - [authRoutes.js](file://server/src/routes/authRoutes.js)
 - [masterRoutes.js](file://server/src/routes/masterRoutes.js)
+- [adminRoutes.js](file://server/src/routes/adminRoutes.js)
 - [auth.js](file://server/src/middleware/auth.js)
 - [rateLimit.js](file://server/src/middleware/rateLimit.js)
 - [response.js](file://server/src/middleware/response.js)
@@ -11,9 +12,18 @@
 - [auditLog.js](file://server/src/utils/auditLog.js)
 - [db.js](file://server/src/config/db.js)
 - [schema.sql](file://server/database/schema.sql)
+- [003_super_admin_approval.sql](file://server/database/migrations/003_super_admin_approval.sql)
 - [app.js](file://server/src/app.js)
 - [package.json](file://server/package.json)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 更新登录流程，支持租户代码验证和多租户认证
+- 新增租户注册和审批机制，包括超级管理员审核流程
+- 集成超级管理员权限管理，支持平台级租户管理
+- 增强用户状态管理，支持租户级别的激活/禁用状态
+- 更新用户角色权限体系，新增SUPER_ADMIN角色
 
 ## 目录
 1. [简介](#简介)
@@ -28,7 +38,7 @@
 
 ## 简介
 
-本文件详细说明了库存管理系统的用户管理API，包括用户CRUD操作、角色权限管理、状态管理和数据验证规则。系统采用多租户架构，支持用户在不同租户间的隔离管理，并提供了完整的审计跟踪功能。
+本文件详细说明了库存管理系统的用户管理API，包括用户CRUD操作、角色权限管理、状态管理和数据验证规则。系统采用多租户架构，支持用户在不同租户间的隔离管理，并提供了完整的审计跟踪功能。系统现已集成超级管理员权限管理，支持平台级租户审核和管理功能。
 
 ## 项目结构
 
@@ -43,12 +53,14 @@ MIDDLEWARE[中间件层]
 end
 subgraph "业务逻辑层"
 AUTH_ROUTES[认证路由]
+ADMIN_ROUTES[管理员路由]
 MASTER_ROUTES[主业务路由]
 SERVICES[服务层]
 end
 subgraph "数据访问层"
 DB_CONFIG[数据库配置]
 SCHEMA[数据库模式]
+MIGRATIONS[迁移脚本]
 end
 subgraph "工具层"
 AUDIT[审计日志]
@@ -56,17 +68,21 @@ UTILS[工具函数]
 end
 APP --> ROUTES
 ROUTES --> AUTH_ROUTES
+ROUTES --> ADMIN_ROUTES
 ROUTES --> MASTER_ROUTES
 ROUTES --> MIDDLEWARE
 MIDDLEWARE --> DB_CONFIG
 DB_CONFIG --> SCHEMA
+DB_CONFIG --> MIGRATIONS
 AUTH_ROUTES --> AUDIT
+ADMIN_ROUTES --> AUDIT
 MASTER_ROUTES --> AUDIT
 ```
 
 **图表来源**
 - [app.js:1-91](file://server/src/app.js#L1-91)
-- [authRoutes.js:1-180](file://server/src/routes/authRoutes.js#L1-180)
+- [authRoutes.js:1-184](file://server/src/routes/authRoutes.js#L1-184)
+- [adminRoutes.js:1-189](file://server/src/routes/adminRoutes.js#L1-189)
 - [masterRoutes.js:1-1571](file://server/src/routes/masterRoutes.js#L1-1571)
 
 **章节来源**
@@ -79,9 +95,10 @@ MASTER_ROUTES --> AUDIT
 
 系统实现了基于JWT的认证机制和基于角色的访问控制：
 
-- **authenticateToken**: 验证JWT令牌并注入用户上下文
+- **authenticateToken**: 验证JWT令牌并注入用户上下文，支持租户验证
 - **authorizeRoles**: 实现基于角色的权限控制
 - **requireTenant**: 确保租户上下文存在
+- **requireSuperAdmin**: 仅允许超级管理员访问平台级功能
 
 ### 用户管理路由
 
@@ -92,17 +109,28 @@ MASTER_ROUTES --> AUDIT
 - **用户更新**: 支持密码更新和状态变更
 - **用户删除**: 安全的用户删除机制
 
+### 管理员路由
+
+新增的管理员路由支持平台级租户管理：
+
+- **租户列表**: 支持状态过滤和分页
+- **租户详情**: 查看租户详细信息和用户列表
+- **租户审批**: 支持批准、拒绝和暂停租户
+- **平台统计**: 提供平台级统计数据
+
 ### 数据验证与约束
 
 数据库层面实现了严格的数据完整性约束：
 
-- **角色验证**: 仅允许ADMIN、MANAGER、STAFF三种角色
-- **邮箱唯一性**: 确保用户邮箱的唯一性
+- **角色验证**: 仅允许ADMIN、MANAGER、STAFF、SUPER_ADMIN四种角色
+- **邮箱唯一性**: 确保用户邮箱的唯一性（租户内）
 - **激活状态**: 支持用户激活/禁用状态管理
+- **租户状态**: 支持租户PENDING、ACTIVE、REJECTED、SUSPENDED、DELETED状态
 
 **章节来源**
-- [auth.js:1-87](file://server/src/middleware/auth.js#L1-87)
+- [auth.js:1-96](file://server/src/middleware/auth.js#L1-96)
 - [masterRoutes.js:497-673](file://server/src/routes/masterRoutes.js#L497-673)
+- [adminRoutes.js:1-189](file://server/src/routes/adminRoutes.js#L1-189)
 - [schema.sql:2-11](file://server/database/schema.sql#L2-11)
 
 ## 架构概览
@@ -117,7 +145,7 @@ participant AuthMW as 认证中间件
 participant DB as 数据库
 participant Audit as 审计系统
 Client->>AuthRoute : POST /api/auth/login
-AuthRoute->>AuthRoute : 验证输入参数
+AuthRoute->>AuthRoute : 验证输入参数<br/>tenantCode/email/password
 AuthRoute->>DB : 查询租户信息
 DB-->>AuthRoute : 返回租户数据
 AuthRoute->>DB : 查询用户信息
@@ -132,12 +160,12 @@ Note over Client,AuthRoute : 用户认证流程
 ```
 
 **图表来源**
-- [authRoutes.js:23-98](file://server/src/routes/authRoutes.js#L23-98)
+- [authRoutes.js:23-108](file://server/src/routes/authRoutes.js#L23-108)
 - [auth.js:5-61](file://server/src/middleware/auth.js#L5-61)
 
 **章节来源**
-- [authRoutes.js:1-180](file://server/src/routes/authRoutes.js#L1-180)
-- [auth.js:1-87](file://server/src/middleware/auth.js#L1-87)
+- [authRoutes.js:1-184](file://server/src/routes/authRoutes.js#L1-184)
+- [auth.js:1-96](file://server/src/middleware/auth.js#L1-96)
 
 ## 详细组件分析
 
@@ -240,6 +268,91 @@ User --> RoleAuthorization : "提供角色信息"
 - [auth.js:64-72](file://server/src/middleware/auth.js#L64-72)
 - [masterRoutes.js:572-595](file://server/src/routes/masterRoutes.js#L572-595)
 
+### 超级管理员权限集成
+
+系统新增了超级管理员权限管理功能：
+
+```mermaid
+flowchart TD
+SuperAdmin[超级管理员] --> Platform[平台级管理]
+Platform --> Tenants[租户管理]
+Platform --> Users[用户管理]
+Platform --> System[系统设置]
+Tenants --> Approve[租户审批]
+Tenants --> Suspend[租户暂停]
+Tenants --> Reject[租户拒绝]
+Approve --> Pending[PENDING状态]
+Suspend --> Suspended[SUSPENDED状态]
+Reject --> Rejected[REJECTED状态]
+```
+
+**图表来源**
+- [adminRoutes.js:10-189](file://server/src/routes/adminRoutes.js#L10-189)
+- [auth.js:82-88](file://server/src/middleware/auth.js#L82-88)
+
+**章节来源**
+- [adminRoutes.js:1-189](file://server/src/routes/adminRoutes.js#L1-189)
+- [auth.js:82-88](file://server/src/middleware/auth.js#L82-88)
+
+### 登录流程变化
+
+系统更新了登录流程，支持租户代码验证：
+
+```mermaid
+flowchart TD
+Login[登录请求] --> ValidateInput["验证email/password"]
+ValidateInput --> ExtractTenant["提取tenantCode<br/>(tenant_code或DEFAULT)"]
+ExtractTenant --> FindTenant["查找租户"]
+FindTenant --> TenantFound{"租户存在?"}
+TenantFound --> |否| InvalidTenant["返回401: 无效租户代码"]
+TenantFound --> |是| CheckStatus["检查租户状态"]
+CheckStatus --> StatusActive{"租户激活?"}
+StatusActive --> |否| ReturnStatusMessage["返回状态消息"]
+StatusActive --> |是| FindUser["查找用户"]
+FindUser --> UserFound{"用户存在且激活?"}
+UserFound --> |否| InvalidCredentials["返回401: 无效凭据"]
+UserFound --> |是| VerifyPassword["验证密码"]
+VerifyPassword --> GenerateToken["生成JWT令牌"]
+GenerateToken --> Success["返回认证结果"]
+InvalidTenant --> End([结束])
+ReturnStatusMessage --> End
+InvalidCredentials --> End
+Success --> End
+```
+
+**图表来源**
+- [authRoutes.js:23-108](file://server/src/routes/authRoutes.js#L23-108)
+
+**章节来源**
+- [authRoutes.js:23-108](file://server/src/routes/authRoutes.js#L23-108)
+
+### 注册流程调整
+
+系统新增了租户注册和审批机制：
+
+```mermaid
+flowchart TD
+Register[租户注册] --> ValidateInput["验证必填字段<br/>tenantCode, tenantName, adminName, adminEmail, password"]
+ValidateInput --> ValidateCode["验证公司代码格式"]
+ValidateCode --> ValidatePassword["验证密码长度"]
+ValidatePassword --> StartTransaction["开始事务"]
+StartTransaction --> CheckTenantCode["检查租户代码唯一性"]
+CheckTenantCode --> CodeAvailable{"代码可用?"}
+CodeAvailable --> |否| ReturnConflict["返回409: 代码已被占用"]
+CodeAvailable --> |是| CreateTenant["创建租户(PENDING)"]
+CreateTenant --> CreateAdmin["创建管理员账号"]
+CreateAdmin --> CommitTransaction["提交事务"]
+CommitTransaction --> ReturnPending["返回待审批状态"]
+ReturnConflict --> End([结束])
+End --> End
+```
+
+**图表来源**
+- [authRoutes.js:111-176](file://server/src/routes/authRoutes.js#L111-176)
+
+**章节来源**
+- [authRoutes.js:111-176](file://server/src/routes/authRoutes.js#L111-176)
+
 ### 用户状态管理
 
 系统支持用户激活/禁用状态管理：
@@ -252,7 +365,7 @@ User --> RoleAuthorization : "提供角色信息"
 
 **章节来源**
 - [auth.js:26-28](file://server/src/middleware/auth.js#L26-28)
-- [authRoutes.js:43-45](file://server/src/routes/authRoutes.js#L43-45)
+- [authRoutes.js:43-55](file://server/src/routes/authRoutes.js#L43-55)
 
 ### 数据验证规则
 
@@ -337,6 +450,7 @@ Morgan[Morgan]
 end
 subgraph "内部模块"
 AuthRoutes[认证路由]
+AdminRoutes[管理员路由]
 MasterRoutes[主业务路由]
 AuthMW[认证中间件]
 RateLimitMW[速率限制中间件]
@@ -344,16 +458,20 @@ ResponseMW[响应中间件]
 AuditTrailMW[审计中间件]
 DBConfig[数据库配置]
 Schema[数据库模式]
+Migrations[迁移脚本]
 end
 Express --> AuthRoutes
+Express --> AdminRoutes
 Express --> MasterRoutes
 Express --> AuthMW
 Express --> RateLimitMW
 Express --> ResponseMW
 Express --> AuditTrailMW
 AuthRoutes --> DBConfig
+AdminRoutes --> DBConfig
 MasterRoutes --> DBConfig
 DBConfig --> PG
+DBConfig --> Migrations
 AuthMW --> JWT
 AuthMW --> Bcrypt
 RateLimitMW --> Express
@@ -375,7 +493,7 @@ DBConfig --> Schema
 系统在设计时充分考虑了性能优化：
 
 ### 数据库优化
-- **索引优化**: 为常用查询字段建立索引
+- **索引优化**: 为常用查询字段建立索引，包括租户状态索引
 - **连接池**: 使用PostgreSQL连接池管理数据库连接
 - **查询优化**: 实现分页查询避免大数据集全量加载
 
@@ -427,6 +545,18 @@ DBConfig --> Schema
 2. 验证数据库服务器状态
 3. 检查SSL配置参数
 
+#### 租户注册问题
+**症状**: 租户注册失败
+**可能原因**:
+- 公司代码格式不正确
+- 密码长度不足
+- 公司代码已被占用
+
+**解决步骤**:
+1. 验证公司代码格式（3-40字符，A-Z, 0-9, _, -）
+2. 确认密码至少8字符
+3. 检查公司代码唯一性
+
 **章节来源**
 - [auth.js:26-28](file://server/src/middleware/auth.js#L26-28)
 - [authRoutes.js:39-45](file://server/src/routes/authRoutes.js#L39-45)
@@ -454,4 +584,10 @@ DBConfig --> Schema
 - 速率限制防止滥用
 - 异步审计日志写入
 
-该系统为企业级应用提供了可靠的基础用户管理能力，支持多租户场景下的用户隔离和权限管理。
+### 平台级管理
+- 新增超级管理员权限
+- 支持租户注册和审批
+- 提供平台级统计功能
+- 实现租户生命周期管理
+
+该系统为企业级应用提供了可靠的基础用户管理能力，支持多租户场景下的用户隔离和权限管理，同时集成了平台级的租户管理功能，为系统管理员提供了完整的租户审核和管理能力。
