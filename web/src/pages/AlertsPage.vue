@@ -59,8 +59,13 @@ const bulkReorderLevelModal = reactive({
   productId: '',
 })
 
-const sortField = ref('shortage')
-const sortOrder = ref('desc')
+const sortField = ref(localStorage.getItem('alerts_sort_field') || 'shortage')
+const sortOrder = ref(localStorage.getItem('alerts_sort_order') || 'desc')
+
+watch([sortField, sortOrder], ([field, order]) => {
+  localStorage.setItem('alerts_sort_field', field)
+  localStorage.setItem('alerts_sort_order', order)
+})
 
 const canAssign = computed(() => ['ADMIN', 'MANAGER'].includes(authStore.user?.role))
 const allSelected = computed(

@@ -53,6 +53,14 @@ const pagination = ref({
   pageSize: 8,
   totalPages: 1,
 })
+const sortField = ref(localStorage.getItem('products_sort_field') || 'name')
+const sortOrder = ref(localStorage.getItem('products_sort_order') || 'asc')
+
+watch([sortField, sortOrder], ([field, order]) => {
+  localStorage.setItem('products_sort_field', field)
+  localStorage.setItem('products_sort_order', order)
+})
+
 const form = reactive({
   id: null,
   name: '',
@@ -205,6 +213,16 @@ async function lockCost() {
   await loadPageData(pagination.value.page)
 }
 
+function sortBy(field) {
+  if (sortField.value === field) {
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortField.value = field
+    sortOrder.value = 'desc'
+  }
+  loadPageData(1)
+}
+
 async function loadPageData(page = pagination.value.page) {
   loading.value = true
 
@@ -217,6 +235,8 @@ async function loadPageData(page = pagination.value.page) {
           status: filters.status,
           hasBarcode: filters.hasBarcode,
           pricingChannel: pricingChannel.value || undefined,
+          sort: sortField.value,
+          order: sortOrder.value,
           page,
           pageSize: pagination.value.pageSize,
         },
@@ -917,13 +937,31 @@ watch(
               <thead class="text-slate-500">
                 <tr class="border-b border-slate-200">
                   <th class="px-3 py-3">{{ localeStore.t('table.select') }}</th>
-                  <th class="px-3 py-3">{{ localeStore.t('table.product') }}</th>
-                  <th class="px-3 py-3">{{ localeStore.t('table.code') }}</th>
-                  <th class="px-3 py-3">{{ localeStore.t('table.category') }}</th>
-                  <th class="px-3 py-3">{{ localeStore.locale === 'en' ? 'Brand' : '品牌' }}</th>
-                  <th class="px-3 py-3">{{ localeStore.t('table.description') }}</th>
+                  <th class="px-3 py-3 cursor-pointer" @click="sortBy('name')">
+                    {{ localeStore.t('table.product') }}
+                    <span v-if="sortField === 'name'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                  </th>
+                  <th class="px-3 py-3 cursor-pointer" @click="sortBy('product_code')">
+                    {{ localeStore.t('table.code') }}
+                    <span v-if="sortField === 'product_code'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                  </th>
+                  <th class="px-3 py-3 cursor-pointer" @click="sortBy('category_name')">
+                    {{ localeStore.t('table.category') }}
+                    <span v-if="sortField === 'category_name'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                  </th>
+                  <th class="px-3 py-3 cursor-pointer" @click="sortBy('brand_name')">
+                    {{ localeStore.locale === 'en' ? 'Brand' : '品牌' }}
+                    <span v-if="sortField === 'brand_name'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                  </th>
+                  <th class="px-3 py-3 cursor-pointer" @click="sortBy('description')">
+                    {{ localeStore.t('table.description') }}
+                    <span v-if="sortField === 'description'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                  </th>
                   <th class="px-3 py-3">{{ localeStore.t('table.pricing') }}</th>
-                  <th class="px-3 py-3">{{ localeStore.t('table.status') }}</th>
+                  <th class="px-3 py-3 cursor-pointer" @click="sortBy('is_active')">
+                    {{ localeStore.t('table.status') }}
+                    <span v-if="sortField === 'is_active'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                  </th>
                   <th class="px-3 py-3">{{ localeStore.t('table.actions') }}</th>
                 </tr>
               </thead>
