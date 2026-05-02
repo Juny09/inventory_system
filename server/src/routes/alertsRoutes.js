@@ -338,7 +338,7 @@ router.post('/low-stock/bulk-reorder-level', async (req, res) => {
     let params = [tenantId]
     let paramIndex = 2
 
-    // 应用 filters（仅使用 products 和 stock_levels 表的字段）
+    // 应用 filters（仅使用 products 表的字段）
     if (filters.search && filters.search.trim()) {
       whereClause += ` AND (
         products.name ILIKE $${paramIndex} OR 
@@ -348,9 +348,14 @@ router.post('/low-stock/bulk-reorder-level', async (req, res) => {
       paramIndex++
     }
 
-    // 应用 warehouseId 和 productId 筛选
+    // 应用 warehouseId 筛选（使用 EXISTS 子查询，避免 JOIN 丢失记录）
     if (warehouseId) {
-      whereClause += ` AND stock_levels.warehouse_id = $${paramIndex}::int`
+      whereClause += ` AND EXISTS (
+        SELECT 1 FROM stock_levels sl
+        WHERE sl.product_id = products.id
+          AND sl.tenant_id = products.tenant_id
+          AND sl.warehouse_id = $${paramIndex}::int
+      )`
       params.push(warehouseId)
       paramIndex++
     }
@@ -361,17 +366,14 @@ router.post('/low-stock/bulk-reorder-level', async (req, res) => {
       paramIndex++
     }
 
-    // 执行批量更新
+    // 执行批量更新（直接更新 products 表，不 JOIN stock_levels）
     params.push(reorderLevel)
     
     const result = await query(
       `
         UPDATE products
         SET reorder_level = $${paramIndex}, updated_at = CURRENT_TIMESTAMP
-        FROM stock_levels
-        WHERE products.id = stock_levels.product_id
-          AND products.tenant_id = stock_levels.tenant_id
-          AND ${whereClause}
+        WHERE ${whereClause}
         RETURNING products.id, products.name, products.sku, products.reorder_level
       `,
       params
