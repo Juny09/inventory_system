@@ -333,6 +333,8 @@ router.post('/low-stock/bulk-reorder-level', async (req, res) => {
   }
 
   try {
+    console.log('[DEBUG] bulk-reorder-level params length:', params.length)
+    console.log('[DEBUG] bulk-reorder-level whereClause:', whereClause)
     console.log('[DEBUG] bulk-reorder-level executing query with params:', params)
     // 构建动态 WHERE 条件
     let whereClause = 'products.tenant_id = $1'
