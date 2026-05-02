@@ -59,6 +59,9 @@ const bulkReorderLevelModal = reactive({
   productId: '',
 })
 
+const sortField = ref('shortage')
+const sortOrder = ref('desc')
+
 const canAssign = computed(() => ['ADMIN', 'MANAGER'].includes(authStore.user?.role))
 const allSelected = computed(
   () => alerts.value.length > 0 && alerts.value.every((item) => isAlertSelected(item)),
@@ -136,6 +139,8 @@ async function loadAlerts(page = pagination.value.page) {
         search: filters.search || undefined,
         warehouseId: filters.warehouseId || undefined,
         status: filters.status,
+        sort: sortField.value,
+        order: sortOrder.value,
         page,
         pageSize: pagination.value.pageSize,
       },
@@ -324,6 +329,16 @@ async function applyBulkAction() {
 }
 
 function handleFilter() {
+  loadAlerts(1)
+}
+
+function sortBy(field) {
+  if (sortField.value === field) {
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortField.value = field
+    sortOrder.value = 'desc'
+  }
   loadAlerts(1)
 }
 
@@ -676,13 +691,34 @@ watch(
                     @change="toggleSelectAll"
                   />
                 </th>
-                <th class="px-4 py-4">{{ tr('Product', '商品') }}</th>
-                <th class="px-4 py-4">{{ tr('Warehouse', '仓库') }}</th>
-                <th class="px-4 py-4">{{ tr('Supplier', '供应商') }}</th>
-                <th class="px-4 py-4">{{ tr('Current stock', '当前库存') }}</th>
-                <th class="px-4 py-4">{{ tr('Reorder', '补货线') }}</th>
-                <th class="px-4 py-4">{{ tr('Shortage', '缺口') }}</th>
-                <th class="px-4 py-4">{{ tr('Last purchase', '最近采购') }}</th>
+                <th class="px-4 py-4 cursor-pointer" @click="sortBy('product_name')">
+                  {{ tr('Product', '商品') }}
+                  <span v-if="sortField === 'product_name'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                </th>
+                <th class="px-4 py-4 cursor-pointer" @click="sortBy('warehouse_name')">
+                  {{ tr('Warehouse', '仓库') }}
+                  <span v-if="sortField === 'warehouse_name'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                </th>
+                <th class="px-4 py-4 cursor-pointer" @click="sortBy('supplier_name')">
+                  {{ tr('Supplier', '供应商') }}
+                  <span v-if="sortField === 'supplier_name'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                </th>
+                <th class="px-4 py-4 cursor-pointer" @click="sortBy('quantity')">
+                  {{ tr('Current stock', '当前库存') }}
+                  <span v-if="sortField === 'quantity'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                </th>
+                <th class="px-4 py-4 cursor-pointer" @click="sortBy('reorder_level')">
+                  {{ tr('Reorder', '补货线') }}
+                  <span v-if="sortField === 'reorder_level'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                </th>
+                <th class="px-4 py-4 cursor-pointer" @click="sortBy('shortage')">
+                  {{ tr('Shortage', '缺口') }}
+                  <span v-if="sortField === 'shortage'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                </th>
+                <th class="px-4 py-4 cursor-pointer" @click="sortBy('last_purchase_at')">
+                  {{ tr('Last purchase', '最近采购') }}
+                  <span v-if="sortField === 'last_purchase_at'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                </th>
                 <th class="px-4 py-4">{{ tr('Status', '状态') }}</th>
                 <th class="px-4 py-4">{{ tr('Assignee', '负责人') }}</th>
               </tr>

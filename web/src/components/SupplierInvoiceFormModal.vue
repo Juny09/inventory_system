@@ -247,6 +247,10 @@ async function onDoChange() {
       unit_price: 0,
       discount: 0,
     }))
+    // 自动填充 invoice_no = do_no（仅当当前为空时）
+    if (!form.invoice_no && data?.do_no) {
+      form.invoice_no = data.do_no
+    }
   } catch (error) {
     errorMessage.value = 'Failed to load DO items.'
   }

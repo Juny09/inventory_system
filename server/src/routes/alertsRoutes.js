@@ -86,10 +86,15 @@ function getAlertBaseQuery() {
 
 router.get('/low-stock', async (req, res) => {
   const tenantId = getTenantId(req)
-  const { search = '', warehouseId = '', status = 'all', all = 'false' } = req.query
+  const { search = '', warehouseId = '', status = 'all', all = 'false', sort = 'shortage', order = 'desc' } = req.query
   const loadAll = all === 'true'
   const { page, pageSize, offset } = getPaginationParams(req.query)
   const searchPattern = getSearchPattern(search)
+
+  // 验证排序字段
+  const allowedSortFields = ['shortage', 'product_name', 'warehouse_name', 'quantity', 'reorder_level', 'last_purchase_at']
+  const safeSort = allowedSortFields.includes(sort) ? sort : 'shortage'
+  const safeOrder = ['asc', 'desc'].includes(order.toLowerCase()) ? order.toLowerCase() : 'desc'
 
   try {
     const itemsParams = [searchPattern, warehouseId || null, status, tenantId]
@@ -124,7 +129,7 @@ router.get('/low-stock', async (req, res) => {
             last_purchase.purchase_reason AS last_purchase_reason,
             last_purchase.reference_no AS last_purchase_reference_no
           ${getAlertBaseQuery()}
-          ORDER BY shortage DESC, products.name ASC
+          ORDER BY ${safeSort} ${safeOrder}, products.name ASC
         `,
         itemsParams,
       )
@@ -170,7 +175,7 @@ router.get('/low-stock', async (req, res) => {
             last_purchase.purchase_reason AS last_purchase_reason,
             last_purchase.reference_no AS last_purchase_reference_no
           ${getAlertBaseQuery()}
-          ORDER BY shortage DESC, products.name ASC
+          ORDER BY ${safeSort} ${safeOrder}, products.name ASC
           LIMIT $5 OFFSET $6
         `,
         [...itemsParams, pageSize, offset],
