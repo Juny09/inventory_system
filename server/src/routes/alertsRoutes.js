@@ -338,26 +338,13 @@ router.post('/low-stock/bulk-reorder-level', async (req, res) => {
     let params = [tenantId]
     let paramIndex = 2
 
-    // 应用 filters
+    // 应用 filters（仅使用 products 和 stock_levels 表的字段）
     if (filters.search && filters.search.trim()) {
       whereClause += ` AND (
         products.name ILIKE $${paramIndex} OR 
-        products.sku ILIKE $${paramIndex} OR 
-        warehouses.name ILIKE $${paramIndex}
+        products.sku ILIKE $${paramIndex}
       )`
       params.push(`%${filters.search.trim()}%`)
-      paramIndex++
-    }
-
-    if (filters.warehouseId && filters.warehouseId !== 'all') {
-      whereClause += ` AND warehouses.id = $${paramIndex}::int`
-      params.push(filters.warehouseId)
-      paramIndex++
-    }
-
-    if (filters.status && filters.status !== 'all') {
-      whereClause += ` AND COALESCE(low_stock_alert_states.status, 'OPEN') = $${paramIndex}`
-      params.push(filters.status)
       paramIndex++
     }
 
@@ -376,7 +363,6 @@ router.post('/low-stock/bulk-reorder-level', async (req, res) => {
 
     // 执行批量更新
     params.push(reorderLevel)
-    console.log('[DEBUG] bulk-reorder-level params length:', params.length, 'whereClause:', whereClause)
     
     const result = await query(
       `
