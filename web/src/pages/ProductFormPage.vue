@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '../layouts/AppLayout.vue'
 import api from '../services/api'
@@ -70,6 +70,14 @@ function recalculateSuggested() {
   }
   const markup = toNumber(form.markupPercentage)
   form.suggestedPrice = Number((cost * (1 + markup / 100)).toFixed(2))
+}
+
+function getUnitStep(unit) {
+  const unitLower = String(unit || '').toLowerCase()
+  if (unitLower.includes('kg') || unitLower.includes('gram') || unitLower.includes('g')) {
+    return '0.001'
+  }
+  return '1'
 }
 
 async function loadSelectors() {
@@ -202,8 +210,80 @@ function cancel() {
   router.push({ name: 'products' })
 }
 
+// 表单数据记忆功能
+const formKey = 'productFormState'
+
+function saveFormState() {
+  try {
+    const state = {
+      form: {
+        ...form,
+        images: form.images.map(img => ({
+          imageData: img.imageData,
+          isPrimary: img.isPrimary,
+          sortOrder: img.sortOrder
+        }))
+      },
+      costPasscode: costPasscode.value,
+      costChangeReason: costChangeReason.value,
+      initialCostPrice: initialCostPrice.value
+    }
+    localStorage.setItem(formKey, JSON.stringify(state))
+  } catch (e) {
+    console.warn('Failed to save form state:', e)
+  }
+}
+
+function loadFormState() {
+  try {
+    const saved = localStorage.getItem(formKey)
+    if (saved) {
+      const state = JSON.parse(saved)
+      Object.assign(form, state.form)
+      costPasscode.value = state.costPasscode || ''
+      costChangeReason.value = state.costChangeReason || ''
+      initialCostPrice.value = state.initialCostPrice
+    }
+  } catch (e) {
+    console.warn('Failed to load form state:', e)
+  }
+}
+
+onBeforeUnmount(() => {
+  saveFormState()
+})
+
 function generateProductCode() {
-  form.productCode = generateLocalProductCode()
+  // 基于产品名称和型号生成Product Code
+  if (form.name) {
+    // 提取名称中的型号部分（通常在括号中或末尾）
+    const nameParts = form.name.split(/\s+/)
+    let modelPart = ''
+    
+    // 查找包含数字、字母组合的型号
+    for (let i = nameParts.length - 1; i >= 0; i--) {
+      const part = nameParts[i].replace(/[()]/g, '')
+      // 检查是否为型号格式（包含数字和字母，长度2-10）
+      if (part.length >= 2 && part.length <= 10 && /[a-zA-Z0-9]/.test(part) && !/[!@#$%^&*(),.?":{}|<>]/.test(part)) {
+        modelPart = part
+        break
+      }
+    }
+    
+    // 如果没有找到型号，使用名称的前几个单词
+    if (!modelPart) {
+      modelPart = nameParts.slice(0, 3).join('-').replace(/[^a-zA-Z0-9-]/g, '')
+      if (modelPart.length > 15) {
+        modelPart = modelPart.substring(0, 15)
+      }
+    }
+    
+    // 生成Product Code: 名称缩写 + 型号
+    const nameAbbr = nameParts[0].substring(0, 3).toUpperCase()
+    form.productCode = `${nameAbbr}-${modelPart}`.replace(/[-]+/g, '-').replace(/^-|-$/g, '')
+  } else {
+    form.productCode = generateLocalProductCode()
+  }
 }
 
 function addBundleItem() {
@@ -262,6 +342,8 @@ onMounted(async () => {
   } else {
     recalculateSuggested()
   }
+  // 加载保存的表单状态
+  loadFormState()
 })
 </script>
 
@@ -445,7 +527,7 @@ onMounted(async () => {
             class="sm:col-span-2 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
           />
           <div class="relative">
-            <input v-model="form.reorderLevel" type="number" min="0" placeholder=" " class="peer w-full rounded-2xl border border-slate-200 px-4 pb-2 pt-5 outline-none focus:border-brand-500" />
+            <input v-model="form.reorderLevel" :step="getUnitStep(form.unit)" type="number" min="0" placeholder=" " class="peer w-full rounded-2xl border border-slate-200 px-4 pb-2 pt-5 outline-none focus:border-brand-500" />
             <label class="pointer-events-none absolute left-4 top-3 text-xs text-slate-500 transition-all peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:text-sm peer-placeholder-shown:text-slate-400 peer-focus:top-3 peer-focus:-translate-y-0 peer-focus:text-xs peer-focus:text-slate-500">
               {{ localeStore.locale === 'en' ? 'Reorder level' : '补货线' }}
             </label>

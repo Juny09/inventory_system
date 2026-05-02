@@ -44,6 +44,7 @@ const stockInForm = reactive({
   warehouseId: '',
   supplierId: '',
   quantity: 1,
+  unit: '',
   unitCost: '',
   referenceNo: '',
   purchaseReason: '',
@@ -53,6 +54,7 @@ const stockInForm = reactive({
 const stockOutForm = reactive({
   productId: '',
   warehouseId: '',
+  unit: '',
   quantity: 1,
   referenceNo: '',
   notes: '',
@@ -62,6 +64,7 @@ const transferForm = reactive({
   productId: '',
   sourceWarehouseId: '',
   destinationWarehouseId: '',
+  unit: '',
   quantity: 1,
   referenceNo: '',
   notes: '',
@@ -70,6 +73,7 @@ const transferForm = reactive({
 const allocationForm = reactive({
   productId: '',
   warehouseId: '',
+  unit: '',
   quantity: 1,
   mode: 'reserve',
   referenceNo: '',
@@ -228,6 +232,14 @@ function resetTransactionFilters() {
   })
   transactionSearch.value = ''
   loadInventoryPage(inventoryPagination.value.page, 1)
+}
+
+function getUnitStep(unit) {
+  const unitLower = String(unit || '').toLowerCase()
+  if (unitLower.includes('kg') || unitLower.includes('gram') || unitLower.includes('g')) {
+    return '0.001'
+  }
+  return '1'
 }
 
 onMounted(async () => {
@@ -515,13 +527,22 @@ onMounted(async () => {
                   {{ warehouse.name }}
                 </option>
               </select>
+              <select v-model="stockInForm.unit" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">{{ localeStore.locale === 'en' ? 'Select unit (optional)' : '选择单位（可选）' }}</option>
+                <option value="pcs">pcs</option>
+                <option value="kg">kg</option>
+                <option value="g">g</option>
+                <option value="gram">gram</option>
+                <option value="box">box</option>
+                <option value="carton">carton</option>
+              </select>
               <select v-model="stockInForm.supplierId" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
                 <option value="">{{ localeStore.locale === 'en' ? 'Select supplier (optional)' : '选择供应商（可选）' }}</option>
                 <option v-for="supplier in suppliers" :key="supplier.id" :value="supplier.id">
                   {{ supplier.name }}
                 </option>
               </select>
-              <input v-model="stockInForm.quantity" type="number" min="1" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Quantity' : '数量'" />
+              <input v-model="stockInForm.quantity" :step="getUnitStep(stockInForm.unit)" type="number" min="1" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Quantity' : '数量'" />
               <input v-model="stockInForm.unitCost" type="number" min="0" step="0.01" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Unit cost (optional)' : '单价（可选）'" />
               <input v-model="stockInForm.referenceNo" type="text" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Reference no' : '单号'" />
               <input v-model="stockInForm.purchaseReason" type="text" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Purchase reason (optional)' : '采购原因（可选）'" />
@@ -561,7 +582,16 @@ onMounted(async () => {
                   {{ warehouse.name }}
                 </option>
               </select>
-              <input v-model="stockOutForm.quantity" type="number" min="1" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Quantity' : '数量'" />
+              <select v-model="stockOutForm.unit" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">{{ localeStore.locale === 'en' ? 'Select unit (optional)' : '选择单位（可选）' }}</option>
+                <option value="pcs">pcs</option>
+                <option value="kg">kg</option>
+                <option value="g">g</option>
+                <option value="gram">gram</option>
+                <option value="box">box</option>
+                <option value="carton">carton</option>
+              </select>
+              <input v-model="stockOutForm.quantity" :step="getUnitStep(stockOutForm.unit)" type="number" min="1" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Quantity' : '数量'" />
               <input v-model="stockOutForm.referenceNo" type="text" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Reference no' : '单号'" />
               <textarea v-model="stockOutForm.notes" rows="2" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Notes' : '备注'" />
             </div>
@@ -599,13 +629,22 @@ onMounted(async () => {
                   {{ warehouse.name }}
                 </option>
               </select>
+              <select v-model="transferForm.unit" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">{{ localeStore.locale === 'en' ? 'Select unit (optional)' : '选择单位（可选）' }}</option>
+                <option value="pcs">pcs</option>
+                <option value="kg">kg</option>
+                <option value="g">g</option>
+                <option value="gram">gram</option>
+                <option value="box">box</option>
+                <option value="carton">carton</option>
+              </select>
               <select v-model="transferForm.destinationWarehouseId" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
                 <option value="">{{ localeStore.locale === 'en' ? 'Destination warehouse' : '目标仓库' }}</option>
                 <option v-for="warehouse in warehouses" :key="warehouse.id" :value="warehouse.id">
                   {{ warehouse.name }}
                 </option>
               </select>
-              <input v-model="transferForm.quantity" type="number" min="1" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Quantity' : '数量'" />
+              <input v-model="transferForm.quantity" :step="getUnitStep(transferForm.unit)" type="number" min="1" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Quantity' : '数量'" />
               <input v-model="transferForm.referenceNo" type="text" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Reference no' : '单号'" />
               <textarea v-model="transferForm.notes" rows="2" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Notes' : '备注'" />
             </div>
@@ -643,11 +682,20 @@ onMounted(async () => {
                   {{ warehouse.name }}
                 </option>
               </select>
+              <select v-model="allocationForm.unit" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">{{ localeStore.locale === 'en' ? 'Select unit (optional)' : '选择单位（可选）' }}</option>
+                <option value="pcs">pcs</option>
+                <option value="kg">kg</option>
+                <option value="g">g</option>
+                <option value="gram">gram</option>
+                <option value="box">box</option>
+                <option value="carton">carton</option>
+              </select>
               <select v-model="allocationForm.mode" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
                 <option value="reserve">{{ localeStore.locale === 'en' ? 'Reserve' : '预留' }}</option>
                 <option value="release">{{ localeStore.locale === 'en' ? 'Release' : '释放' }}</option>
               </select>
-              <input v-model="allocationForm.quantity" type="number" min="1" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Quantity' : '数量'" />
+              <input v-model="allocationForm.quantity" :step="getUnitStep(allocationForm.unit)" type="number" min="1" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Quantity' : '数量'" />
               <input v-model="allocationForm.referenceNo" type="text" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Reference no' : '单号'" />
               <textarea v-model="allocationForm.notes" rows="2" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Notes' : '备注'" />
             </div>

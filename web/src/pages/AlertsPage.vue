@@ -15,6 +15,7 @@ const route = useRoute()
 const alerts = ref([])
 const activeTab = ref('low-stock')
 const warehouses = ref([])
+const products = ref([])
 const assignees = ref([])
 const errorMessage = ref('')
 const loading = ref(false)
@@ -51,6 +52,13 @@ const notificationsPagination = ref({
   totalPages: 1,
 })
 
+const bulkReorderLevelModal = reactive({
+  isOpen: false,
+  reorderLevel: '',
+  warehouseId: '',
+  productId: '',
+})
+
 const canAssign = computed(() => ['ADMIN', 'MANAGER'].includes(authStore.user?.role))
 const allSelected = computed(
   () => alerts.value.length > 0 && alerts.value.every((item) => isAlertSelected(item)),
@@ -85,14 +93,23 @@ function isAlertSelected(item) {
 }
 
 async function loadWarehouses() {
-  const { data } = await api.get('/warehouses', {
-    params: {
-      all: true,
-      activeOnly: true,
-    },
-  })
+  const [warehouseResponse, productResponse] = await Promise.all([
+    api.get('/warehouses', {
+      params: {
+        all: true,
+        activeOnly: true,
+      },
+    }),
+    api.get('/products', {
+      params: {
+        all: true,
+        status: 'active',
+      },
+    }),
+  ])
 
-  warehouses.value = data.items
+  warehouses.value = warehouseResponse.data.items
+  products.value = productResponse.data.items
 }
 
 async function loadAssignees() {
@@ -320,6 +337,40 @@ function resetFilters() {
   loadAlerts(1)
 }
 
+function openBulkReorderLevelModal() {
+  bulkReorderLevelModal.isOpen = true
+}
+
+function closeBulkReorderLevelModal() {
+  bulkReorderLevelModal.isOpen = false
+}
+
+async function applyBulkReorderLevel() {
+  try {
+    await api.post('/alerts/low-stock/bulk-reorder-level', {
+      reorderLevel: Number(bulkReorderLevelModal.reorderLevel),
+      warehouseId: bulkReorderLevelModal.warehouseId || undefined,
+      productId: bulkReorderLevelModal.productId || undefined,
+      filters: {
+        search: filters.search,
+        warehouseId: filters.warehouseId,
+        status: filters.status,
+      },
+    })
+    toastStore.pushToast({
+      tone: 'success',
+      message: tr(
+        `Updated reorder level for ${selectedAlertItems.value.length} products.`,
+        `已为 ${selectedAlertItems.value.length} 个商品更新补货线。`,
+      ),
+    })
+    closeBulkReorderLevelModal()
+    await loadAlerts(pagination.value.page)
+  } catch (error) {
+    errorMessage.value = error.response?.data?.message || 'Failed to update reorder level.'
+  }
+}
+
 onMounted(async () => {
   activeTab.value = normalizeTab(route.query.tab)
   await loadWarehouses()
@@ -516,6 +567,26 @@ watch(
             <p class="mt-3 text-3xl font-semibold text-slate-900">{{ summary.affected_products }}</p>
           </div>
         </div>
+        <div class="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="text-xl font-semibold text-slate-900">{{ tr('Low Stock Settings', '低库存设置') }}</h3>
+          <p class="mt-1 text-sm text-slate-500">{{ tr('Configure low stock thresholds for individual products or bulk update.', '为单个产品配置低库存阈值，或批量更新。') }}</p>
+          <div class="mt-4 flex flex-wrap gap-3">
+            <button
+              type="button"
+              class="rounded-2xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-700"
+              @click="openBulkReorderLevelModal"
+            >
+              {{ tr('Bulk update reorder level', '批量更新补货线') }}
+            </button>
+            <button
+              type="button"
+              class="rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700"
+              @click="resetFilters"
+            >
+              {{ tr('Reset filters', '重置筛选') }}
+            </button>
+          </div>
+        </div>
 
         <div class="mt-6 rounded-3xl border border-slate-200 p-5">
 
@@ -682,41 +753,65 @@ watch(
         </div>
       </template>
 
-      <template v-else>
-        <div class="mt-6 overflow-hidden rounded-3xl border border-slate-200">
-          <div class="border-b border-slate-200 bg-slate-50 px-4 py-4">
-            <h3 class="text-xl font-semibold text-slate-900">{{ tr('Cost price change notifications', '成本变动提醒') }}</h3>
-            <p class="mt-1 text-sm text-slate-500">{{ tr('Notifications are generated when cost changes exceed threshold.', '当成本变动超过阈值时自动生成提醒。') }}</p>
-          </div>
-          <div v-if="notificationsLoading" class="px-4 py-4 text-sm text-slate-500">{{ tr('Loading...', '加载中...') }}</div>
-          <div v-else class="space-y-3 p-4">
-            <article v-for="item in notifications" :key="item.id" class="rounded-3xl border border-slate-200 p-4">
-              <div class="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p class="font-semibold text-slate-900">{{ item.title }}</p>
-                  <p class="mt-1 text-sm text-slate-600">{{ item.message }}</p>
-                  <p class="mt-2 text-xs text-slate-500">{{ item.created_at }}</p>
+      <!-- Bulk Reorder Level Modal -->
+      <Teleport to="body">
+        <div v-if="bulkReorderLevelModal.isOpen" class="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 sm:items-center" @click.self="closeBulkReorderLevelModal">
+          <div class="w-full max-w-lg rounded-3xl bg-white shadow-xl">
+            <div class="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <h3 class="text-lg font-semibold text-slate-900">{{ tr('Bulk update reorder level', '批量更新补货线') }}</h3>
+              <button type="button" class="text-slate-400 hover:text-slate-600" @click="closeBulkReorderLevelModal">✕</button>
+            </div>
+            <div class="max-h-[70vh] space-y-4 overflow-y-auto px-6 py-5">
+              <p class="text-sm text-slate-500">{{ tr('Update reorder level for selected products or all filtered results.', '为选中的商品或所有筛选结果更新补货线。') }}</p>
+              
+              <div class="space-y-3">
+                <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                  <label class="block text-sm font-medium text-slate-900 mb-2">{{ tr('New reorder level', '新的补货线') }}</label>
+                  <input v-model="bulkReorderLevelModal.reorderLevel" type="number" min="0" step="1" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="tr('Enter reorder level', '输入补货线')" />
                 </div>
-                <div class="flex items-center gap-2">
-                  <span class="rounded-full px-2 py-0.5 text-xs font-semibold" :class="item.is_read ? 'bg-slate-200 text-slate-700' : 'bg-amber-100 text-amber-700'">
-                    {{ item.is_read ? tr('Read', '已读') : tr('Unread', '未读') }}
-                  </span>
-                  <button
-                    v-if="!item.is_read"
-                    class="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
-                    :disabled="savingAlertKey === `notification-${item.id}`"
-                    @click="markNotificationRead(item.id)"
-                  >
-                    {{ savingAlertKey === `notification-${item.id}` ? tr('Saving...', '保存中...') : tr('Mark read', '标记已读') }}
-                  </button>
+                
+                <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                  <label class="block text-sm font-medium text-slate-900 mb-2">{{ tr('Apply to', '应用范围') }}</label>
+                  <select v-model="bulkReorderLevelModal.warehouseId" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                    <option value="">{{ tr('All warehouses', '全部仓库') }}</option>
+                    <option v-for="warehouse in warehouses" :key="warehouse.id" :value="warehouse.id">
+                      {{ warehouse.name }}
+                    </option>
+                  </select>
+                </div>
+                
+                <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                  <label class="block text-sm font-medium text-slate-900 mb-2">{{ tr('Filter by product (optional)', '按商品筛选（可选）') }}</label>
+                  <select v-model="bulkReorderLevelModal.productId" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                    <option value="">{{ tr('All products', '全部商品') }}</option>
+                    <option v-for="product in products" :key="product.id" :value="product.id">
+                      {{ product.name }} · {{ product.sku }}
+                    </option>
+                  </select>
                 </div>
               </div>
-            </article>
-            <p v-if="notifications.length === 0" class="text-sm text-slate-500">{{ tr('No notifications.', '暂无提醒。') }}</p>
+              
+              <div class="mt-6 rounded-2xl border border-slate-200 bg-white p-4">
+                <h4 class="text-sm font-medium text-slate-900 mb-2">{{ tr('Current selection', '当前选择') }}</h4>
+                <p class="text-sm text-slate-500">
+                  {{ tr('Selected', '已选') }} {{ (selectedAlertItems.value || []).length }} {{ tr('alerts', '条提醒') }}
+                  {{ tr('from', '来自') }} {{ (alerts.value || []).length }} {{ tr('filtered', '筛选结果') }}
+                </p>
+              </div>
+            </div>
+            <div class="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+              <button type="button" class="rounded-2xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700" @click="closeBulkReorderLevelModal">
+                {{ tr('Cancel', '取消') }}
+              </button>
+              <button type="button" class="rounded-2xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700" @click="applyBulkReorderLevel">
+                {{ tr('Apply', '应用') }}
+              </button>
+            </div>
           </div>
-          <PaginationBar :pagination="notificationsPagination" @change="loadNotifications" />
         </div>
-      </template>
+      </Teleport>
+
+
     </section>
   </AppLayout>
 </template>

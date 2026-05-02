@@ -307,4 +307,93 @@ router.post('/low-stock/bulk-update', async (req, res) => {
   }
 })
 
+router.post('/low-stock/bulk-reorder-level', async (req, res) => {
+  const tenantId = getTenantId(req)
+  const { reorderLevel, warehouseId = null, productId = null, filters = {} } = req.body
+
+  // 校验权限
+  if (!['ADMIN', 'MANAGER'].includes(req.user.role)) {
+    return res.status(403).json({ message: 'Only admin or manager can update reorder level.' })
+  }
+
+  // 校验 reorderLevel
+  if (reorderLevel === undefined || reorderLevel < 0) {
+    return res.status(400).json({ message: 'reorderLevel must be a non-negative number.' })
+  }
+
+  try {
+    // 构建动态 WHERE 条件
+    let whereClause = 'products.tenant_id = $1'
+    let params = [tenantId]
+    let paramIndex = 2
+
+    // 应用 filters
+    if (filters.search && filters.search.trim()) {
+      whereClause += ` AND (
+        products.name ILIKE $${paramIndex} OR 
+        products.sku ILIKE $${paramIndex} OR 
+        warehouses.name ILIKE $${paramIndex}
+      )`
+      params.push(`%${filters.search.trim()}%`)
+      paramIndex++
+    }
+
+    if (filters.warehouseId && filters.warehouseId !== 'all') {
+      whereClause += ` AND warehouses.id = $${paramIndex}::int`
+      params.push(filters.warehouseId)
+      paramIndex++
+    }
+
+    if (filters.status && filters.status !== 'all') {
+      whereClause += ` AND COALESCE(low_stock_alert_states.status, 'OPEN') = $${paramIndex}`
+      params.push(filters.status)
+      paramIndex++
+    }
+
+    // 应用 warehouseId 和 productId 筛选
+    if (warehouseId) {
+      whereClause += ` AND stock_levels.warehouse_id = $${paramIndex}::int`
+      params.push(warehouseId)
+      paramIndex++
+    }
+
+    if (productId) {
+      whereClause += ` AND products.id = $${paramIndex}::int`
+      params.push(productId)
+      paramIndex++
+    }
+
+    // 执行批量更新
+    const result = await query(
+      `
+        UPDATE products
+        SET reorder_level = $${paramIndex}, updated_at = CURRENT_TIMESTAMP
+        FROM stock_levels
+        INNER JOIN warehouses ON warehouses.id = stock_levels.warehouse_id AND warehouses.tenant_id = stock_levels.tenant_id
+        LEFT JOIN low_stock_alert_states ON low_stock_alert_states.product_id = products.id AND low_stock_alert_states.warehouse_id = stock_levels.warehouse_id AND low_stock_alert_states.tenant_id = products.tenant_id
+        WHERE products.id = stock_levels.product_id
+          AND products.tenant_id = stock_levels.tenant_id
+          AND ${whereClause}
+        RETURNING products.id, products.name, products.sku, products.reorder_level
+      `,
+      params
+    )
+
+    req.auditContext = {
+      action: 'BULK_REORDER_LEVEL_UPDATE',
+      entityType: 'PRODUCT',
+      entityId: String(result.rowCount),
+      description: `Bulk updated reorder_level for ${result.rowCount} products`,
+    }
+
+    return res.success({
+      updated: result.rowCount,
+      items: result.rows,
+    })
+  } catch (error) {
+    console.error('Bulk reorder level update error:', error)
+    return res.status(500).json({ message: 'Failed to bulk update reorder level.', error: error.message })
+  }
+})
+
 module.exports = router
