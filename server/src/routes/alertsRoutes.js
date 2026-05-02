@@ -376,6 +376,7 @@ router.post('/low-stock/bulk-reorder-level', async (req, res) => {
     }
 
     // 执行批量更新
+    params.push(reorderLevel)
     const result = await query(
       `
         UPDATE products
