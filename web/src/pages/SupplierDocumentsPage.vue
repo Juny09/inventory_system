@@ -95,12 +95,24 @@
           <table class="min-w-full text-left text-sm">
             <thead class="bg-slate-50 text-xs uppercase text-slate-600">
               <tr>
-                <th class="px-4 py-3">DO No</th>
-                <th class="px-4 py-3">Date</th>
-                <th class="px-4 py-3">Supplier</th>
+                <th class="px-4 py-3 cursor-pointer" @click="sortBy('do_no')">
+                  DO No
+                  <span v-if="sortField === 'do_no'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                </th>
+                <th class="px-4 py-3 cursor-pointer" @click="sortBy('do_date')">
+                  Date
+                  <span v-if="sortField === 'do_date'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                </th>
+                <th class="px-4 py-3 cursor-pointer" @click="sortBy('supplier_name')">
+                  Supplier
+                  <span v-if="sortField === 'supplier_name'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                </th>
                 <th class="px-4 py-3 text-right">Items</th>
                 <th class="px-4 py-3 text-right">Attachments</th>
-                <th class="px-4 py-3">Created</th>
+                <th class="px-4 py-3 cursor-pointer" @click="sortBy('created_at')">
+                  Created
+                  <span v-if="sortField === 'created_at'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                </th>
                 <th class="px-4 py-3 w-32">Actions</th>
               </tr>
             </thead>
@@ -131,10 +143,22 @@
           <table class="min-w-full text-left text-sm">
             <thead class="bg-slate-50 text-xs uppercase text-slate-600">
               <tr>
-                <th class="px-4 py-3">Invoice No</th>
-                <th class="px-4 py-3">Date</th>
-                <th class="px-4 py-3">Supplier</th>
-                <th class="px-4 py-3">Ref DO</th>
+                <th class="px-4 py-3 cursor-pointer" @click="sortBy('invoice_no')">
+                  Invoice No
+                  <span v-if="sortField === 'invoice_no'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                </th>
+                <th class="px-4 py-3 cursor-pointer" @click="sortBy('invoice_date')">
+                  Date
+                  <span v-if="sortField === 'invoice_date'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                </th>
+                <th class="px-4 py-3 cursor-pointer" @click="sortBy('supplier_name')">
+                  Supplier
+                  <span v-if="sortField === 'supplier_name'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                </th>
+                <th class="px-4 py-3 cursor-pointer" @click="sortBy('do_no')">
+                  Ref DO
+                  <span v-if="sortField === 'do_no'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                </th>
                 <th class="px-4 py-3 text-right">Total Qty</th>
                 <th class="px-4 py-3 text-right">Total Amount</th>
                 <th class="px-4 py-3 text-right">Att.</th>
@@ -169,10 +193,19 @@
           <table class="min-w-full text-left text-sm">
             <thead class="bg-slate-50 text-xs uppercase text-slate-600">
               <tr>
-                <th class="px-4 py-3">Document No</th>
+                <th class="px-4 py-3 cursor-pointer" @click="sortBy('document_no')">
+                  Document No
+                  <span v-if="sortField === 'document_no'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                </th>
                 <th class="px-4 py-3">Type</th>
-                <th class="px-4 py-3">Date</th>
-                <th class="px-4 py-3">Supplier</th>
+                <th class="px-4 py-3 cursor-pointer" @click="sortBy('document_date')">
+                  Date
+                  <span v-if="sortField === 'document_date'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                </th>
+                <th class="px-4 py-3 cursor-pointer" @click="sortBy('supplier_name')">
+                  Supplier
+                  <span v-if="sortField === 'supplier_name'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                </th>
                 <th class="px-4 py-3 text-right">Items</th>
                 <th class="px-4 py-3 text-right">Att.</th>
                 <th class="px-4 py-3 w-32">Actions</th>
@@ -241,6 +274,24 @@ import SupplierInvoiceFormModal from '../components/SupplierInvoiceFormModal.vue
 import SupplierReturnFormModal from '../components/SupplierReturnFormModal.vue'
 import api from '../services/api'
 import { useToastStore } from '../stores/toast'
+
+const sortField = ref('do_no')
+const sortOrder = ref('asc')
+
+watch([sortField, sortOrder], ([field, order]) => {
+  localStorage.setItem('supplier_docs_sort_field', field)
+  localStorage.setItem('supplier_docs_sort_order', order)
+})
+
+function sortBy(field) {
+  if (sortField.value === field) {
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortField.value = field
+    sortOrder.value = 'desc'
+  }
+  loadList(1)
+}
 
 const toastStore = useToastStore()
 
@@ -357,6 +408,8 @@ async function loadList(page = 1) {
   pagination.value.page = page
   try {
     const params = { page, pageSize: pagination.value.pageSize }
+    params.sort = sortField.value
+    params.order = sortOrder.value
     if (search.value) params.search = search.value
     if (yearFilter.value) params.year = yearFilter.value
     if (monthFilter.value) params.month = monthFilter.value
