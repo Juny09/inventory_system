@@ -374,8 +374,6 @@ router.post('/low-stock/bulk-reorder-level', async (req, res) => {
         UPDATE products
         SET reorder_level = $${paramIndex}, updated_at = CURRENT_TIMESTAMP
         FROM stock_levels
-        INNER JOIN warehouses ON warehouses.id = stock_levels.warehouse_id AND warehouses.tenant_id = stock_levels.tenant_id
-        LEFT JOIN low_stock_alert_states ON low_stock_alert_states.product_id = products.id AND low_stock_alert_states.warehouse_id = stock_levels.warehouse_id AND low_stock_alert_states.tenant_id = products.tenant_id
         WHERE products.id = stock_levels.product_id
           AND products.tenant_id = stock_levels.tenant_id
           AND ${whereClause}
