@@ -19,6 +19,7 @@ const categories = ref([])
 const products = ref([])
 const suppliers = ref([])
 const brands = ref([])
+const warehouses = ref([])
 const errorMessage = ref('')
 const loading = ref(false)
 const imageProcessing = ref(false)
@@ -49,9 +50,21 @@ const form = reactive({
   isActive: true,
   primarySupplierId: '',
   brandId: '',
+  addToInventory: false,
+  warehouseId: '',
+  initialQuantity: 0,
 })
 
 const qrPreview = ref('')
+const bulkSizesOpen = ref(false)
+const bulkSizesText = ref('')
+
+function parseBulkSizes(raw) {
+  return String(raw || '')
+    .split(/[\n,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
 
 function toNumber(value) {
   const parsed = Number(value || 0)
@@ -98,6 +111,13 @@ async function loadSelectors() {
     brands.value = brandResponse.data.items || []
   } catch {
     brands.value = []
+  }
+
+  try {
+    const warehouseResponse = await api.get('/warehouses', { params: { activeOnly: 'true', all: 'true' } })
+    warehouses.value = warehouseResponse.data.items || []
+  } catch {
+    warehouses.value = []
   }
 }
 
@@ -168,11 +188,31 @@ async function saveProduct() {
       if (!costAccessStore.isUnlocked) {
         delete payload.costPrice
       }
+      delete payload.addToInventory
+      delete payload.warehouseId
+      delete payload.initialQuantity
       await api.put(`/products/${form.id}`, payload)
       toastStore.pushToast({ tone: 'success', message: localeStore.locale === 'en' ? 'Product updated.' : '商品已更新。' })
     } else {
-      await api.post('/products', payload)
-      toastStore.pushToast({ tone: 'success', message: localeStore.locale === 'en' ? 'Product created.' : '商品已创建。' })
+      if (!form.addToInventory) {
+        delete payload.warehouseId
+        delete payload.initialQuantity
+      } else {
+        payload.warehouseId = form.warehouseId ? Number(form.warehouseId) : null
+        payload.initialQuantity = Number(form.initialQuantity) || 0
+      }
+      const bulkSizes = form.skuType === 'SINGLE' ? Array.from(new Set(parseBulkSizes(bulkSizesText.value))) : []
+      if (bulkSizes.length) {
+        const { data } = await api.post('/products/bulk', { base: payload, sizes: bulkSizes })
+        const count = Array.isArray(data?.items) ? data.items.length : bulkSizes.length
+        toastStore.pushToast({
+          tone: 'success',
+          message: localeStore.locale === 'en' ? `Created ${count} products.` : `已创建 ${count} 个商品。`,
+        })
+      } else {
+        await api.post('/products', payload)
+        toastStore.pushToast({ tone: 'success', message: localeStore.locale === 'en' ? 'Product created.' : '商品已创建。' })
+      }
     }
     router.push({ name: 'products' })
   } catch (error) {
@@ -354,7 +394,7 @@ onMounted(async () => {
         <div>
           <p class="text-sm uppercase tracking-[0.3em] text-slate-400">{{ localeStore.locale === 'en' ? 'Catalog' : '商品目录' }}</p>
           <h2 class="mt-2 text-3xl font-semibold text-slate-900">
-            {{ form.id ? (localeStore.locale === 'en' ? 'Edit product' : '编辑商品') : (localeStore.locale === 'en' ? 'Add product' : '新增商品') }}
+            {{ form.id ? (localeStore.locale === 'en' ? 'Edit product' : '编辑商品') : (localeStore.locale === 'en' ? 'Add product' : '新增商品时提供“批量尺码/尺寸”一次性创建多个 SKU 的能力（避免一个 size 一个 product 手动重复添加）。') }}
           </h2>
         </div>
         <button
@@ -427,6 +467,42 @@ onMounted(async () => {
             <option value="SINGLE">{{ localeStore.t('products.skuTypeSingle') }}</option>
             <option value="COMBO">{{ localeStore.t('products.skuTypeCombo') }}</option>
           </select>
+
+          <div v-if="!form.id && form.skuType === 'SINGLE'" class="sm:col-span-2 rounded-2xl border border-slate-200 bg-white p-4">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p class="text-sm font-semibold text-slate-900">
+                  {{ localeStore.locale === 'en' ? 'Bulk sizes' : '批量尺码/尺寸' }}
+                </p>
+                <p class="mt-1 text-xs text-slate-500">
+                  {{
+                    localeStore.locale === 'en'
+                      ? 'Fill sizes once. System creates multiple SKUs like BASE-S, BASE-M. Barcode will be empty; you can edit later.'
+                      : '一次填好多个尺码/尺寸，系统会自动创建多个 SKU（例如 BASE-S、BASE-M）。条码默认留空，后面可逐个编辑补上。'
+                  }}
+                </p>
+              </div>
+              <button
+                type="button"
+                class="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                @click="bulkSizesOpen = !bulkSizesOpen"
+              >
+                {{ bulkSizesOpen ? (localeStore.locale === 'en' ? 'Hide' : '收起') : (localeStore.locale === 'en' ? 'Add sizes' : '添加尺码') }}
+              </button>
+            </div>
+
+            <div v-if="bulkSizesOpen" class="mt-3 space-y-3">
+              <textarea
+                v-model="bulkSizesText"
+                rows="3"
+                :placeholder="localeStore.locale === 'en' ? 'Example: S, M, L' : '例如：S, M, L'"
+                class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
+              />
+              <p class="text-xs text-slate-500">
+                {{ localeStore.locale === 'en' ? 'Separate by comma or new line.' : '支持逗号或换行分隔。' }}
+              </p>
+            </div>
+          </div>
           <div class="flex gap-2 sm:col-span-2">
             <div class="relative w-full">
               <input v-model="form.productCode" type="text" placeholder=" " class="peer w-full rounded-2xl border border-slate-200 px-4 pb-2 pt-5 outline-none focus:border-brand-500" />
@@ -536,6 +612,26 @@ onMounted(async () => {
             <input v-model="form.isActive" type="checkbox" class="size-4 rounded border-slate-300" />
             Product is active
           </label>
+          <div v-if="!form.id" class="sm:col-span-2 rounded-2xl border border-slate-200 bg-white p-4">
+            <label class="flex items-center gap-3 text-sm text-slate-600">
+              <input v-model="form.addToInventory" type="checkbox" class="size-4 rounded border-slate-300" />
+              {{ localeStore.locale === 'en' ? 'Add to inventory on creation' : '创建时入库' }}
+            </label>
+            <div v-if="form.addToInventory" class="mt-3 grid gap-3 sm:grid-cols-2">
+              <select v-model="form.warehouseId" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">{{ localeStore.locale === 'en' ? 'Select warehouse' : '选择仓库' }}</option>
+                <option v-for="w in warehouses" :key="w.id" :value="String(w.id)">
+                  {{ w.name }}
+                </option>
+              </select>
+              <div class="relative">
+                <input v-model="form.initialQuantity" type="number" min="0" :step="getUnitStep(form.unit)" placeholder=" " class="peer w-full rounded-2xl border border-slate-200 px-4 pb-2 pt-5 outline-none focus:border-brand-500" />
+                <label class="pointer-events-none absolute left-4 top-3 text-xs text-slate-500 transition-all peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:text-sm peer-placeholder-shown:text-slate-400 peer-focus:top-3 peer-focus:-translate-y-0 peer-focus:text-xs peer-focus:text-slate-500">
+                  {{ localeStore.locale === 'en' ? 'Initial quantity' : '初始数量' }}
+                </label>
+              </div>
+            </div>
+          </div>
           <div v-if="form.skuType === 'COMBO'" class="sm:col-span-2 rounded-3xl border border-slate-200 bg-white p-4">
             <div class="flex items-center justify-between gap-3">
               <p class="text-sm font-semibold text-slate-900">Bundle components</p>

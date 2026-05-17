@@ -1,7 +1,8 @@
 const express = require('express')
 const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
-const { query } = require('../config/db')
+const { pool, query } = require('../config/db')
+const { postItemsToStock } = require('../utils/inventoryService')
 const { authenticateToken, authorizeRoles } = require('../middleware/auth')
 const { getPaginationParams, buildPagination } = require('../utils/pagination')
 const { encodeCostToCode } = require('../utils/costCode')
@@ -1309,6 +1310,200 @@ router.put('/products/:id/primary-supplier', authorizeRoles('ADMIN', 'MANAGER'),
   }
 })
 
+router.post('/products/bulk', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  const { base, sizes } = req.body || {}
+
+  if (!base?.name || !base?.sku) {
+    return res.status(400).json({ message: 'Product name and SKU are required.' })
+  }
+
+  if (!Array.isArray(sizes) || sizes.length === 0) {
+    return res.status(400).json({ message: 'Sizes are required.' })
+  }
+
+  function normalizeSizeToken(value) {
+    return String(value || '')
+      .trim()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-zA-Z0-9_-]/g, '')
+      .toUpperCase()
+  }
+
+  try {
+    const tenantId = getTenantId(req)
+    const normalizedSkuType = normalizeSkuType(base.skuType)
+
+    if (normalizedSkuType !== 'SINGLE') {
+      return res.status(400).json({ message: 'Bulk sizes only supports SINGLE SKU type.' })
+    }
+
+    const uniqSizes = []
+    const seen = new Set()
+    for (const raw of sizes) {
+      const trimmed = String(raw || '').trim()
+      if (!trimmed) continue
+      const token = normalizeSizeToken(trimmed)
+      if (!token) continue
+      if (seen.has(token)) continue
+      seen.add(token)
+      uniqSizes.push({ raw: trimmed, token })
+    }
+
+    if (uniqSizes.length === 0) {
+      return res.status(400).json({ message: 'Sizes are required.' })
+    }
+
+    if (uniqSizes.length > 50) {
+      return res.status(400).json({ message: 'Too many sizes. Max is 50.' })
+    }
+
+    const defaultPricingRule = getDefaultPricingRule(
+      base.pricingRules,
+      base.costPrice,
+      base.markupPercentage,
+      base.suggestedPrice ?? base.sellingPrice,
+    )
+
+    const primaryImage = (Array.isArray(base.images) && base.images[0]?.imageData) || base.imageData || null
+
+    const variantSkus = uniqSizes.map((size) => `${String(base.sku).trim()}-${size.token}`)
+    const variantCodes = uniqSizes.map((size) =>
+      base.productCode ? `${String(base.productCode).trim()}-${size.token}` : generateProductCode(),
+    )
+
+    const [skuCheck, codeCheck] = await Promise.all([
+      query('SELECT sku FROM products WHERE sku = ANY($1::text[])', [variantSkus]),
+      query('SELECT product_code FROM products WHERE product_code = ANY($1::text[])', [variantCodes]),
+    ])
+
+    if (skuCheck.rows.length) {
+      const list = skuCheck.rows.map((r) => r.sku).slice(0, 10).join(', ')
+      return res.status(400).json({ message: `SKU already exists: ${list}` })
+    }
+
+    if (codeCheck.rows.length) {
+      const list = codeCheck.rows.map((r) => r.product_code).slice(0, 10).join(', ')
+      return res.status(400).json({ message: `Product code already exists: ${list}` })
+    }
+
+    const created = []
+
+    for (let i = 0; i < uniqSizes.length; i += 1) {
+      const size = uniqSizes[i]
+      const variantSku = variantSkus[i]
+      const variantProductCode = variantCodes[i]
+      const variantName = `${String(base.name).trim()} - ${size.raw}`
+
+      const result = await query(
+        `
+          INSERT INTO products (
+            tenant_id,
+            name,
+            sku,
+            sku_type,
+            product_code,
+            barcode,
+            image_data,
+            description,
+            usage_guide,
+            pros,
+            cons,
+            category_id,
+            unit,
+            cost_price,
+            selling_price,
+            markup_percentage,
+            suggested_price,
+            reorder_level,
+            is_active,
+            brand_id
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+          RETURNING *
+        `,
+        [
+          tenantId,
+          variantName,
+          variantSku,
+          normalizedSkuType,
+          variantProductCode,
+          null,
+          primaryImage,
+          base.description || null,
+          base.usageGuide || null,
+          base.pros || null,
+          base.cons || null,
+          base.categoryId || null,
+          base.unit || 'pcs',
+          normalizePrice(base.costPrice),
+          normalizePrice(base.sellingPrice),
+          Number(defaultPricingRule.markupPercentage || 0),
+          normalizePrice(defaultPricingRule.suggestedPrice),
+          Number(base.reorderLevel || 0),
+          base.isActive ?? true,
+          base.brandId ? Number(base.brandId) : null,
+        ],
+      )
+
+      const productId = result.rows[0].id
+
+      await Promise.all([
+        saveProductImages(
+          productId,
+          Array.isArray(base.images) && base.images.length ? base.images : primaryImage ? [primaryImage] : [],
+          tenantId,
+        ),
+        savePricingRules(
+          productId,
+          base.pricingRules,
+          base.costPrice,
+          defaultPricingRule.markupPercentage,
+          defaultPricingRule.suggestedPrice,
+          tenantId,
+        ),
+        saveBundleItems(productId, normalizedSkuType, base.bundleItems, tenantId),
+      ])
+
+      if (base.primarySupplierId) {
+        await setPrimarySupplier({ productId, supplierId: Number(base.primarySupplierId), userId: req.user.id, tenantId })
+      }
+
+      created.push(result.rows[0])
+    }
+
+    const shouldAddStock = base.addToInventory === true && base.warehouseId && Number(base.initialQuantity) > 0
+    if (shouldAddStock && created.length) {
+      const client = await pool.connect()
+      try {
+        await client.query('BEGIN')
+        await postItemsToStock(client, {
+          tenantId,
+          warehouseId: Number(base.warehouseId),
+          items: created.map((p) => ({ product_id: p.id, quantity: Number(base.initialQuantity) })),
+          direction: 1,
+          referenceNo: 'Initial Stock - Bulk',
+          notes: 'Initial stock on product creation',
+          userId: req.user.id,
+        })
+        await client.query('COMMIT')
+      } catch (stockError) {
+        await client.query('ROLLBACK')
+        console.error('Failed to add initial stock:', stockError.message)
+      } finally {
+        client.release()
+      }
+    }
+
+    const items = await attachProductRelations(created, { allowCostAccess: canViewCost(req), tenantId })
+    return res.status(201).json({ items })
+  } catch (error) {
+    if (error?.code === '23505') {
+      return res.status(400).json({ message: 'SKU / product code / barcode already exists.' })
+    }
+    return res.status(500).json({ message: 'Failed to create products.', error: error.message })
+  }
+})
+
 router.post('/products', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
   const {
     name,
@@ -1334,6 +1529,9 @@ router.post('/products', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =>
     isActive,
     primarySupplierId,
     brandId,
+    addToInventory,
+    warehouseId,
+    initialQuantity,
   } = req.body
 
   if (!name || !sku) {
@@ -1410,6 +1608,30 @@ router.post('/products', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =>
 
     if (primarySupplierId) {
       await setPrimarySupplier({ productId: result.rows[0].id, supplierId: Number(primarySupplierId), userId: req.user.id, tenantId })
+    }
+
+    const shouldAddStock = addToInventory === true && warehouseId && Number(initialQuantity) > 0
+    const initialStockReferenceNo = ['Initial Stock', result.rows[0].sku].filter(Boolean).join(' - ')
+    if (shouldAddStock) {
+      const client = await pool.connect()
+      try {
+        await client.query('BEGIN')
+        await postItemsToStock(client, {
+          tenantId,
+          warehouseId: Number(warehouseId),
+          items: [{ product_id: result.rows[0].id, quantity: Number(initialQuantity) }],
+          direction: 1,
+          referenceNo: initialStockReferenceNo,
+          notes: 'Initial stock on product creation',
+          userId: req.user.id,
+        })
+        await client.query('COMMIT')
+      } catch (stockError) {
+        await client.query('ROLLBACK')
+        console.error('Failed to add initial stock:', stockError.message)
+      } finally {
+        client.release()
+      }
     }
 
     const product = (await attachProductRelations([result.rows[0]], { allowCostAccess: canViewCost(req), tenantId }))[0]

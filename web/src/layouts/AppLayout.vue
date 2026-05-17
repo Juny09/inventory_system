@@ -26,6 +26,7 @@ const openMobileNavGroup = ref('')
 const notificationsOpen = ref(false)
 const notificationsStore = useNotificationsStore()
 const notificationsRef = ref(null)
+const topNavRef = ref(null)
 const onboardingOpen = ref(false)
 
 const guideTooltip = computed(() => localeStore.t('common.quickGuide'))
@@ -142,6 +143,7 @@ const navItems = [
   { label: 'Suppliers', routeName: 'suppliers', roles: ['ADMIN', 'MANAGER'], shortLabel: 'SP', icon: 'guide', group: 'Master Data' },
   { label: 'Supplier Payments', routeName: 'supplier-payments', roles: ['ADMIN', 'MANAGER'], shortLabel: 'SP', icon: 'guide', group: 'Master Data' },
   { label: 'Supplier Documents', routeName: 'supplier-documents', roles: ['ADMIN', 'MANAGER', 'STAFF'], shortLabel: 'SD', icon: 'guide', group: 'Master Data' },
+  { label: 'Doc Upload', routeName: 'document-upload', roles: ['ADMIN', 'MANAGER', 'STAFF'], shortLabel: 'DU', icon: 'guide', group: 'Master Data' },
   { label: 'Reports', routeName: 'reports', roles: ['ADMIN', 'MANAGER'], shortLabel: 'RP', icon: 'reports', group: 'Analytics' },
   { label: 'Bank Statements', routeName: 'bank-statements', roles: ['ADMIN', 'MANAGER', 'STAFF'], shortLabel: 'BS', icon: 'reports', group: 'Analytics' },
   { label: 'Audit Logs', routeName: 'audit-logs', roles: ['ADMIN', 'MANAGER'], shortLabel: 'AU', icon: 'audit', group: 'Governance' },
@@ -165,6 +167,7 @@ const navLabelMap = {
   Suppliers: { en: 'Suppliers', cn: '供应商' },
   'Supplier Payments': { en: 'Supplier Payments', cn: '供应商还账' },
   'Supplier Documents': { en: 'Supplier Documents', cn: '供应商单据' },
+  'Doc Upload': { en: 'Doc Upload', cn: '文档上传' },
   Reports: { en: 'Reports', cn: '报表' },
   'Bank Statements': { en: 'Bank Statements', cn: '银行对账单' },
   'Audit Logs': { en: 'Audit Logs', cn: '审计日志' },
@@ -258,6 +261,7 @@ function toggleMobileNavGroup(groupLabel) {
 }
 
 const hasPageSidebar = computed(() => Boolean(slots.sidebar))
+const pageSidebarOpen = ref(false)
 
 function isGroupCollapsed(groupLabel) {
   return Boolean(navGroupState.value[groupLabel])
@@ -347,11 +351,18 @@ function localizedGroupLabel(label) {
 }
 
 function handleGlobalClick(event) {
-  if (!notificationsOpen.value) return
   const target = event.target
-  if (!notificationsRef.value || !(target instanceof Node)) return
-  if (!notificationsRef.value.contains(target)) {
-    notificationsOpen.value = false
+
+  if (notificationsOpen.value) {
+    if (notificationsRef.value && target instanceof Node && !notificationsRef.value.contains(target)) {
+      notificationsOpen.value = false
+    }
+  }
+
+  if (openNavGroup.value) {
+    if (topNavRef.value && target instanceof Node && !topNavRef.value.contains(target)) {
+      openNavGroup.value = ''
+    }
   }
 }
 
@@ -379,6 +390,7 @@ watch(
     openMobileNavGroup.value = ''
     notificationsOpen.value = false
     onboardingOpen.value = false
+    pageSidebarOpen.value = false
   },
 )
 
@@ -697,7 +709,7 @@ watch(
                   <p class="text-sm text-slate-500">{{ localizedGroupLabel(currentNavItem?.group || 'Inventory workspace') }}</p>
                 </div>
               </div>
-              <nav v-if="navMode === 'navbar'" class="mt-4 space-y-2">
+              <nav v-if="navMode === 'navbar'" ref="topNavRef" class="mt-4 space-y-2">
                 <div class="flex flex-wrap gap-2">
                   <button
                     v-for="group in navGroups"
@@ -830,8 +842,22 @@ watch(
         </div>
 
         <div class="rounded-[28px] bg-white p-4 shadow-sm sm:p-5 lg:p-6">
-          <div v-if="navMode === 'navbar' && hasPageSidebar" class="grid gap-5 lg:grid-cols-[1fr_360px]">
+          <div
+            v-if="navMode === 'navbar' && hasPageSidebar"
+            class="grid gap-5"
+            :class="pageSidebarOpen ? 'lg:grid-cols-[1fr_360px]' : 'lg:grid-cols-1'"
+          >
             <div class="min-w-0">
+              <div class="mb-4 hidden lg:flex justify-end">
+                <button
+                  type="button"
+                  class="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  @click="pageSidebarOpen = !pageSidebarOpen"
+                >
+                  {{ pageSidebarOpen ? (localeStore.locale === 'en' ? 'Hide tools' : '收起工具') : (localeStore.locale === 'en' ? 'Show tools' : '显示工具') }}
+                </button>
+              </div>
+
               <details class="mb-4 rounded-3xl border border-slate-200 bg-slate-50 p-4 lg:hidden">
                 <summary class="cursor-pointer list-none text-sm font-semibold text-slate-900">
                   {{ localeStore.locale === 'en' ? 'Tools' : '工具' }}
@@ -842,7 +868,7 @@ watch(
               </details>
               <slot />
             </div>
-            <aside class="hidden lg:block">
+            <aside v-if="pageSidebarOpen" class="hidden lg:block">
               <div class="sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto rounded-3xl border border-slate-200 bg-slate-50 p-4">
                 <slot name="sidebar" />
               </div>
