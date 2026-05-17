@@ -1,5 +1,5 @@
 <template>
-  <div class="fixed inset-0 z-[95] flex items-center justify-center bg-slate-900/60 p-4" @click.self="$emit('close')">
+  <div class="fixed inset-0 z-[95] flex items-center justify-center bg-slate-900/60 p-4" @click.self="handleBackdropClick">
     <div class="w-full max-w-md rounded-lg bg-white p-5 shadow-xl">
       <div class="mb-3 flex items-center justify-between">
         <h3 class="text-lg font-semibold text-slate-800">Quick Create Product</h3>
@@ -23,6 +23,49 @@
           <label class="block text-xs font-medium text-slate-600">Product Code</label>
           <input v-model="form.productCode" placeholder="Leave blank to auto-generate" class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm" />
         </div>
+
+        <div class="rounded border border-slate-200 bg-slate-50 p-3">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-xs font-semibold text-slate-700">Variants (size / color)</p>
+              <p class="mt-1 text-[11px] text-slate-500">
+                Fill sizes and/or colors once. If both are provided, system creates combinations (e.g. BASE-RED-S).
+              </p>
+            </div>
+            <button
+              type="button"
+              class="shrink-0 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+              @click="variantsOpen = !variantsOpen"
+            >
+              {{ variantsOpen ? 'Hide' : 'Add variants' }}
+            </button>
+          </div>
+
+          <div v-if="variantsOpen" class="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600">Sizes</label>
+              <textarea
+                v-model="sizesText"
+                rows="3"
+                placeholder="Example: S, M, L"
+                class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+              ></textarea>
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600">Colors</label>
+              <textarea
+                v-model="colorsText"
+                rows="3"
+                placeholder="Example: Red, Blue"
+                class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+              ></textarea>
+            </div>
+            <p class="sm:col-span-2 text-[11px] text-slate-500">
+              Separate by comma or new line. Barcode will be empty for generated variants; you can edit later.
+            </p>
+          </div>
+        </div>
+
         <div>
           <label class="block text-xs font-medium text-slate-600">Description</label>
           <textarea v-model="form.description" rows="2" class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"></textarea>
@@ -98,10 +141,16 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch, nextTick } from 'vue'
 import api from '../services/api'
 
+const STORAGE_KEY = 'quickCreateProductDraft'
+
 const emit = defineEmits(['close', 'created'])
+
+const props = defineProps({
+  visible: { type: Boolean, default: false },
+})
 
 const form = reactive({
   name: '',
@@ -114,6 +163,9 @@ const form = reactive({
 const submitting = ref(false)
 const errorMessage = ref('')
 const brands = ref([])
+const variantsOpen = ref(false)
+const sizesText = ref('')
+const colorsText = ref('')
 
 const showNewBrand = ref(false)
 const newBrandName = ref('')
@@ -166,8 +218,88 @@ async function createBrand() {
   }
 }
 
+function loadDraft() {
+  try {
+    const draft = localStorage.getItem(STORAGE_KEY)
+    if (draft) {
+      const parsed = JSON.parse(draft)
+      Object.assign(form, parsed)
+      sizesText.value = parsed.sizesText || ''
+      colorsText.value = parsed.colorsText || ''
+      variantsOpen.value = Boolean(parsed.variantsOpen)
+    }
+  } catch {
+    // ignore parse errors
+  }
+}
+
+function saveDraft() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      name: form.name,
+      sku: form.sku,
+      productCode: form.productCode,
+      description: form.description,
+      unit: form.unit,
+      brandId: form.brandId,
+      sizesText: sizesText.value,
+      colorsText: colorsText.value,
+      variantsOpen: variantsOpen.value,
+    }))
+  } catch {
+    // ignore quota errors
+  }
+}
+
+function clearDraft() {
+  localStorage.removeItem(STORAGE_KEY)
+}
+
+function parseBulkOptions(raw) {
+  return String(raw || '')
+    .split(/[\n,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+let saveTimeout = null
+watch(
+  () => ({
+    name: form.name,
+    sku: form.sku,
+    productCode: form.productCode,
+    description: form.description,
+    unit: form.unit,
+    brandId: form.brandId,
+    sizesText: sizesText.value,
+    colorsText: colorsText.value,
+    variantsOpen: variantsOpen.value,
+  }),
+  () => {
+    if (saveTimeout) clearTimeout(saveTimeout)
+    saveTimeout = setTimeout(saveDraft, 300)
+  },
+  { deep: true },
+)
+
+function handleBackdropClick() {
+  const hasData =
+    form.name.trim() ||
+    form.sku.trim() ||
+    form.productCode.trim() ||
+    form.description.trim() ||
+    sizesText.value.trim() ||
+    colorsText.value.trim()
+  if (hasData) {
+    const ok = confirm('You have unsaved product data. Click OK to discard, Cancel to keep editing.')
+    if (!ok) return
+  }
+  emit('close')
+}
+
 onMounted(() => {
   loadBrands()
+  loadDraft()
 })
 
 async function submit() {
@@ -188,12 +320,19 @@ async function submit() {
       reorderLevel: 0,
       isActive: true,
     }
-    const { data } = await api.post('/products', payload)
-    // /products POST 返回 { product: {...} } 或直接产品对象；兼容两种
+    const sizes = Array.from(new Set(parseBulkOptions(sizesText.value)))
+    const colors = Array.from(new Set(parseBulkOptions(colorsText.value)))
+
+    const { data } =
+      sizes.length || colors.length
+        ? await api.post('/products/bulk', { base: payload, sizes, colors })
+        : await api.post('/products', payload)
+
     const product = data?.product || data
     if (!product || !product.id) {
       throw new Error('Unexpected response shape.')
     }
+    clearDraft()
     emit('created', product)
   } catch (error) {
     errorMessage.value = error.response?.data?.message || error.message || 'Failed to create product.'
