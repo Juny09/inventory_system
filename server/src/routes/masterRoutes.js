@@ -1062,6 +1062,128 @@ router.get('/products', async (req, res) => {
   }
 })
 
+// 产品变体列表：用于库存/盘点等选择 SKU（变体级）
+router.get('/product-variants', async (req, res) => {
+  const { search = '', activeOnly = 'false', all = 'false', status = 'all' } = req.query
+  const searchPattern = getSearchPattern(search)
+  const resolvedStatus = status === 'all' ? (activeOnly === 'true' ? 'active' : 'all') : status
+  const loadAll = all === 'true'
+  const { page, pageSize, offset } = getPaginationParams(req.query)
+  const tenantId = getTenantId(req)
+
+  try {
+    if (loadAll) {
+      const result = await query(
+        `
+          SELECT
+            product_variants.id,
+            product_variants.product_id,
+            product_variants.variant_label,
+            product_variants.sku,
+            product_variants.barcode,
+            product_variants.reorder_level,
+            product_variants.is_active,
+            products.name AS product_name,
+            products.unit,
+            categories.name AS category_name
+          FROM product_variants
+          INNER JOIN products ON products.id = product_variants.product_id AND products.tenant_id = product_variants.tenant_id
+          LEFT JOIN categories ON categories.id = products.category_id AND categories.tenant_id = products.tenant_id
+          WHERE product_variants.tenant_id = $3
+            AND (
+              $1 = '%%'
+              OR products.name ILIKE $1
+              OR product_variants.sku ILIKE $1
+              OR COALESCE(product_variants.variant_label, '') ILIKE $1
+              OR COALESCE(product_variants.barcode, '') ILIKE $1
+              OR COALESCE(categories.name, '') ILIKE $1
+            )
+            AND (
+              $2 = 'all'
+              OR ($2 = 'active' AND product_variants.is_active = TRUE)
+              OR ($2 = 'inactive' AND product_variants.is_active = FALSE)
+            )
+          ORDER BY products.name ASC, product_variants.variant_label ASC
+        `,
+        [searchPattern, resolvedStatus, tenantId],
+      )
+
+      return res.json({
+        items: result.rows,
+        pagination: buildPagination(result.rows.length, 1, result.rows.length || 1),
+      })
+    }
+
+    const [itemsResult, totalResult] = await Promise.all([
+      query(
+        `
+          SELECT
+            product_variants.id,
+            product_variants.product_id,
+            product_variants.variant_label,
+            product_variants.sku,
+            product_variants.barcode,
+            product_variants.reorder_level,
+            product_variants.is_active,
+            products.name AS product_name,
+            products.unit,
+            categories.name AS category_name
+          FROM product_variants
+          INNER JOIN products ON products.id = product_variants.product_id AND products.tenant_id = product_variants.tenant_id
+          LEFT JOIN categories ON categories.id = products.category_id AND categories.tenant_id = products.tenant_id
+          WHERE product_variants.tenant_id = $5
+            AND (
+              $1 = '%%'
+              OR products.name ILIKE $1
+              OR product_variants.sku ILIKE $1
+              OR COALESCE(product_variants.variant_label, '') ILIKE $1
+              OR COALESCE(product_variants.barcode, '') ILIKE $1
+              OR COALESCE(categories.name, '') ILIKE $1
+            )
+            AND (
+              $2 = 'all'
+              OR ($2 = 'active' AND product_variants.is_active = TRUE)
+              OR ($2 = 'inactive' AND product_variants.is_active = FALSE)
+            )
+          ORDER BY products.name ASC, product_variants.variant_label ASC
+          LIMIT $3 OFFSET $4
+        `,
+        [searchPattern, resolvedStatus, pageSize, offset, tenantId],
+      ),
+      query(
+        `
+          SELECT COUNT(*)::int AS total
+          FROM product_variants
+          INNER JOIN products ON products.id = product_variants.product_id AND products.tenant_id = product_variants.tenant_id
+          LEFT JOIN categories ON categories.id = products.category_id AND categories.tenant_id = products.tenant_id
+          WHERE product_variants.tenant_id = $3
+            AND (
+              $1 = '%%'
+              OR products.name ILIKE $1
+              OR product_variants.sku ILIKE $1
+              OR COALESCE(product_variants.variant_label, '') ILIKE $1
+              OR COALESCE(product_variants.barcode, '') ILIKE $1
+              OR COALESCE(categories.name, '') ILIKE $1
+            )
+            AND (
+              $2 = 'all'
+              OR ($2 = 'active' AND product_variants.is_active = TRUE)
+              OR ($2 = 'inactive' AND product_variants.is_active = FALSE)
+            )
+        `,
+        [searchPattern, resolvedStatus, tenantId],
+      ),
+    ])
+
+    return res.json({
+      items: itemsResult.rows,
+      pagination: buildPagination(totalResult.rows[0].total, page, pageSize),
+    })
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to fetch product variants.', error: error.message })
+  }
+})
+
 router.post('/products/cost-access', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
   const { passcode = '' } = req.body
 
@@ -1097,7 +1219,7 @@ router.get('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
     const allowCostAccess = canViewCost(req)
     const pricingChannel = req.query.pricingChannel || ''
     const tenantId = getTenantId(req)
-    const [productResult, stockResult, movementResult, alertResult, imagesMap, pricingRulesMap, supplierResult, costHistoryResult] = await Promise.all([
+    const [productResult, variantsResult, stockResult, movementResult, alertResult, imagesMap, pricingRulesMap, supplierResult, costHistoryResult] = await Promise.all([
       query(
         `
           SELECT
@@ -1108,6 +1230,24 @@ router.get('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
           LEFT JOIN categories ON categories.id = products.category_id AND categories.tenant_id = products.tenant_id
           LEFT JOIN brands ON brands.id = products.brand_id AND brands.tenant_id = products.tenant_id
           WHERE products.id = $1 AND products.tenant_id = $2
+        `,
+        [req.params.id, tenantId],
+      ),
+      query(
+        `
+          SELECT
+            id,
+            variant_label,
+            sku,
+            barcode,
+            attributes,
+            reorder_level,
+            is_active,
+            created_at,
+            updated_at
+          FROM product_variants
+          WHERE product_id = $1 AND tenant_id = $2
+          ORDER BY CASE WHEN variant_label = 'DEFAULT' THEN 0 ELSE 1 END, variant_label ASC, id ASC
         `,
         [req.params.id, tenantId],
       ),
@@ -1226,6 +1366,7 @@ router.get('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
 
     return res.json({
       product: resolvedProduct,
+      variants: variantsResult.rows,
       images: imagesMap.get(Number(req.params.id)) || resolvedProduct.images || [],
       pricingRules: maskPricingRules(pricingRulesMap.get(Number(req.params.id)) || [], allowCostAccess),
       stockLevels: stockResult.rows,
@@ -1311,14 +1452,10 @@ router.put('/products/:id/primary-supplier', authorizeRoles('ADMIN', 'MANAGER'),
 })
 
 router.post('/products/bulk', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
-  const { base, sizes } = req.body || {}
+  const { base, sizes, colors } = req.body || {}
 
   if (!base?.name || !base?.sku) {
     return res.status(400).json({ message: 'Product name and SKU are required.' })
-  }
-
-  if (!Array.isArray(sizes) || sizes.length === 0) {
-    return res.status(400).json({ message: 'Sizes are required.' })
   }
 
   function normalizeSizeToken(value) {
@@ -1338,23 +1475,36 @@ router.post('/products/bulk', authorizeRoles('ADMIN', 'MANAGER'), async (req, re
     }
 
     const uniqSizes = []
-    const seen = new Set()
-    for (const raw of sizes) {
+    const sizeSeen = new Set()
+    for (const raw of Array.isArray(sizes) ? sizes : []) {
       const trimmed = String(raw || '').trim()
       if (!trimmed) continue
       const token = normalizeSizeToken(trimmed)
       if (!token) continue
-      if (seen.has(token)) continue
-      seen.add(token)
+      if (sizeSeen.has(token)) continue
+      sizeSeen.add(token)
       uniqSizes.push({ raw: trimmed, token })
     }
 
-    if (uniqSizes.length === 0) {
-      return res.status(400).json({ message: 'Sizes are required.' })
+    const uniqColors = []
+    const colorSeen = new Set()
+    for (const raw of Array.isArray(colors) ? colors : []) {
+      const trimmed = String(raw || '').trim()
+      if (!trimmed) continue
+      const token = normalizeSizeToken(trimmed)
+      if (!token) continue
+      if (colorSeen.has(token)) continue
+      colorSeen.add(token)
+      uniqColors.push({ raw: trimmed, token })
     }
 
-    if (uniqSizes.length > 50) {
-      return res.status(400).json({ message: 'Too many sizes. Max is 50.' })
+    if (uniqSizes.length === 0 && uniqColors.length === 0) {
+      return res.status(400).json({ message: 'Sizes or colors are required.' })
+    }
+
+    const comboCount = uniqSizes.length && uniqColors.length ? uniqSizes.length * uniqColors.length : uniqSizes.length || uniqColors.length
+    if (comboCount > 100) {
+      return res.status(400).json({ message: 'Too many variants. Max is 100.' })
     }
 
     const defaultPricingRule = getDefaultPricingRule(
@@ -1366,122 +1516,153 @@ router.post('/products/bulk', authorizeRoles('ADMIN', 'MANAGER'), async (req, re
 
     const primaryImage = (Array.isArray(base.images) && base.images[0]?.imageData) || base.imageData || null
 
-    const variantSkus = uniqSizes.map((size) => `${String(base.sku).trim()}-${size.token}`)
-    const variantCodes = uniqSizes.map((size) =>
-      base.productCode ? `${String(base.productCode).trim()}-${size.token}` : generateProductCode(),
+    const result = await query(
+      `
+        INSERT INTO products (
+          tenant_id,
+          name,
+          sku,
+          sku_type,
+          product_code,
+          barcode,
+          image_data,
+          description,
+          usage_guide,
+          pros,
+          cons,
+          category_id,
+          unit,
+          cost_price,
+          selling_price,
+          markup_percentage,
+          suggested_price,
+          reorder_level,
+          is_active,
+          brand_id
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+        RETURNING *
+      `,
+      [
+        tenantId,
+        String(base.name).trim(),
+        String(base.sku).trim(),
+        normalizedSkuType,
+        base.productCode || generateProductCode(),
+        base.barcode || null,
+        primaryImage,
+        base.description || null,
+        base.usageGuide || null,
+        base.pros || null,
+        base.cons || null,
+        base.categoryId || null,
+        base.unit || 'pcs',
+        normalizePrice(base.costPrice),
+        normalizePrice(base.sellingPrice),
+        Number(defaultPricingRule.markupPercentage || 0),
+        normalizePrice(defaultPricingRule.suggestedPrice),
+        Number(base.reorderLevel || 0),
+        base.isActive ?? true,
+        base.brandId ? Number(base.brandId) : null,
+      ],
     )
 
-    const [skuCheck, codeCheck] = await Promise.all([
-      query('SELECT sku FROM products WHERE sku = ANY($1::text[])', [variantSkus]),
-      query('SELECT product_code FROM products WHERE product_code = ANY($1::text[])', [variantCodes]),
+    const productId = result.rows[0].id
+
+    await Promise.all([
+      saveProductImages(productId, Array.isArray(base.images) && base.images.length ? base.images : primaryImage ? [primaryImage] : [], tenantId),
+      savePricingRules(
+        productId,
+        base.pricingRules,
+        base.costPrice,
+        defaultPricingRule.markupPercentage,
+        defaultPricingRule.suggestedPrice,
+        tenantId,
+      ),
+      saveBundleItems(productId, normalizedSkuType, base.bundleItems, tenantId),
     ])
 
+    if (base.primarySupplierId) {
+      await setPrimarySupplier({ productId, supplierId: Number(base.primarySupplierId), userId: req.user.id, tenantId })
+    }
+
+    const variantsToCreate = [{ variantLabel: 'DEFAULT', sku: String(base.sku).trim(), barcode: base.barcode || null, attributes: {} }]
+
+    if (uniqSizes.length && uniqColors.length) {
+      for (const c of uniqColors) {
+        for (const s of uniqSizes) {
+          variantsToCreate.push({
+            variantLabel: `${c.raw} / ${s.raw}`,
+            sku: `${String(base.sku).trim()}-${c.token}-${s.token}`,
+            barcode: null,
+            attributes: { color: c.raw, size: s.raw },
+          })
+        }
+      }
+    } else if (uniqSizes.length) {
+      for (const s of uniqSizes) {
+        variantsToCreate.push({
+          variantLabel: s.raw,
+          sku: `${String(base.sku).trim()}-${s.token}`,
+          barcode: null,
+          attributes: { size: s.raw },
+        })
+      }
+    } else {
+      for (const c of uniqColors) {
+        variantsToCreate.push({
+          variantLabel: c.raw,
+          sku: `${String(base.sku).trim()}-${c.token}`,
+          barcode: null,
+          attributes: { color: c.raw },
+        })
+      }
+    }
+
+    const skuCheck = await query('SELECT sku FROM product_variants WHERE tenant_id = $1 AND sku = ANY($2::text[])', [
+      tenantId,
+      variantsToCreate.map((v) => v.sku),
+    ])
     if (skuCheck.rows.length) {
       const list = skuCheck.rows.map((r) => r.sku).slice(0, 10).join(', ')
-      return res.status(400).json({ message: `SKU already exists: ${list}` })
+      return res.status(400).json({ message: `Variant SKU already exists: ${list}` })
     }
 
-    if (codeCheck.rows.length) {
-      const list = codeCheck.rows.map((r) => r.product_code).slice(0, 10).join(', ')
-      return res.status(400).json({ message: `Product code already exists: ${list}` })
-    }
-
-    const created = []
-
-    for (let i = 0; i < uniqSizes.length; i += 1) {
-      const size = uniqSizes[i]
-      const variantSku = variantSkus[i]
-      const variantProductCode = variantCodes[i]
-      const variantName = `${String(base.name).trim()} - ${size.raw}`
-
-      const result = await query(
+    const createdVariants = []
+    for (const v of variantsToCreate) {
+      const created = await query(
         `
-          INSERT INTO products (
+          INSERT INTO product_variants (
             tenant_id,
-            name,
+            product_id,
+            variant_label,
             sku,
-            sku_type,
-            product_code,
             barcode,
-            image_data,
-            description,
-            usage_guide,
-            pros,
-            cons,
-            category_id,
-            unit,
-            cost_price,
-            selling_price,
-            markup_percentage,
-            suggested_price,
+            attributes,
             reorder_level,
-            is_active,
-            brand_id
+            is_active
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+          ON CONFLICT (tenant_id, product_id, variant_label)
+          DO UPDATE SET sku = EXCLUDED.sku, barcode = EXCLUDED.barcode, attributes = EXCLUDED.attributes, reorder_level = EXCLUDED.reorder_level, is_active = EXCLUDED.is_active, updated_at = CURRENT_TIMESTAMP
           RETURNING *
         `,
-        [
-          tenantId,
-          variantName,
-          variantSku,
-          normalizedSkuType,
-          variantProductCode,
-          null,
-          primaryImage,
-          base.description || null,
-          base.usageGuide || null,
-          base.pros || null,
-          base.cons || null,
-          base.categoryId || null,
-          base.unit || 'pcs',
-          normalizePrice(base.costPrice),
-          normalizePrice(base.sellingPrice),
-          Number(defaultPricingRule.markupPercentage || 0),
-          normalizePrice(defaultPricingRule.suggestedPrice),
-          Number(base.reorderLevel || 0),
-          base.isActive ?? true,
-          base.brandId ? Number(base.brandId) : null,
-        ],
+        [tenantId, productId, v.variantLabel, v.sku, v.barcode, JSON.stringify(v.attributes || {}), base.reorderLevel ?? null, base.isActive ?? true],
       )
-
-      const productId = result.rows[0].id
-
-      await Promise.all([
-        saveProductImages(
-          productId,
-          Array.isArray(base.images) && base.images.length ? base.images : primaryImage ? [primaryImage] : [],
-          tenantId,
-        ),
-        savePricingRules(
-          productId,
-          base.pricingRules,
-          base.costPrice,
-          defaultPricingRule.markupPercentage,
-          defaultPricingRule.suggestedPrice,
-          tenantId,
-        ),
-        saveBundleItems(productId, normalizedSkuType, base.bundleItems, tenantId),
-      ])
-
-      if (base.primarySupplierId) {
-        await setPrimarySupplier({ productId, supplierId: Number(base.primarySupplierId), userId: req.user.id, tenantId })
-      }
-
-      created.push(result.rows[0])
+      createdVariants.push(created.rows[0])
     }
 
     const shouldAddStock = base.addToInventory === true && base.warehouseId && Number(base.initialQuantity) > 0
-    if (shouldAddStock && created.length) {
+    if (shouldAddStock && createdVariants.length) {
       const client = await pool.connect()
       try {
         await client.query('BEGIN')
         await postItemsToStock(client, {
           tenantId,
           warehouseId: Number(base.warehouseId),
-          items: created.map((p) => ({ product_id: p.id, quantity: Number(base.initialQuantity) })),
+          items: createdVariants.map((v) => ({ variant_id: v.id, quantity: Number(base.initialQuantity) })),
           direction: 1,
-          referenceNo: 'Initial Stock - Bulk',
+          referenceNo: 'Initial Stock - Variants',
           notes: 'Initial stock on product creation',
           userId: req.user.id,
         })
@@ -1494,13 +1675,13 @@ router.post('/products/bulk', authorizeRoles('ADMIN', 'MANAGER'), async (req, re
       }
     }
 
-    const items = await attachProductRelations(created, { allowCostAccess: canViewCost(req), tenantId })
-    return res.status(201).json({ items })
+    const createdProduct = (await attachProductRelations([result.rows[0]], { allowCostAccess: canViewCost(req), tenantId }))[0]
+    return res.status(201).json({ product: createdProduct, variants: createdVariants })
   } catch (error) {
     if (error?.code === '23505') {
       return res.status(400).json({ message: 'SKU / product code / barcode already exists.' })
     }
-    return res.status(500).json({ message: 'Failed to create products.', error: error.message })
+    return res.status(500).json({ message: 'Failed to create product variants.', error: error.message })
   }
 })
 
@@ -1605,6 +1786,25 @@ router.post('/products', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =>
       ),
       saveBundleItems(result.rows[0].id, skuType, bundleItems, tenantId),
     ])
+
+    await query(
+      `
+        INSERT INTO product_variants (
+          tenant_id,
+          product_id,
+          variant_label,
+          sku,
+          barcode,
+          attributes,
+          reorder_level,
+          is_active
+        )
+        VALUES ($1, $2, 'DEFAULT', $3, $4, '{}'::jsonb, $5, $6)
+        ON CONFLICT (tenant_id, product_id, variant_label)
+        DO UPDATE SET sku = EXCLUDED.sku, barcode = EXCLUDED.barcode, reorder_level = EXCLUDED.reorder_level, is_active = EXCLUDED.is_active, updated_at = CURRENT_TIMESTAMP
+      `,
+      [tenantId, result.rows[0].id, String(sku).trim(), barcode || null, Number(reorderLevel || 0), isActive ?? true],
+    )
 
     if (primarySupplierId) {
       await setPrimarySupplier({ productId: result.rows[0].id, supplierId: Number(primarySupplierId), userId: req.user.id, tenantId })
@@ -1762,6 +1962,25 @@ router.put('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res)
       ),
       saveBundleItems(result.rows[0].id, skuType, bundleItems, tenantId),
     ])
+
+    await query(
+      `
+        INSERT INTO product_variants (
+          tenant_id,
+          product_id,
+          variant_label,
+          sku,
+          barcode,
+          attributes,
+          reorder_level,
+          is_active
+        )
+        VALUES ($1, $2, 'DEFAULT', $3, $4, '{}'::jsonb, $5, $6)
+        ON CONFLICT (tenant_id, product_id, variant_label)
+        DO UPDATE SET sku = EXCLUDED.sku, barcode = EXCLUDED.barcode, reorder_level = EXCLUDED.reorder_level, is_active = EXCLUDED.is_active, updated_at = CURRENT_TIMESTAMP
+      `,
+      [tenantId, result.rows[0].id, String(sku).trim(), barcode || null, Number(reorderLevel || 0), isActive ?? true],
+    )
 
     if (primarySupplierId !== undefined) {
       await setPrimarySupplier({

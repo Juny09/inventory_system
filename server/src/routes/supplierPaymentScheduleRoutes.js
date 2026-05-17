@@ -43,6 +43,53 @@ function enrich(row) {
 
 // ---- routes -----------------------------------------------------------------
 
+// GET /api/supplier-payment-schedules/future-summary
+router.get('/future-summary', async (req, res) => {
+  const tenantId = getTenantId(req)
+  try {
+    const result = await query(
+      `SELECT
+         sps.period_year,
+         sps.period_month,
+         SUM(sps.amount_due - sps.amount_paid) AS total_remaining,
+         COUNT(*) AS schedule_count
+       FROM supplier_payment_schedules sps
+       WHERE sps.tenant_id = $1
+         AND sps.status IN ('PENDING', 'PARTIAL')
+         AND (sps.period_year > EXTRACT(YEAR FROM CURRENT_DATE)
+              OR (sps.period_year = EXTRACT(YEAR FROM CURRENT_DATE)
+                  AND sps.period_month >= EXTRACT(MONTH FROM CURRENT_DATE)))
+       GROUP BY sps.period_year, sps.period_month
+       ORDER BY sps.period_year, sps.period_month`,
+      [tenantId],
+    )
+    // Summarise by 3 / 6 / 12 month windows
+    const today = new Date()
+    const currentYear = today.getFullYear()
+    const currentMonth = today.getMonth() + 1
+    const monthsAhead = [3, 6, 12]
+    const summary = {}
+    for (const m of monthsAhead) {
+      let total = 0
+      let count = 0
+      for (const row of result.rows) {
+        const rowYear = Number(row.period_year)
+        const rowMonth = Number(row.period_month)
+        // compute how many months from now
+        const diff = (rowYear - currentYear) * 12 + (rowMonth - currentMonth)
+        if (diff >= 0 && diff < m) {
+          total += Number(row.total_remaining) || 0
+          count += Number(row.schedule_count) || 0
+        }
+      }
+      summary[`next${m}m`] = { totalRemaining: Number(total.toFixed(2)), scheduleCount: count }
+    }
+    return res.json({ months: result.rows, summary })
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to fetch future summary.', error: error.message })
+  }
+})
+
 // GET /api/supplier-payment-schedules
 router.get('/', async (req, res) => {
   const tenantId = getTenantId(req)
@@ -199,18 +246,22 @@ router.post('/batch', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
     startMonth = 1,
     endMonth = 12,
     amountPerMonth,
+    amountPerPeriod,
+    periodInterval = 1,
     dueDay = 15,
     remindDaysBefore = 3,
     notes,
   } = req.body
 
-  if (!supplierId || !year || amountPerMonth === undefined) {
-    return res.status(400).json({ message: 'supplierId, year and amountPerMonth are required.' })
+  const amount = amountPerPeriod !== undefined ? amountPerPeriod : amountPerMonth
+  if (!supplierId || !year || amount === undefined) {
+    return res.status(400).json({ message: 'supplierId, year and amountPerPeriod (or amountPerMonth) are required.' })
   }
   const sm = Number(startMonth), em = Number(endMonth)
   if (sm < 1 || em > 12 || sm > em) {
     return res.status(400).json({ message: 'Invalid startMonth / endMonth range.' })
   }
+  const interval = Math.max(1, Math.min(Number(periodInterval) || 1, 12))
   if (!(await assertSupplierInTenant(supplierId, tenantId))) {
     return res.status(404).json({ message: 'Supplier not found in current company.' })
   }
@@ -218,12 +269,12 @@ router.post('/batch', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
   try {
     const created = []
     const skipped = []
-    for (let m = sm; m <= em; m++) {
+    for (let m = sm; m <= em; m += interval) {
       // Clamp due day so Feb 30 becomes Feb 28/29
       const lastDay = new Date(Number(year), m, 0).getDate()
       const day = Math.min(Number(dueDay) || 15, lastDay)
       const dueDate = `${year}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-      const status = computeStatus(amountPerMonth, 0, dueDate)
+      const status = computeStatus(amount, 0, dueDate)
       try {
         const result = await query(
           `INSERT INTO supplier_payment_schedules
@@ -236,7 +287,7 @@ router.post('/batch', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
             m,
             Number(year),
             dueDate,
-            Number(amountPerMonth) || 0,
+            Number(amount) || 0,
             Number(remindDaysBefore),
             notes || null,
             status,
@@ -257,7 +308,7 @@ router.post('/batch', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
       action: 'PAYMENT_SCHEDULE_BATCH_CREATE',
       entityType: 'PAYMENT_SCHEDULE',
       entityId: String(supplierId),
-      description: `Batch created ${created.length} schedule(s) for supplier #${supplierId} (${year} ${sm}-${em})`,
+      description: `Batch created ${created.length} schedule(s) for supplier #${supplierId} (${year} ${sm}-${em} every ${interval}m)`,
     }
 
     return res.status(201).json({ created, skipped })
@@ -355,7 +406,7 @@ router.post('/:id/add-payment', authorizeRoles('ADMIN', 'MANAGER'), async (req, 
         `INSERT INTO supplier_payment_records
            (tenant_id, supplier_id, period_month, period_year, paid_date, amount, notes, created_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (supplier_id, period_month, period_year)
+         ON CONFLICT (tenant_id, supplier_id, period_year, period_month)
          DO UPDATE SET amount = COALESCE(supplier_payment_records.amount, 0) + EXCLUDED.amount,
                        paid_date = EXCLUDED.paid_date`,
         [

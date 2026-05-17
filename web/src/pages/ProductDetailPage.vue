@@ -25,6 +25,7 @@ const recentMovements = ref([])
 const alerts = ref([])
 const images = ref([])
 const pricingRules = ref([])
+const variants = ref([])
 const supplier = ref(null)
 const costPriceHistory = ref([])
 const summary = ref({
@@ -66,6 +67,7 @@ async function loadDetail() {
     product.value = data.product
     images.value = data.images || data.product.images || []
     pricingRules.value = data.pricingRules || data.product.pricing_rules || []
+    variants.value = data.variants || []
     stockLevels.value = data.stockLevels
     recentMovements.value = data.recentMovements
     alerts.value = data.alerts
@@ -206,6 +208,21 @@ watch(pricingChannel, (value) => {
                   <div class="rounded-2xl bg-slate-50 px-4 py-3">
                     <p class="text-xs uppercase tracking-[0.2em] text-slate-400">Reorder Level</p>
                     <p class="mt-1 font-medium text-slate-900">{{ product.reorder_level }}</p>
+                  </div>
+                </div>
+
+                <div v-if="variants.length > 0" class="mt-4 rounded-2xl bg-slate-50 p-4">
+                  <p class="text-sm font-semibold text-slate-900">{{ tr('Variants', '变体') }}</p>
+                  <div class="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div
+                      v-for="v in variants"
+                      :key="v.id"
+                      class="rounded-2xl border border-slate-200 bg-white px-4 py-3"
+                    >
+                      <p class="text-xs text-slate-500">{{ v.variant_label || 'DEFAULT' }}</p>
+                      <p class="mt-1 text-sm font-semibold text-slate-900">{{ v.sku }}</p>
+                      <p class="mt-1 text-xs text-slate-500">{{ tr('Barcode', '条码') }}: {{ v.barcode || '—' }}</p>
+                    </div>
                   </div>
                 </div>
               </div>

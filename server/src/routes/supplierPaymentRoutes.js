@@ -143,7 +143,7 @@ router.post('/', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
     const result = await query(
       `INSERT INTO supplier_payment_records (tenant_id, supplier_id, period_month, period_year, paid_date, amount, notes, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (supplier_id, period_month, period_year)
+       ON CONFLICT (tenant_id, supplier_id, period_year, period_month)
        DO UPDATE SET paid_date = EXCLUDED.paid_date, amount = EXCLUDED.amount, notes = EXCLUDED.notes, created_by = EXCLUDED.created_by
        RETURNING *`,
       [

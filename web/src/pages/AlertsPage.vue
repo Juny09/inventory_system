@@ -82,11 +82,15 @@ function normalizeTab(value) {
 }
 
 function getAlertKey(item) {
-  return `${item.product_id || item.productId}-${item.warehouse_id || item.warehouseId}`
+  const warehouse = item.warehouse_id || item.warehouseId
+  const variant = item.variant_id || item.variantId
+  const product = item.product_id || item.productId
+  return `${variant || product}-${warehouse}`
 }
 
 function toSelectedAlert(item) {
   return {
+    variantId: item.variant_id || item.variantId || null,
     productId: item.product_id || item.productId,
     warehouseId: item.warehouse_id || item.warehouseId,
     status: item.alert_status || item.status || 'OPEN',
@@ -209,11 +213,12 @@ async function fetchAllFilteredAlerts() {
 }
 
 async function updateAlert(item, overrides = {}) {
-  const alertKey = `${item.product_id}-${item.warehouse_id}`
+  const alertKey = getAlertKey(item)
   savingAlertKey.value = alertKey
 
   try {
     await api.put(`/alerts/low-stock/${item.product_id}/${item.warehouse_id}`, {
+      variantId: item.variant_id || null,
       status: overrides.status || item.alert_status || 'OPEN',
       assignedTo: overrides.assignedTo ?? item.assigned_to ?? null,
       notes: overrides.notes ?? item.alert_notes ?? '',
@@ -279,6 +284,7 @@ async function undoBulkAction(previousItems) {
   try {
     await api.post('/alerts/low-stock/bulk-update', {
       items: previousItems.map((item) => ({
+        variantId: item.variantId || null,
         productId: item.productId,
         warehouseId: item.warehouseId,
         status: item.status,

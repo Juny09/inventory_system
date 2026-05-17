@@ -140,7 +140,7 @@ router.post('/', upload.single('file'), async (req, res) => {
           file_size
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (uploaded_by, statement_month)
+        ON CONFLICT (tenant_id, uploaded_by, statement_month)
         DO UPDATE SET
           original_name = EXCLUDED.original_name,
           storage_path = EXCLUDED.storage_path,

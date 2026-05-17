@@ -58,8 +58,10 @@ const form = reactive({
 const qrPreview = ref('')
 const bulkSizesOpen = ref(false)
 const bulkSizesText = ref('')
+const bulkColorsOpen = ref(false)
+const bulkColorsText = ref('')
 
-function parseBulkSizes(raw) {
+function parseBulkOptions(raw) {
   return String(raw || '')
     .split(/[\n,;]+/)
     .map((s) => s.trim())
@@ -201,13 +203,16 @@ async function saveProduct() {
         payload.warehouseId = form.warehouseId ? Number(form.warehouseId) : null
         payload.initialQuantity = Number(form.initialQuantity) || 0
       }
-      const bulkSizes = form.skuType === 'SINGLE' ? Array.from(new Set(parseBulkSizes(bulkSizesText.value))) : []
-      if (bulkSizes.length) {
-        const { data } = await api.post('/products/bulk', { base: payload, sizes: bulkSizes })
-        const count = Array.isArray(data?.items) ? data.items.length : bulkSizes.length
+      const bulkSizes = form.skuType === 'SINGLE' ? Array.from(new Set(parseBulkOptions(bulkSizesText.value))) : []
+      const bulkColors = form.skuType === 'SINGLE' ? Array.from(new Set(parseBulkOptions(bulkColorsText.value))) : []
+      if (bulkSizes.length || bulkColors.length) {
+        const { data } = await api.post('/products/bulk', { base: payload, sizes: bulkSizes, colors: bulkColors })
+        const count = Array.isArray(data?.variants)
+          ? data.variants.filter((v) => v.variant_label !== 'DEFAULT').length
+          : Math.max(bulkSizes.length, bulkColors.length)
         toastStore.pushToast({
           tone: 'success',
-          message: localeStore.locale === 'en' ? `Created ${count} products.` : `已创建 ${count} 个商品。`,
+          message: localeStore.locale === 'en' ? `Created 1 product with ${count} variants.` : `已创建 1 个商品，包含 ${count} 个变体。`,
         })
       } else {
         await api.post('/products', payload)
@@ -394,7 +399,7 @@ onMounted(async () => {
         <div>
           <p class="text-sm uppercase tracking-[0.3em] text-slate-400">{{ localeStore.locale === 'en' ? 'Catalog' : '商品目录' }}</p>
           <h2 class="mt-2 text-3xl font-semibold text-slate-900">
-            {{ form.id ? (localeStore.locale === 'en' ? 'Edit product' : '编辑商品') : (localeStore.locale === 'en' ? 'Add product' : '新增商品时提供“批量尺码/尺寸”一次性创建多个 SKU 的能力（避免一个 size 一个 product 手动重复添加）。') }}
+            {{ form.id ? (localeStore.locale === 'en' ? 'Edit product' : '编辑商品') : (localeStore.locale === 'en' ? 'Add product' : '新增商品') }}
           </h2>
         </div>
         <button
@@ -472,13 +477,13 @@ onMounted(async () => {
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p class="text-sm font-semibold text-slate-900">
-                  {{ localeStore.locale === 'en' ? 'Bulk sizes' : '批量尺码/尺寸' }}
+                  {{ localeStore.locale === 'en' ? 'Variants (size / color)' : '变体（尺码 / 颜色）' }}
                 </p>
                 <p class="mt-1 text-xs text-slate-500">
                   {{
                     localeStore.locale === 'en'
-                      ? 'Fill sizes once. System creates multiple SKUs like BASE-S, BASE-M. Barcode will be empty; you can edit later.'
-                      : '一次填好多个尺码/尺寸，系统会自动创建多个 SKU（例如 BASE-S、BASE-M）。条码默认留空，后面可逐个编辑补上。'
+                      ? 'Fill sizes and/or colors once. If both are provided, system creates combinations (e.g. BASE-RED-S).'
+                      : '一次填好尺码和/或颜色。如果两者都填，会自动生成组合（例如 BASE-RED-S）。'
                   }}
                 </p>
               </div>
@@ -487,19 +492,37 @@ onMounted(async () => {
                 class="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                 @click="bulkSizesOpen = !bulkSizesOpen"
               >
-                {{ bulkSizesOpen ? (localeStore.locale === 'en' ? 'Hide' : '收起') : (localeStore.locale === 'en' ? 'Add sizes' : '添加尺码') }}
+                {{ bulkSizesOpen ? (localeStore.locale === 'en' ? 'Hide' : '收起') : (localeStore.locale === 'en' ? 'Add variants' : '添加变体') }}
               </button>
             </div>
 
             <div v-if="bulkSizesOpen" class="mt-3 space-y-3">
-              <textarea
-                v-model="bulkSizesText"
-                rows="3"
-                :placeholder="localeStore.locale === 'en' ? 'Example: S, M, L' : '例如：S, M, L'"
-                class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
-              />
+              <div class="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <p class="mb-1 text-xs font-semibold text-slate-700">{{ localeStore.locale === 'en' ? 'Sizes' : '尺码/尺寸' }}</p>
+                  <textarea
+                    v-model="bulkSizesText"
+                    rows="3"
+                    :placeholder="localeStore.locale === 'en' ? 'Example: S, M, L' : '例如：S, M, L'"
+                    class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
+                  />
+                </div>
+                <div>
+                  <p class="mb-1 text-xs font-semibold text-slate-700">{{ localeStore.locale === 'en' ? 'Colors' : '颜色' }}</p>
+                  <textarea
+                    v-model="bulkColorsText"
+                    rows="3"
+                    :placeholder="localeStore.locale === 'en' ? 'Example: Red, Blue' : '例如：红色, 蓝色'"
+                    class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500"
+                  />
+                </div>
+              </div>
               <p class="text-xs text-slate-500">
-                {{ localeStore.locale === 'en' ? 'Separate by comma or new line.' : '支持逗号或换行分隔。' }}
+                {{
+                  localeStore.locale === 'en'
+                    ? 'Separate by comma or new line. If both sizes and colors are filled, system creates size × color combinations.'
+                    : '支持逗号或换行分隔。如果尺码和颜色都填写，会生成“尺码 × 颜色”的组合。'
+                }}
               </p>
             </div>
           </div>

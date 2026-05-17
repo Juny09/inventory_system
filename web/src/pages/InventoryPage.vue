@@ -9,7 +9,7 @@ import { useLocaleStore } from '../stores/locale'
 const authStore = useAuthStore()
 const localeStore = useLocaleStore()
 const inventory = ref([])
-const products = ref([])
+const variants = ref([])
 const warehouses = ref([])
 const categories = ref([])
 const suppliers = ref([])
@@ -40,7 +40,7 @@ const transactionPagination = ref({
 })
 
 const stockInForm = reactive({
-  productId: '',
+  variantId: '',
   warehouseId: '',
   supplierId: '',
   quantity: 1,
@@ -52,7 +52,7 @@ const stockInForm = reactive({
 })
 
 const stockOutForm = reactive({
-  productId: '',
+  variantId: '',
   warehouseId: '',
   unit: '',
   quantity: 1,
@@ -61,7 +61,7 @@ const stockOutForm = reactive({
 })
 
 const transferForm = reactive({
-  productId: '',
+  variantId: '',
   sourceWarehouseId: '',
   destinationWarehouseId: '',
   unit: '',
@@ -71,7 +71,7 @@ const transferForm = reactive({
 })
 
 const allocationForm = reactive({
-  productId: '',
+  variantId: '',
   warehouseId: '',
   unit: '',
   quantity: 1,
@@ -92,8 +92,8 @@ function closeModal() {
 }
 
 async function loadSelectors() {
-  const [productResponse, warehouseResponse, categoryResponse, supplierResponse] = await Promise.all([
-    api.get('/products', {
+  const [variantResponse, warehouseResponse, categoryResponse, supplierResponse] = await Promise.all([
+    api.get('/product-variants', {
       params: {
         all: true,
         status: 'active',
@@ -119,7 +119,7 @@ async function loadSelectors() {
     }),
   ])
 
-  products.value = productResponse.data.items
+  variants.value = variantResponse.data.items
   warehouses.value = warehouseResponse.data.items
   categories.value = categoryResponse.data.items
   suppliers.value = supplierResponse.data.items
@@ -166,21 +166,21 @@ async function loadInventoryPage(
 
 function resetForms() {
   Object.assign(stockInForm, {
-    productId: '',
+    variantId: '',
     warehouseId: '',
     quantity: 1,
     referenceNo: '',
     notes: '',
   })
   Object.assign(stockOutForm, {
-    productId: '',
+    variantId: '',
     warehouseId: '',
     quantity: 1,
     referenceNo: '',
     notes: '',
   })
   Object.assign(transferForm, {
-    productId: '',
+    variantId: '',
     sourceWarehouseId: '',
     destinationWarehouseId: '',
     quantity: 1,
@@ -188,7 +188,7 @@ function resetForms() {
     notes: '',
   })
   Object.assign(allocationForm, {
-    productId: '',
+    variantId: '',
     warehouseId: '',
     quantity: 1,
     mode: 'reserve',
@@ -479,7 +479,9 @@ onMounted(async () => {
                 <p class="font-medium text-slate-900">{{ transaction.movement_type }}</p>
                 <span class="text-xs text-slate-500">{{ new Date(transaction.created_at).toLocaleString() }}</span>
               </div>
-              <p class="mt-2 text-sm text-slate-700">{{ transaction.product_name }} · {{ transaction.sku }}</p>
+              <p class="mt-2 text-sm text-slate-700">
+                {{ transaction.product_name }} · {{ transaction.sku }}<span v-if="transaction.variant_label"> · {{ transaction.variant_label }}</span>
+              </p>
               <p class="mt-1 text-sm text-slate-500">
                 Qty {{ transaction.quantity }} · Ref {{ transaction.reference_no || 'N/A' }}
               </p>
@@ -515,10 +517,10 @@ onMounted(async () => {
               <button type="button" class="text-slate-400 hover:text-slate-600" @click="closeModal">✕</button>
             </div>
             <div class="max-h-[70vh] space-y-3 overflow-y-auto px-6 py-5">
-              <select v-model="stockInForm.productId" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
-                <option value="">{{ localeStore.locale === 'en' ? 'Select product' : '选择产品' }}</option>
-                <option v-for="product in products" :key="product.id" :value="product.id">
-                  {{ product.name }} · {{ product.sku }}
+              <select v-model="stockInForm.variantId" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">{{ localeStore.locale === 'en' ? 'Select SKU' : '选择 SKU' }}</option>
+                <option v-for="variant in variants" :key="variant.id" :value="variant.id">
+                  {{ variant.product_name }} · {{ variant.sku }}<span v-if="variant.variant_label"> · {{ variant.variant_label }}</span>
                 </option>
               </select>
               <select v-model="stockInForm.warehouseId" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
@@ -570,10 +572,10 @@ onMounted(async () => {
               <button type="button" class="text-slate-400 hover:text-slate-600" @click="closeModal">✕</button>
             </div>
             <div class="max-h-[70vh] space-y-3 overflow-y-auto px-6 py-5">
-              <select v-model="stockOutForm.productId" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
-                <option value="">{{ localeStore.locale === 'en' ? 'Select product' : '选择产品' }}</option>
-                <option v-for="product in products" :key="product.id" :value="product.id">
-                  {{ product.name }} · {{ product.sku }}
+              <select v-model="stockOutForm.variantId" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">{{ localeStore.locale === 'en' ? 'Select SKU' : '选择 SKU' }}</option>
+                <option v-for="variant in variants" :key="variant.id" :value="variant.id">
+                  {{ variant.product_name }} · {{ variant.sku }}<span v-if="variant.variant_label"> · {{ variant.variant_label }}</span>
                 </option>
               </select>
               <select v-model="stockOutForm.warehouseId" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
@@ -617,10 +619,10 @@ onMounted(async () => {
               <button type="button" class="text-slate-400 hover:text-slate-600" @click="closeModal">✕</button>
             </div>
             <div class="max-h-[70vh] space-y-3 overflow-y-auto px-6 py-5">
-              <select v-model="transferForm.productId" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
-                <option value="">{{ localeStore.locale === 'en' ? 'Select product' : '选择产品' }}</option>
-                <option v-for="product in products" :key="product.id" :value="product.id">
-                  {{ product.name }} · {{ product.sku }}
+              <select v-model="transferForm.variantId" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">{{ localeStore.locale === 'en' ? 'Select SKU' : '选择 SKU' }}</option>
+                <option v-for="variant in variants" :key="variant.id" :value="variant.id">
+                  {{ variant.product_name }} · {{ variant.sku }}<span v-if="variant.variant_label"> · {{ variant.variant_label }}</span>
                 </option>
               </select>
               <select v-model="transferForm.sourceWarehouseId" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
@@ -670,10 +672,10 @@ onMounted(async () => {
               <button type="button" class="text-slate-400 hover:text-slate-600" @click="closeModal">✕</button>
             </div>
             <div class="max-h-[70vh] space-y-3 overflow-y-auto px-6 py-5">
-              <select v-model="allocationForm.productId" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
-                <option value="">{{ localeStore.locale === 'en' ? 'Select product' : '选择产品' }}</option>
-                <option v-for="product in products" :key="product.id" :value="product.id">
-                  {{ product.name }} · {{ product.sku }}
+              <select v-model="allocationForm.variantId" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">{{ localeStore.locale === 'en' ? 'Select SKU' : '选择 SKU' }}</option>
+                <option v-for="variant in variants" :key="variant.id" :value="variant.id">
+                  {{ variant.product_name }} · {{ variant.sku }}<span v-if="variant.variant_label"> · {{ variant.variant_label }}</span>
                 </option>
               </select>
               <select v-model="allocationForm.warehouseId" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">

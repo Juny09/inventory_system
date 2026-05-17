@@ -12,11 +12,41 @@ function getSearchPattern(search) {
   return `%${String(search || '').trim()}%`
 }
 
-async function saveAlertState({ productId, warehouseId, status, assignedTo, notes, userId, tenantId }) {
+async function resolveVariantId({ tenantId, productId, variantId }) {
+  const vid = Number(variantId)
+  const pid = Number(productId)
+
+  if (vid) {
+    const result = await query('SELECT id, product_id FROM product_variants WHERE id = $1 AND tenant_id = $2', [vid, tenantId])
+    if (!result.rows[0]) throw new Error('Variant not found in current company.')
+    return { variantId: vid, productId: Number(result.rows[0].product_id) }
+  }
+
+  if (pid) {
+    const result = await query(
+      `
+        SELECT id, product_id
+        FROM product_variants
+        WHERE tenant_id = $1 AND product_id = $2 AND variant_label = 'DEFAULT'
+        ORDER BY id ASC
+        LIMIT 1
+      `,
+      [tenantId, pid],
+    )
+    if (!result.rows[0]) throw new Error('Default variant not found for this product.')
+    return { variantId: Number(result.rows[0].id), productId: pid }
+  }
+
+  throw new Error('variantId (or productId) is required.')
+}
+
+async function saveAlertState({ variantId, productId, warehouseId, status, assignedTo, notes, userId, tenantId }) {
+  const resolved = await resolveVariantId({ tenantId, productId, variantId })
   const result = await query(
     `
       INSERT INTO low_stock_alert_states (
         tenant_id,
+        variant_id,
         product_id,
         warehouse_id,
         status,
@@ -25,8 +55,8 @@ async function saveAlertState({ productId, warehouseId, status, assignedTo, note
         updated_by,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
-      ON CONFLICT (product_id, warehouse_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+      ON CONFLICT (tenant_id, variant_id, warehouse_id)
       DO UPDATE SET
         status = EXCLUDED.status,
         assigned_to = EXCLUDED.assigned_to,
@@ -35,7 +65,7 @@ async function saveAlertState({ productId, warehouseId, status, assignedTo, note
         updated_at = CURRENT_TIMESTAMP
       RETURNING *
     `,
-    [tenantId, productId, warehouseId, status, assignedTo || null, notes || null, userId],
+    [tenantId, resolved.variantId, resolved.productId, warehouseId, status, assignedTo || null, notes || null, userId],
   )
 
   return result.rows[0]
@@ -46,6 +76,7 @@ function getAlertBaseQuery() {
   return `
     FROM stock_levels
     INNER JOIN products ON products.id = stock_levels.product_id AND products.tenant_id = stock_levels.tenant_id
+    LEFT JOIN product_variants ON product_variants.id = stock_levels.variant_id AND product_variants.tenant_id = stock_levels.tenant_id
     INNER JOIN warehouses ON warehouses.id = stock_levels.warehouse_id AND warehouses.tenant_id = stock_levels.tenant_id
     LEFT JOIN categories ON categories.id = products.category_id AND categories.tenant_id = products.tenant_id
     LEFT JOIN product_suppliers ON product_suppliers.product_id = products.id
@@ -60,22 +91,23 @@ function getAlertBaseQuery() {
         stock_movements.purchase_reason,
         stock_movements.reference_no
       FROM stock_movements
-      WHERE stock_movements.product_id = products.id
+      WHERE stock_movements.variant_id = stock_levels.variant_id
         AND stock_movements.movement_type = 'IN'
         AND stock_movements.tenant_id = products.tenant_id
       ORDER BY stock_movements.created_at DESC
       LIMIT 1
     ) last_purchase ON TRUE
-    LEFT JOIN low_stock_alert_states ON low_stock_alert_states.product_id = stock_levels.product_id
+    LEFT JOIN low_stock_alert_states ON low_stock_alert_states.variant_id = stock_levels.variant_id
       AND low_stock_alert_states.warehouse_id = stock_levels.warehouse_id
       AND low_stock_alert_states.tenant_id = stock_levels.tenant_id
     LEFT JOIN users AS assignees ON assignees.id = low_stock_alert_states.assigned_to AND assignees.tenant_id = stock_levels.tenant_id
     WHERE stock_levels.tenant_id = $4
-      AND stock_levels.quantity <= products.reorder_level
+      AND stock_levels.quantity <= COALESCE(product_variants.reorder_level, products.reorder_level)
       AND (
         $1 = '%%'
         OR products.name ILIKE $1
-        OR products.sku ILIKE $1
+        OR COALESCE(product_variants.sku, products.sku) ILIKE $1
+        OR COALESCE(product_variants.variant_label, 'DEFAULT') ILIKE $1
         OR warehouses.name ILIKE $1
         OR categories.name ILIKE $1
       )
@@ -104,14 +136,16 @@ router.get('/low-stock', async (req, res) => {
         `
           SELECT
             stock_levels.id,
+            stock_levels.variant_id,
             products.id AS product_id,
             products.name AS product_name,
-            products.sku,
-            products.reorder_level,
+            COALESCE(product_variants.sku, products.sku) AS sku,
+            COALESCE(product_variants.variant_label, 'DEFAULT') AS variant_label,
+            COALESCE(product_variants.reorder_level, products.reorder_level) AS reorder_level,
             stock_levels.quantity,
             warehouses.id AS warehouse_id,
             warehouses.name AS warehouse_name,
-            GREATEST(products.reorder_level - stock_levels.quantity, 0) AS shortage,
+            GREATEST(COALESCE(product_variants.reorder_level, products.reorder_level) - stock_levels.quantity, 0) AS shortage,
             COALESCE(low_stock_alert_states.status, 'OPEN') AS alert_status,
             low_stock_alert_states.notes AS alert_notes,
             low_stock_alert_states.assigned_to,
@@ -141,6 +175,7 @@ router.get('/low-stock', async (req, res) => {
           total_alerts: result.rows.length,
           out_of_stock: result.rows.filter((item) => Number(item.quantity) === 0).length,
           affected_products: new Set(result.rows.map((item) => item.product_id)).size,
+          affected_variants: new Set(result.rows.map((item) => item.variant_id)).size,
         },
       })
     }
@@ -150,14 +185,16 @@ router.get('/low-stock', async (req, res) => {
         `
           SELECT
             stock_levels.id,
+            stock_levels.variant_id,
             products.id AS product_id,
             products.name AS product_name,
-            products.sku,
-            products.reorder_level,
+            COALESCE(product_variants.sku, products.sku) AS sku,
+            COALESCE(product_variants.variant_label, 'DEFAULT') AS variant_label,
+            COALESCE(product_variants.reorder_level, products.reorder_level) AS reorder_level,
             stock_levels.quantity,
             warehouses.id AS warehouse_id,
             warehouses.name AS warehouse_name,
-            GREATEST(products.reorder_level - stock_levels.quantity, 0) AS shortage,
+            GREATEST(COALESCE(product_variants.reorder_level, products.reorder_level) - stock_levels.quantity, 0) AS shortage,
             COALESCE(low_stock_alert_states.status, 'OPEN') AS alert_status,
             low_stock_alert_states.notes AS alert_notes,
             low_stock_alert_states.assigned_to,
@@ -192,7 +229,8 @@ router.get('/low-stock', async (req, res) => {
           SELECT
             COUNT(*)::int AS total_alerts,
             COUNT(*) FILTER (WHERE stock_levels.quantity = 0)::int AS out_of_stock,
-            COUNT(DISTINCT stock_levels.product_id)::int AS affected_products
+            COUNT(DISTINCT stock_levels.product_id)::int AS affected_products,
+            COUNT(DISTINCT stock_levels.variant_id)::int AS affected_variants
           ${getAlertBaseQuery()}
         `,
         itemsParams,
@@ -211,7 +249,7 @@ router.get('/low-stock', async (req, res) => {
 
 router.put('/low-stock/:productId/:warehouseId', async (req, res) => {
   const tenantId = getTenantId(req)
-  const { status = 'OPEN', assignedTo = null, notes = '' } = req.body
+  const { status = 'OPEN', assignedTo = null, notes = '', variantId = null } = req.body
   const allowedStatuses = ['OPEN', 'READ', 'IGNORED']
 
   if (!allowedStatuses.includes(status)) {
@@ -223,16 +261,11 @@ router.put('/low-stock/:productId/:warehouseId', async (req, res) => {
   }
 
   try {
-    // 先校验 product/warehouse 属于当前租户，避免跨租户写入告警状态
-    const [productCheck, warehouseCheck] = await Promise.all([
-      query('SELECT id FROM products WHERE id = $1 AND tenant_id = $2', [req.params.productId, tenantId]),
-      query('SELECT id FROM warehouses WHERE id = $1 AND tenant_id = $2', [req.params.warehouseId, tenantId]),
-    ])
-    if (!productCheck.rows[0] || !warehouseCheck.rows[0]) {
-      return res.status(404).json({ message: 'Product or warehouse not found in current company.' })
-    }
+    const warehouseCheck = await query('SELECT id FROM warehouses WHERE id = $1 AND tenant_id = $2', [req.params.warehouseId, tenantId])
+    if (!warehouseCheck.rows[0]) return res.status(404).json({ message: 'Warehouse not found in current company.' })
 
     const result = await saveAlertState({
+      variantId: variantId || null,
       productId: req.params.productId,
       warehouseId: req.params.warehouseId,
       status,
@@ -286,6 +319,7 @@ router.post('/low-stock/bulk-update', async (req, res) => {
         const resolvedNotes = item.notes ?? notes
 
         return saveAlertState({
+          variantId: item.variantId ?? item.variant_id ?? null,
           productId: item.productId,
           warehouseId: item.warehouseId,
           status: resolvedStatus,

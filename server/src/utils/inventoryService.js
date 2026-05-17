@@ -1,24 +1,24 @@
 // 统一封装库存增减逻辑，避免多个接口重复写事务代码
 // 所有库存操作均按 tenant_id 隔离
-async function ensureStockRow(client, productId, warehouseId, tenantId) {
+async function ensureStockRow(client, variantId, productId, warehouseId, tenantId) {
   await client.query(
     `
-      INSERT INTO stock_levels (tenant_id, product_id, warehouse_id, quantity, allocated_quantity)
-      VALUES ($1, $2, $3, 0, 0)
-      ON CONFLICT (product_id, warehouse_id) DO NOTHING
+      INSERT INTO stock_levels (tenant_id, variant_id, product_id, warehouse_id, quantity, allocated_quantity)
+      VALUES ($1, $2, $3, $4, 0, 0)
+      ON CONFLICT (tenant_id, variant_id, warehouse_id) DO NOTHING
     `,
-    [tenantId, productId, warehouseId],
+    [tenantId, variantId, productId, warehouseId],
   )
 }
 
-async function getStockQuantity(client, productId, warehouseId, tenantId) {
+async function getStockQuantity(client, variantId, warehouseId, tenantId) {
   const result = await client.query(
     `
       SELECT quantity, allocated_quantity
       FROM stock_levels
-      WHERE product_id = $1 AND warehouse_id = $2 AND tenant_id = $3
+      WHERE variant_id = $1 AND warehouse_id = $2 AND tenant_id = $3
     `,
-    [productId, warehouseId, tenantId],
+    [variantId, warehouseId, tenantId],
   )
 
   return {
@@ -27,14 +27,14 @@ async function getStockQuantity(client, productId, warehouseId, tenantId) {
   }
 }
 
-async function updateStock(client, productId, warehouseId, nextQuantity, nextAllocatedQuantity, tenantId) {
+async function updateStock(client, variantId, warehouseId, nextQuantity, nextAllocatedQuantity, tenantId) {
   await client.query(
     `
       UPDATE stock_levels
       SET quantity = $3, allocated_quantity = $4, updated_at = CURRENT_TIMESTAMP
-      WHERE product_id = $1 AND warehouse_id = $2 AND tenant_id = $5
+      WHERE variant_id = $1 AND warehouse_id = $2 AND tenant_id = $5
     `,
-    [productId, warehouseId, nextQuantity, nextAllocatedQuantity, tenantId],
+    [variantId, warehouseId, nextQuantity, nextAllocatedQuantity, tenantId],
   )
 }
 
@@ -82,31 +82,59 @@ async function postItemsToStock(client, options) {
   )
   if (!wh.rows[0]) throw new Error('Warehouse not found in current company.')
 
-  // 按 product 聚合，避免同一 product 多行分别查/写
-  const aggregated = new Map()
-  for (const it of items || []) {
-    const pid = Number(it.product_id)
-    const qty = Number(it.quantity) || 0
-    if (!pid || qty <= 0) continue
-    aggregated.set(pid, (aggregated.get(pid) || 0) + qty)
-  }
+  async function resolveVariantForItem(item) {
+    const explicitVariantId = Number(item.variant_id || item.variantId)
+    const explicitProductId = Number(item.product_id || item.productId)
 
-  for (const [productId, qty] of aggregated.entries()) {
-    // 校验 product 所属租户
-    const pCheck = await client.query(
-      'SELECT id FROM products WHERE id = $1 AND tenant_id = $2',
-      [productId, tenantId],
-    )
-    if (!pCheck.rows[0]) throw new Error(`Product ${productId} not found in current company.`)
-
-    await ensureStockRow(client, productId, warehouseId, tenantId)
-    const current = await getStockQuantity(client, productId, warehouseId, tenantId)
-    const nextQty = current.onHandQuantity + direction * qty
-    if (nextQty < 0) {
-      throw new Error(`Stock for product ${productId} would become negative.`)
+    if (explicitVariantId) {
+      const v = await client.query(
+        'SELECT id, product_id FROM product_variants WHERE id = $1 AND tenant_id = $2',
+        [explicitVariantId, tenantId],
+      )
+      if (!v.rows[0]) throw new Error(`Variant ${explicitVariantId} not found in current company.`)
+      return { variantId: explicitVariantId, productId: Number(v.rows[0].product_id) }
     }
 
-    await updateStock(client, productId, warehouseId, nextQty, current.allocatedQuantity, tenantId)
+    if (explicitProductId) {
+      const v = await client.query(
+        `
+          SELECT id, product_id
+          FROM product_variants
+          WHERE tenant_id = $1 AND product_id = $2 AND variant_label = 'DEFAULT'
+          ORDER BY id ASC
+          LIMIT 1
+        `,
+        [tenantId, explicitProductId],
+      )
+      if (!v.rows[0]) throw new Error(`Default variant for product ${explicitProductId} not found.`)
+      return { variantId: Number(v.rows[0].id), productId: explicitProductId }
+    }
+
+    throw new Error('variant_id (or product_id) is required.')
+  }
+
+  // 按 variant 聚合，避免同一 variant 多行分别查/写
+  const aggregated = new Map()
+  for (const it of items || []) {
+    const qty = Number(it.quantity) || 0
+    if (qty <= 0) continue
+    const resolved = await resolveVariantForItem(it)
+    const key = String(resolved.variantId)
+    const prev = aggregated.get(key)
+    aggregated.set(key, { ...resolved, quantity: (prev?.quantity || 0) + qty })
+  }
+
+  for (const entry of aggregated.values()) {
+    const { variantId, productId, quantity: qty } = entry
+
+    await ensureStockRow(client, variantId, productId, warehouseId, tenantId)
+    const current = await getStockQuantity(client, variantId, warehouseId, tenantId)
+    const nextQty = current.onHandQuantity + direction * qty
+    if (nextQty < 0) {
+      throw new Error(`Stock for variant ${variantId} would become negative.`)
+    }
+
+    await updateStock(client, variantId, warehouseId, nextQty, current.allocatedQuantity, tenantId)
 
     const movementType = direction === 1 ? 'IN' : 'OUT'
     const srcCol = direction === 1 ? null : warehouseId
@@ -114,13 +142,14 @@ async function postItemsToStock(client, options) {
 
     await client.query(
       `INSERT INTO stock_movements (
-         tenant_id, movement_type, product_id,
+         tenant_id, movement_type, variant_id, product_id,
          source_warehouse_id, destination_warehouse_id,
          quantity, reference_no, notes, supplier_id, created_by
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         tenantId,
         movementType,
+        variantId,
         productId,
         srcCol,
         dstCol,

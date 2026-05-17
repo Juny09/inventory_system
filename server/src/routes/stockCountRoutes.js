@@ -138,6 +138,7 @@ router.post('/', async (req, res) => {
         INSERT INTO stock_count_items (
           tenant_id,
           stock_count_id,
+          variant_id,
           product_id,
           warehouse_id,
           expected_quantity,
@@ -147,6 +148,7 @@ router.post('/', async (req, res) => {
         SELECT
           $3,
           $1,
+          stock_levels.variant_id,
           stock_levels.product_id,
           stock_levels.warehouse_id,
           stock_levels.quantity,
@@ -202,6 +204,7 @@ router.get('/:id', async (req, res) => {
         `
           SELECT
             stock_count_items.id,
+            stock_count_items.variant_id,
             stock_count_items.product_id,
             stock_count_items.warehouse_id,
             stock_count_items.expected_quantity,
@@ -209,13 +212,15 @@ router.get('/:id', async (req, res) => {
             stock_count_items.difference_quantity,
             stock_count_items.notes,
             products.name AS product_name,
-            products.sku,
+            COALESCE(product_variants.sku, products.sku) AS sku,
+            COALESCE(product_variants.variant_label, 'DEFAULT') AS variant_label,
             products.unit
           FROM stock_count_items
           INNER JOIN products ON products.id = stock_count_items.product_id AND products.tenant_id = stock_count_items.tenant_id
+          LEFT JOIN product_variants ON product_variants.id = stock_count_items.variant_id AND product_variants.tenant_id = stock_count_items.tenant_id
           WHERE stock_count_items.stock_count_id = $1
             AND stock_count_items.tenant_id = $2
-          ORDER BY products.name ASC
+          ORDER BY products.name ASC, COALESCE(product_variants.variant_label, 'DEFAULT') ASC
         `,
         [req.params.id, tenantId],
       ),
@@ -366,7 +371,7 @@ router.post('/:id/apply', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =
 
     const itemResult = await client.query(
       `
-        SELECT id, product_id, warehouse_id, counted_quantity
+        SELECT id, variant_id, product_id, warehouse_id, counted_quantity
         FROM stock_count_items
         WHERE stock_count_id = $1 AND tenant_id = $2
       `,
@@ -378,10 +383,10 @@ router.post('/:id/apply', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =
         `
           SELECT quantity
           FROM stock_levels
-          WHERE product_id = $1 AND warehouse_id = $2 AND tenant_id = $3
+          WHERE variant_id = $1 AND warehouse_id = $2 AND tenant_id = $3
           FOR UPDATE
         `,
-        [item.product_id, item.warehouse_id, tenantId],
+        [item.variant_id, item.warehouse_id, tenantId],
       )
 
       const currentQuantity = Number(currentStockResult.rows[0]?.quantity || 0)
@@ -392,9 +397,9 @@ router.post('/:id/apply', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =
         `
           UPDATE stock_levels
           SET quantity = $3, updated_at = CURRENT_TIMESTAMP
-          WHERE product_id = $1 AND warehouse_id = $2 AND tenant_id = $4
+          WHERE variant_id = $1 AND warehouse_id = $2 AND tenant_id = $4
         `,
-        [item.product_id, item.warehouse_id, targetQuantity, tenantId],
+        [item.variant_id, item.warehouse_id, targetQuantity, tenantId],
       )
 
       if (delta !== 0) {
@@ -403,6 +408,7 @@ router.post('/:id/apply', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =
             INSERT INTO stock_movements (
               tenant_id,
               movement_type,
+              variant_id,
               product_id,
               source_warehouse_id,
               destination_warehouse_id,
@@ -411,11 +417,12 @@ router.post('/:id/apply', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) =
               notes,
               created_by
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
           `,
           [
             tenantId,
             delta > 0 ? 'IN' : 'OUT',
+            item.variant_id,
             item.product_id,
             delta > 0 ? null : item.warehouse_id,
             delta > 0 ? item.warehouse_id : null,
