@@ -53,6 +53,114 @@ function computeTotals(items, priceIncludesDiscount = false) {
   return { items: normalized, totalQty, totalAmount }
 }
 
+async function syncProductPricingFromInvoiceItems(client, { tenantId, items, userId, invoiceNo }) {
+  const unitPriceMap = new Map()
+  for (const item of Array.isArray(items) ? items : []) {
+    const productId = item?.product_id ? Number(item.product_id) : null
+    const unitPrice = Number(item?.unit_price || 0)
+    if (!productId || unitPrice <= 0) continue
+    unitPriceMap.set(productId, unitPrice)
+  }
+
+  if (!unitPriceMap.size) {
+    return
+  }
+
+  for (const [productId, unitPrice] of unitPriceMap.entries()) {
+    const current = await client.query(
+      `SELECT cost_price, markup_percentage FROM products WHERE id = $1 AND tenant_id = $2`,
+      [productId, tenantId],
+    )
+
+    const row = current.rows[0]
+    if (!row) {
+      continue
+    }
+
+    const oldCost = Number(row.cost_price || 0)
+    const newCost = unitPrice
+    const costChanged = Number.isFinite(newCost) && newCost !== oldCost
+
+    if (costChanged) {
+      await client.query(
+        `UPDATE products
+         SET cost_price = $3,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND tenant_id = $2`,
+        [productId, tenantId, newCost],
+      )
+
+      const percentChange = oldCost > 0 ? ((newCost - oldCost) / oldCost) * 100 : newCost === 0 ? 0 : 100
+
+      await client.query(
+        `
+          INSERT INTO product_cost_price_histories (
+            tenant_id,
+            product_id,
+            old_cost_price,
+            new_cost_price,
+            percent_change,
+            reason,
+            changed_by
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `,
+        [
+          tenantId,
+          productId,
+          oldCost,
+          newCost,
+          Number.isFinite(percentChange) ? percentChange : 0,
+          invoiceNo ? `Supplier invoice ${invoiceNo}` : 'Supplier invoice',
+          userId || null,
+        ],
+      )
+
+      await client.query(
+        `
+          DELETE FROM product_cost_price_histories
+          WHERE id IN (
+            SELECT id
+            FROM product_cost_price_histories
+            WHERE product_id = $1 AND tenant_id = $2
+            ORDER BY changed_at DESC
+            OFFSET 5
+          )
+        `,
+        [productId, tenantId],
+      )
+    }
+
+    await client.query(
+      `
+        UPDATE product_pricing_rules
+        SET suggested_price = ROUND($3 * (1 + COALESCE(markup_percentage, 0) / 100.0), 2)
+        WHERE tenant_id = $2
+          AND product_id = $1
+          AND COALESCE(suggested_price, 0) = 0
+      `,
+      [productId, tenantId, newCost],
+    )
+
+    await client.query(
+      `
+        UPDATE products
+        SET
+          suggested_price = CASE
+            WHEN COALESCE(suggested_price, 0) = 0 THEN ROUND($3 * (1 + COALESCE(markup_percentage, 0) / 100.0), 2)
+            ELSE suggested_price
+          END,
+          selling_price = CASE
+            WHEN COALESCE(selling_price, 0) = 0 THEN ROUND($3 * (1 + COALESCE(markup_percentage, 0) / 100.0), 2)
+            ELSE selling_price
+          END
+        WHERE id = $1 AND tenant_id = $2
+      `,
+      [productId, tenantId, newCost],
+    )
+  }
+}
+
 router.get('/', async (req, res) => {
   const tenantId = getTenantId(req)
   const { page, pageSize, offset } = getPaginationParams(req.query)
@@ -266,6 +374,13 @@ router.post('/', async (req, res) => {
       })
     }
 
+    await syncProductPricingFromInvoiceItems(client, {
+      tenantId,
+      items: normItems,
+      userId: req.user.id,
+      invoiceNo: invoice_no,
+    })
+
     await client.query('COMMIT')
 
     req.auditContext = {
@@ -380,6 +495,13 @@ router.put('/:id', async (req, res) => {
         userId: req.user.id,
       })
     }
+
+    await syncProductPricingFromInvoiceItems(client, {
+      tenantId,
+      items: normItems,
+      userId: req.user.id,
+      invoiceNo: invoice_no,
+    })
 
     await client.query('COMMIT')
 

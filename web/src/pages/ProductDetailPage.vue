@@ -55,6 +55,14 @@ function displayCost(value) {
   return value !== null && value !== undefined && costAccessStore.isUnlocked ? formatCurrency(value) : '******'
 }
 
+function resolvedSellingPrice() {
+  const selling = Number(product.value?.selling_price || 0)
+  if (selling > 0) return selling
+  const suggested = Number(product.value?.active_suggested_price ?? product.value?.suggested_price ?? 0)
+  if (suggested > 0) return suggested
+  return 0
+}
+
 async function loadDetail() {
   loading.value = true
 
@@ -336,7 +344,7 @@ watch(pricingChannel, (value) => {
                     </div>
                     <div class="rounded-2xl bg-slate-50 px-4 py-3">
                       <p class="text-xs text-slate-400">Selling</p>
-                      <p class="mt-1 font-semibold text-slate-900">{{ formatCurrency(product.selling_price) }}</p>
+                      <p class="mt-1 font-semibold text-slate-900">{{ formatCurrency(resolvedSellingPrice()) }}</p>
                     </div>
                   </div>
                   <div class="mt-4 rounded-2xl bg-slate-50 p-4">

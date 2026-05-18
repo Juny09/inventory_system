@@ -482,6 +482,11 @@ async function attachProductRelations(products, options = {}) {
     const bundleItems = bundleItemsMap.get(product.id) || []
     const primaryImage = images.find((item) => item.is_primary) || images[0]
     const activePricingRule = resolveActivePricingRule(pricingRules, options.pricingChannel)
+    const resolvedCost = Number(product.cost_price || 0)
+    const resolvedMarkup = Number(activePricingRule?.markup_percentage ?? product.markup_percentage ?? 0)
+    const storedActiveSuggested = Number(activePricingRule?.suggested_price || 0)
+    const computedActiveSuggested = Number((resolvedCost * (1 + resolvedMarkup / 100)).toFixed(2)) || 0
+    const resolvedActiveSuggested = storedActiveSuggested > 0 ? storedActiveSuggested : computedActiveSuggested
 
     return {
       ...maskProductCosts(product, options.allowCostAccess),
@@ -490,7 +495,7 @@ async function attachProductRelations(products, options = {}) {
       bundle_items: bundleItems,
       pricing_rules: maskPricingRules(pricingRules, options.allowCostAccess),
       active_pricing_rule: activePricingRule || null,
-      active_suggested_price: activePricingRule ? activePricingRule.suggested_price : product.suggested_price,
+      active_suggested_price: activePricingRule ? resolvedActiveSuggested : product.suggested_price,
     }
   })
 }
@@ -931,6 +936,8 @@ router.get('/products', async (req, res) => {
     status = 'all',
     hasBarcode = 'all',
     pricingChannel = '',
+    sort = 'created_at',
+    order = 'desc',
   } = req.query
   const searchPattern = getSearchPattern(search)
   const resolvedStatus = status === 'all' ? (activeOnly === 'true' ? 'active' : 'all') : status
@@ -938,6 +945,20 @@ router.get('/products', async (req, res) => {
   const { page, pageSize, offset } = getPaginationParams(req.query)
   const allowCostAccess = canViewCost(req)
   const tenantId = getTenantId(req)
+
+  const safeOrder = String(order || 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC'
+  const sortKey = String(sort || 'created_at').trim().toLowerCase()
+  const sortColumnMap = {
+    name: 'products.name',
+    sku: 'products.sku',
+    created_at: 'products.created_at',
+    updated_at: 'products.updated_at',
+    cost_price: 'products.cost_price',
+    selling_price: 'products.selling_price',
+    suggested_price: 'products.suggested_price',
+  }
+  const sortColumn = sortColumnMap[sortKey] || 'products.created_at'
+  const orderClause = `ORDER BY ${sortColumn} ${safeOrder}, products.id DESC`
 
   try {
     if (loadAll) {
@@ -971,7 +992,7 @@ router.get('/products', async (req, res) => {
               OR ($4 = 'yes' AND NULLIF(TRIM(COALESCE(products.barcode, '')), '') IS NOT NULL)
               OR ($4 = 'no' AND NULLIF(TRIM(COALESCE(products.barcode, '')), '') IS NULL)
             )
-          ORDER BY products.created_at DESC
+          ${orderClause}
         `,
         [searchPattern, categoryId || null, resolvedStatus, hasBarcode, tenantId],
       )
@@ -1015,7 +1036,7 @@ router.get('/products', async (req, res) => {
               OR ($4 = 'yes' AND NULLIF(TRIM(COALESCE(products.barcode, '')), '') IS NOT NULL)
               OR ($4 = 'no' AND NULLIF(TRIM(COALESCE(products.barcode, '')), '') IS NULL)
             )
-          ORDER BY products.created_at DESC
+          ${orderClause}
           LIMIT $5 OFFSET $6
         `,
         [searchPattern, categoryId || null, resolvedStatus, hasBarcode, pageSize, offset, tenantId],

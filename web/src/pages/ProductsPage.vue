@@ -691,63 +691,86 @@ watch(
         {{ errorMessage }}
       </p>
 
-      <div class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-        <div>
-          <p class="text-xs font-semibold text-slate-900">{{ localeStore.locale === 'en' ? 'Cost Protection' : '成本保护' }}</p>
-          <p class="mt-1 text-xs text-slate-500">
-            {{
-              localeStore.locale === 'en'
-                ? 'Cost fields are masked as ******. Enter your current password to unlock in this session.'
-                : '成本会以 ****** 隐藏，输入当前登录密码后才会在本次会话中显示。'
-            }}
-          </p>
-        </div>
-        <div v-if="!costAccessStore.isUnlocked" class="flex flex-wrap items-center gap-3">
-          <input
-            v-model="costPasscode"
-            type="password"
-            :placeholder="localeStore.locale === 'en' ? 'Enter passcode' : '输入 passcode'"
-            class="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500"
-          />
-          <button
-            type="button"
-            class="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white"
-            :disabled="costAccessStore.loading"
-            @click="unlockCost"
-          >
-            {{ costAccessStore.loading ? (localeStore.locale === 'en' ? 'Verifying...' : '验证中...') : (localeStore.locale === 'en' ? 'Unlock cost' : '查看成本') }}
-          </button>
-        </div>
-        <button
-          v-else
-          type="button"
-          class="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700"
-          @click="lockCost"
-        >
-          {{ localeStore.locale === 'en' ? 'Hide cost again' : '重新隐藏成本' }}
-        </button>
-      </div>
-
-      <div class="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p class="text-xs font-semibold text-slate-900">{{ localeStore.locale === 'en' ? 'C-code calculator' : '成本编码计算器' }}</p>
-            <p class="mt-1 text-xs text-slate-500">
-              {{ localeStore.locale === 'en' ? 'Convert amount (块) to code like EHSTX / IHRTX.' : '把金额（块）转换为 EHSTX / IHRTX 这类编码。' }}
-            </p>
-          </div>
-          <div class="flex flex-wrap items-center gap-3">
-            <input
-              v-model="costCalculatorInput"
-              type="number"
-              min="0"
-              step="1"
-              :placeholder="localeStore.locale === 'en' ? 'Enter amount' : '输入金额'"
-              class="w-40 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500"
-            />
-            <div class="rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
-              {{ calculatedCostCode() }}
+      <div class="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p class="text-xs font-semibold text-slate-900">{{ localeStore.locale === 'en' ? 'Cost Protection' : '成本保护' }}</p>
+              <p class="mt-1 text-xs text-slate-500">
+                {{
+                  localeStore.locale === 'en'
+                    ? 'Cost fields are masked as ******. Enter your current password to unlock in this session.'
+                    : '成本会以 ****** 隐藏，输入当前登录密码后才会在本次会话中显示。'
+                }}
+              </p>
             </div>
+            <button
+              v-if="costAccessStore.isUnlocked"
+              type="button"
+              class="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700"
+              @click="lockCost"
+            >
+              {{ localeStore.locale === 'en' ? 'Hide cost again' : '重新隐藏成本' }}
+            </button>
+          </div>
+
+          <div v-if="!costAccessStore.isUnlocked" class="mt-3 flex flex-wrap items-center gap-3">
+            <input
+              v-model="costPasscode"
+              type="password"
+              :placeholder="localeStore.locale === 'en' ? 'Enter passcode' : '输入 passcode'"
+              class="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500"
+            />
+            <button
+              type="button"
+              class="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white"
+              :disabled="costAccessStore.loading"
+              @click="unlockCost"
+            >
+              {{ costAccessStore.loading ? (localeStore.locale === 'en' ? 'Verifying...' : '验证中...') : (localeStore.locale === 'en' ? 'Unlock cost' : '查看成本') }}
+            </button>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 bg-white p-3">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p class="text-xs font-semibold text-slate-900">{{ localeStore.locale === 'en' ? 'C-code calculator' : '成本编码计算器' }}</p>
+              <p class="mt-1 text-xs text-slate-500">
+                {{ localeStore.locale === 'en' ? 'Convert amount (块) to code like EHSTX / IHRTX.' : '把金额（块）转换为 EHSTX / IHRTX 这类编码。' }}
+              </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-3">
+              <input
+                v-model="costCalculatorInput"
+                type="number"
+                min="0"
+                step="1"
+                :placeholder="localeStore.locale === 'en' ? 'Enter amount' : '输入金额'"
+                class="w-40 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500"
+              />
+              <div class="rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+                {{ calculatedCostCode() }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="text-xs font-semibold text-slate-900">
+              {{ localeStore.locale === 'en' ? 'Barcode scanner' : '条码扫描' }}
+            </div>
+            <button
+              type="button"
+              class="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700"
+              @click="scannerOpen = !scannerOpen"
+            >
+              {{ scannerOpen ? (localeStore.locale === 'en' ? 'Hide scanner' : '收起扫描') : (localeStore.locale === 'en' ? 'Open scanner' : '打开扫描') }}
+            </button>
+          </div>
+          <div v-if="scannerOpen" class="mt-3">
+            <BarcodeScanner @detected="handleBarcodeDetected" />
           </div>
         </div>
       </div>
@@ -769,10 +792,31 @@ watch(
               <select
                 v-model="pricingChannel"
                 class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-brand-500"
+                @change="loadPageData(1)"
               >
                 <option value="retail">Retail</option>
                 <option value="wholesale">Wholesale</option>
                 <option value="vip">VIP</option>
+              </select>
+              <select
+                v-model="sortField"
+                class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-brand-500"
+                @change="loadPageData(1)"
+              >
+                <option value="created_at">{{ localeStore.locale === 'en' ? 'Sort: Newest' : '排序：最新' }}</option>
+                <option value="name">{{ localeStore.locale === 'en' ? 'Sort: Name' : '排序：名称' }}</option>
+                <option value="sku">{{ localeStore.locale === 'en' ? 'Sort: SKU' : '排序：SKU' }}</option>
+                <option value="suggested_price">{{ localeStore.locale === 'en' ? 'Sort: Suggested' : '排序：建议价' }}</option>
+                <option value="selling_price">{{ localeStore.locale === 'en' ? 'Sort: Selling' : '排序：售价' }}</option>
+                <option value="cost_price">{{ localeStore.locale === 'en' ? 'Sort: Cost' : '排序：成本' }}</option>
+              </select>
+              <select
+                v-model="sortOrder"
+                class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-brand-500"
+                @change="loadPageData(1)"
+              >
+                <option value="desc">{{ localeStore.locale === 'en' ? 'Order: Desc' : '顺序：降序' }}</option>
+                <option value="asc">{{ localeStore.locale === 'en' ? 'Order: Asc' : '顺序：升序' }}</option>
               </select>
               <input
                 v-model="searchKeyword"
@@ -851,24 +895,6 @@ watch(
             >
               {{ localeStore.locale === 'en' ? 'Reset Filters' : '重置筛选' }}
             </button>
-          </div>
-
-          <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-            <div class="flex flex-wrap items-center justify-between gap-3">
-              <div class="text-sm font-semibold text-slate-900">
-                {{ localeStore.locale === 'en' ? 'Barcode scanner' : '条码扫描' }}
-              </div>
-              <button
-                type="button"
-                class="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700"
-                @click="scannerOpen = !scannerOpen"
-              >
-                {{ scannerOpen ? (localeStore.locale === 'en' ? 'Hide scanner' : '收起扫描') : (localeStore.locale === 'en' ? 'Open scanner' : '打开扫描') }}
-              </button>
-            </div>
-            <div v-if="scannerOpen" class="mt-3">
-              <BarcodeScanner @detected="handleBarcodeDetected" />
-            </div>
           </div>
 
           <div v-if="loading" class="mt-5 rounded-2xl border border-slate-200 px-4 py-4 text-sm text-slate-500">
