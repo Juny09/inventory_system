@@ -89,12 +89,42 @@ ALTER TABLE products ADD COLUMN IF NOT EXISTS cons TEXT;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS markup_percentage NUMERIC(8, 2) NOT NULL DEFAULT 0;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS suggested_price NUMERIC(12, 2) NOT NULL DEFAULT 0;
 ALTER TABLE IF EXISTS products ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1 REFERENCES tenants(id) ON DELETE CASCADE;
+ALTER TABLE IF EXISTS products ADD COLUMN IF NOT EXISTS sizes TEXT[] NOT NULL DEFAULT '{}'::text[];
+ALTER TABLE IF EXISTS products ADD COLUMN IF NOT EXISTS colors TEXT[] NOT NULL DEFAULT '{}'::text[];
 UPDATE products
 SET product_code = CONCAT('PRD-', LPAD(id::text, 5, '0'))
 WHERE product_code IS NULL;
 UPDATE products
 SET suggested_price = selling_price
 WHERE suggested_price IS NULL OR suggested_price = 0;
+
+CREATE TABLE IF NOT EXISTS size_options (
+  id SERIAL PRIMARY KEY,
+  tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  value VARCHAR(60) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (tenant_id, value)
+);
+
+CREATE TABLE IF NOT EXISTS color_options (
+  id SERIAL PRIMARY KEY,
+  tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  value VARCHAR(60) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (tenant_id, value)
+);
+
+CREATE TABLE IF NOT EXISTS product_data_change_logs (
+  id SERIAL PRIMARY KEY,
+  tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  run_key VARCHAR(80) NOT NULL,
+  entity_type VARCHAR(60) NOT NULL,
+  entity_id INTEGER NOT NULL,
+  before_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  after_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (run_key, entity_type, entity_id)
+);
 
 -- 产品变体（Variants）：用于尺码/颜色等，不再用“一个尺码=一个产品”
 CREATE TABLE IF NOT EXISTS product_variants (
@@ -645,6 +675,165 @@ CREATE INDEX IF NOT EXISTS idx_suppliers_tenant_id ON suppliers(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_stock_levels_tenant_id ON stock_levels(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_stock_movements_tenant_id ON stock_movements(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_id ON audit_logs(tenant_id);
+
+INSERT INTO categories (tenant_id, name, description, created_at)
+SELECT t.id, 'V-Belt A', 'V-Belt type A (thin)', CURRENT_TIMESTAMP
+FROM tenants t
+ON CONFLICT (tenant_id, name) DO NOTHING;
+
+INSERT INTO categories (tenant_id, name, description, created_at)
+SELECT t.id, 'V-Belt B', 'V-Belt type B (thick)', CURRENT_TIMESTAMP
+FROM tenants t
+ON CONFLICT (tenant_id, name) DO NOTHING;
+
+INSERT INTO categories (tenant_id, name, description, created_at)
+SELECT t.id, 'V-Belt Other', 'V-Belt other types', CURRENT_TIMESTAMP
+FROM tenants t
+ON CONFLICT (tenant_id, name) DO NOTHING;
+
+WITH candidates AS (
+  SELECT
+    p.id,
+    p.tenant_id,
+    regexp_match(p.name, '(?i)([AB])\\s*[- ]?\\s*(\\d{1,4})') AS m_ab,
+    regexp_match(p.name, '(?i)(XPZ|SPZ|XPB|SPB|XPA|SPA|M)\\s*[- ]?\\s*(\\d{1,4})') AS m_other,
+    regexp_match(p.name, '(?i)(\\d{1,4})') AS m_any
+  FROM products p
+  WHERE p.name ILIKE '%v-belt%'
+     OR p.name ILIKE '%v belt%'
+     OR p.name ILIKE '%三角带%'
+),
+extracted AS (
+  SELECT
+    id,
+    tenant_id,
+    CASE WHEN m_ab IS NOT NULL THEN UPPER(m_ab[1]) ELSE NULL END AS belt_type,
+    CASE
+      WHEN m_ab IS NOT NULL THEN m_ab[2]
+      WHEN m_other IS NOT NULL THEN m_other[2]
+      WHEN m_any IS NOT NULL THEN m_any[1]
+      ELSE NULL
+    END AS size_value
+  FROM candidates
+),
+category_map AS (
+  SELECT
+    c.tenant_id,
+    MAX(CASE WHEN c.name = 'V-Belt A' THEN c.id END) AS cat_a,
+    MAX(CASE WHEN c.name = 'V-Belt B' THEN c.id END) AS cat_b,
+    MAX(CASE WHEN c.name = 'V-Belt Other' THEN c.id END) AS cat_o
+  FROM categories c
+  GROUP BY c.tenant_id
+),
+to_update AS (
+  SELECT
+    e.id,
+    e.tenant_id,
+    e.size_value,
+    CASE
+      WHEN e.belt_type = 'A' THEN cm.cat_a
+      WHEN e.belt_type = 'B' THEN cm.cat_b
+      ELSE cm.cat_o
+    END AS new_category_id,
+    ARRAY[e.size_value]::text[] AS new_sizes
+  FROM extracted e
+  INNER JOIN category_map cm ON cm.tenant_id = e.tenant_id
+  WHERE e.size_value IS NOT NULL
+)
+INSERT INTO product_data_change_logs (tenant_id, run_key, entity_type, entity_id, before_data, after_data)
+SELECT
+  p.tenant_id,
+  'vbelt_sizes_colors_v1',
+  'products',
+  p.id,
+  jsonb_build_object('category_id', p.category_id, 'sizes', p.sizes, 'colors', p.colors),
+  jsonb_build_object('category_id', tu.new_category_id, 'sizes', tu.new_sizes, 'colors', p.colors)
+FROM to_update tu
+INNER JOIN products p ON p.id = tu.id AND p.tenant_id = tu.tenant_id
+WHERE (p.category_id IS DISTINCT FROM tu.new_category_id) OR (p.sizes IS DISTINCT FROM tu.new_sizes)
+ON CONFLICT (run_key, entity_type, entity_id) DO NOTHING;
+
+WITH candidates AS (
+  SELECT
+    p.id,
+    p.tenant_id,
+    regexp_match(p.name, '(?i)([AB])\\s*[- ]?\\s*(\\d{1,4})') AS m_ab,
+    regexp_match(p.name, '(?i)(XPZ|SPZ|XPB|SPB|XPA|SPA|M)\\s*[- ]?\\s*(\\d{1,4})') AS m_other,
+    regexp_match(p.name, '(?i)(\\d{1,4})') AS m_any
+  FROM products p
+  WHERE p.name ILIKE '%v-belt%'
+     OR p.name ILIKE '%v belt%'
+     OR p.name ILIKE '%三角带%'
+),
+extracted AS (
+  SELECT
+    id,
+    tenant_id,
+    CASE WHEN m_ab IS NOT NULL THEN UPPER(m_ab[1]) ELSE NULL END AS belt_type,
+    CASE
+      WHEN m_ab IS NOT NULL THEN m_ab[2]
+      WHEN m_other IS NOT NULL THEN m_other[2]
+      WHEN m_any IS NOT NULL THEN m_any[1]
+      ELSE NULL
+    END AS size_value
+  FROM candidates
+),
+category_map AS (
+  SELECT
+    c.tenant_id,
+    MAX(CASE WHEN c.name = 'V-Belt A' THEN c.id END) AS cat_a,
+    MAX(CASE WHEN c.name = 'V-Belt B' THEN c.id END) AS cat_b,
+    MAX(CASE WHEN c.name = 'V-Belt Other' THEN c.id END) AS cat_o
+  FROM categories c
+  GROUP BY c.tenant_id
+),
+to_update AS (
+  SELECT
+    e.id,
+    e.tenant_id,
+    e.size_value,
+    CASE
+      WHEN e.belt_type = 'A' THEN cm.cat_a
+      WHEN e.belt_type = 'B' THEN cm.cat_b
+      ELSE cm.cat_o
+    END AS new_category_id,
+    ARRAY[e.size_value]::text[] AS new_sizes
+  FROM extracted e
+  INNER JOIN category_map cm ON cm.tenant_id = e.tenant_id
+  WHERE e.size_value IS NOT NULL
+)
+UPDATE products p
+SET category_id = tu.new_category_id,
+    sizes = tu.new_sizes,
+    updated_at = CURRENT_TIMESTAMP
+FROM to_update tu
+WHERE p.id = tu.id
+  AND p.tenant_id = tu.tenant_id
+  AND ((p.category_id IS DISTINCT FROM tu.new_category_id) OR (p.sizes IS DISTINCT FROM tu.new_sizes));
+
+INSERT INTO size_options (tenant_id, value)
+SELECT DISTINCT tenant_id, size_value
+FROM (
+  SELECT
+    e.tenant_id,
+    e.size_value
+  FROM (
+    SELECT
+      p.tenant_id,
+      CASE
+        WHEN regexp_match(p.name, '(?i)([AB])\\s*[- ]?\\s*(\\d{1,4})') IS NOT NULL THEN (regexp_match(p.name, '(?i)([AB])\\s*[- ]?\\s*(\\d{1,4})'))[2]
+        WHEN regexp_match(p.name, '(?i)(XPZ|SPZ|XPB|SPB|XPA|SPA|M)\\s*[- ]?\\s*(\\d{1,4})') IS NOT NULL THEN (regexp_match(p.name, '(?i)(XPZ|SPZ|XPB|SPB|XPA|SPA|M)\\s*[- ]?\\s*(\\d{1,4})'))[2]
+        WHEN regexp_match(p.name, '(?i)(\\d{1,4})') IS NOT NULL THEN (regexp_match(p.name, '(?i)(\\d{1,4})'))[1]
+        ELSE NULL
+      END AS size_value
+    FROM products p
+    WHERE p.name ILIKE '%v-belt%'
+       OR p.name ILIKE '%v belt%'
+       OR p.name ILIKE '%三角带%'
+  ) e
+  WHERE e.size_value IS NOT NULL
+) s
+ON CONFLICT (tenant_id, value) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS supplier_payment_schedules (
   id SERIAL PRIMARY KEY,
