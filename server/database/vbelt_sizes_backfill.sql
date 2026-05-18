@@ -1,7 +1,25 @@
 DO $$
 DECLARE
-  v_run_key TEXT := 'vbelt_sizes_colors_20260518_v1';
+  v_run_key TEXT := 'vbelt_sizes_colors_20260518_v2';
 BEGIN
+  INSERT INTO categories (tenant_id, name, description, created_at)
+  SELECT t.id, v.name, v.description, CURRENT_TIMESTAMP
+  FROM tenants t
+  CROSS JOIN (
+    VALUES
+      ('V-Belt A', 'V-Belt type A'),
+      ('V-Belt B', 'V-Belt type B'),
+      ('V-Belt M', 'V-Belt type M'),
+      ('V-Belt XPZ', 'V-Belt type XPZ'),
+      ('V-Belt SPZ', 'V-Belt type SPZ'),
+      ('V-Belt XPB', 'V-Belt type XPB'),
+      ('V-Belt SPB', 'V-Belt type SPB'),
+      ('V-Belt XPA', 'V-Belt type XPA'),
+      ('V-Belt SPA', 'V-Belt type SPA'),
+      ('V-Belt Other', 'V-Belt other types')
+  ) AS v(name, description)
+  ON CONFLICT (tenant_id, name) DO NOTHING;
+
   WITH candidates AS (
     SELECT
       p.id,
@@ -18,7 +36,11 @@ BEGIN
     SELECT
       id,
       tenant_id,
-      CASE WHEN m_ab IS NOT NULL THEN UPPER(m_ab[1]) ELSE NULL END AS belt_type,
+      CASE
+        WHEN m_ab IS NOT NULL THEN UPPER(m_ab[1])
+        WHEN m_other IS NOT NULL THEN UPPER(m_other[1])
+        ELSE NULL
+      END AS belt_type,
       CASE
         WHEN m_ab IS NOT NULL THEN m_ab[2]
         WHEN m_other IS NOT NULL THEN m_other[2]
@@ -27,28 +49,17 @@ BEGIN
       END AS size_value
     FROM candidates
   ),
-  category_map AS (
-    SELECT
-      c.tenant_id,
-      MAX(CASE WHEN c.name = 'V-Belt A' THEN c.id END) AS cat_a,
-      MAX(CASE WHEN c.name = 'V-Belt B' THEN c.id END) AS cat_b,
-      MAX(CASE WHEN c.name = 'V-Belt Other' THEN c.id END) AS cat_o
-    FROM categories c
-    GROUP BY c.tenant_id
-  ),
   to_update AS (
     SELECT
       e.id,
       e.tenant_id,
       e.size_value,
-      CASE
-        WHEN e.belt_type = 'A' THEN cm.cat_a
-        WHEN e.belt_type = 'B' THEN cm.cat_b
-        ELSE cm.cat_o
-      END AS new_category_id,
+      c.id AS new_category_id,
       ARRAY[e.size_value]::text[] AS new_sizes
     FROM extracted e
-    INNER JOIN category_map cm ON cm.tenant_id = e.tenant_id
+    INNER JOIN categories c
+      ON c.tenant_id = e.tenant_id
+     AND c.name = ('V-Belt ' || COALESCE(e.belt_type, 'Other'))
     WHERE e.size_value IS NOT NULL
   )
   INSERT INTO product_data_change_logs (tenant_id, run_key, entity_type, entity_id, before_data, after_data)
@@ -80,7 +91,11 @@ BEGIN
     SELECT
       id,
       tenant_id,
-      CASE WHEN m_ab IS NOT NULL THEN UPPER(m_ab[1]) ELSE NULL END AS belt_type,
+      CASE
+        WHEN m_ab IS NOT NULL THEN UPPER(m_ab[1])
+        WHEN m_other IS NOT NULL THEN UPPER(m_other[1])
+        ELSE NULL
+      END AS belt_type,
       CASE
         WHEN m_ab IS NOT NULL THEN m_ab[2]
         WHEN m_other IS NOT NULL THEN m_other[2]
@@ -89,28 +104,17 @@ BEGIN
       END AS size_value
     FROM candidates
   ),
-  category_map AS (
-    SELECT
-      c.tenant_id,
-      MAX(CASE WHEN c.name = 'V-Belt A' THEN c.id END) AS cat_a,
-      MAX(CASE WHEN c.name = 'V-Belt B' THEN c.id END) AS cat_b,
-      MAX(CASE WHEN c.name = 'V-Belt Other' THEN c.id END) AS cat_o
-    FROM categories c
-    GROUP BY c.tenant_id
-  ),
   to_update AS (
     SELECT
       e.id,
       e.tenant_id,
       e.size_value,
-      CASE
-        WHEN e.belt_type = 'A' THEN cm.cat_a
-        WHEN e.belt_type = 'B' THEN cm.cat_b
-        ELSE cm.cat_o
-      END AS new_category_id,
+      c.id AS new_category_id,
       ARRAY[e.size_value]::text[] AS new_sizes
     FROM extracted e
-    INNER JOIN category_map cm ON cm.tenant_id = e.tenant_id
+    INNER JOIN categories c
+      ON c.tenant_id = e.tenant_id
+     AND c.name = ('V-Belt ' || COALESCE(e.belt_type, 'Other'))
     WHERE e.size_value IS NOT NULL
   )
   UPDATE products p
@@ -141,4 +145,3 @@ BEGIN
   WHERE s.size_value IS NOT NULL
   ON CONFLICT (tenant_id, value) DO NOTHING;
 END $$;
-
