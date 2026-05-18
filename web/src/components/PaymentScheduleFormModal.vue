@@ -81,7 +81,7 @@ function monthLabel(m) {
   return localeStore.locale === 'en' ? MONTH_EN[m] : MONTH_CN[m]
 }
 
-const today = new Date().toISOString().slice(0, 10)
+const today = new Date().toLocaleDateString('en-CA')
 const form = reactive({
   id: null,
   supplier_id: props.defaults.supplier_id || '',
@@ -99,16 +99,16 @@ async function loadExisting(id) {
   // If parent already supplied the row data, use it directly
   if (props.initialData) {
     Object.assign(form, props.initialData, { id: props.initialData.id })
-    form.due_date = String(props.initialData.due_date || '').slice(0, 10)
+    form.due_date = props.initialData.due_date ? new Date(props.initialData.due_date).toLocaleDateString('en-CA') : ''
     return
   }
   // Fallback: find within list
   try {
-    const { data } = await api.get('/supplier-payment-schedules', { params: { page: 1, pageSize: 500 } })
+    const { data } = await api.get('/supplier-payment-schedules')
     const found = (data.items || []).find((x) => x.id === Number(id))
     if (found) {
       Object.assign(form, found, { id: found.id })
-      form.due_date = String(found.due_date || '').slice(0, 10)
+      form.due_date = found.due_date ? new Date(found.due_date).toLocaleDateString('en-CA') : ''
     }
   } catch (_) {
     // ignore

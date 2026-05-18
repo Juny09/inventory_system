@@ -1,5 +1,6 @@
 require('dotenv').config()
 
+const path = require('path')
 const express = require('express')
 const cors = require('cors')
 const helmet = require('helmet')
@@ -28,6 +29,8 @@ const deliveryOrderRoutes = require('./routes/deliveryOrderRoutes')
 const supplierInvoiceRoutes = require('./routes/supplierInvoiceRoutes')
 const supplierReturnRoutes = require('./routes/supplierReturnRoutes')
 const brandRoutes = require('./routes/brandRoutes')
+const documentRoutes = require('./routes/documentRoutes')
+const promptRoutes = require('./routes/promptRoutes')
 
 const app = express()
 
@@ -59,6 +62,15 @@ app.use(
 )
 app.use(cors(corsOptions))
 app.use(express.json({ limit: '8mb' }))
+
+// 捕获 JSON 解析错误（空 body 或格式错误），返回标准化 JSON 而非默认 HTML
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json({ message: 'Invalid JSON body.', error: err.message })
+  }
+  next(err)
+})
+
 app.use(responseMiddleware)
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'))
 app.use(auditTrail)
@@ -87,6 +99,9 @@ app.use('/api/delivery-orders', deliveryOrderRoutes)
 app.use('/api/supplier-invoices', supplierInvoiceRoutes)
 app.use('/api/supplier-returns', supplierReturnRoutes)
 app.use('/api/brands', brandRoutes)
+app.use('/api/documents', documentRoutes)
+app.use('/api/prompts', promptRoutes)
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')))
 app.use('/api/notifications', notificationRoutes)
 app.use('/api/settings', settingsRoutes)
 

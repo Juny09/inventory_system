@@ -17,22 +17,25 @@ const upload = createUploader({ subDir: SUB_DIR })
 
 router.use(authenticateToken)
 
-function computeAmount(quantity, unitPrice, discount) {
+function computeAmount(quantity, unitPrice, discount, priceIncludesDiscount = false) {
   const q = Number(quantity) || 0
   const u = Number(unitPrice) || 0
+  if (priceIncludesDiscount) {
+    return Number.isFinite(q * u) ? Math.max(0, q * u) : 0
+  }
   const d = Number(discount) || 0
   const raw = q * u - d
   return Number.isFinite(raw) ? Math.max(0, raw) : 0
 }
 
-function computeTotals(items) {
+function computeTotals(items, priceIncludesDiscount = false) {
   let totalQty = 0
   let totalAmount = 0
   const normalized = items.map((it, i) => {
     const quantity = Number(it.quantity) || 0
     const unit_price = Number(it.unit_price) || 0
     const discount = Number(it.discount) || 0
-    const amount = computeAmount(quantity, unit_price, discount)
+    const amount = computeAmount(quantity, unit_price, discount, priceIncludesDiscount)
     totalQty += quantity
     totalAmount += amount
     return {
@@ -82,6 +85,22 @@ router.get('/', async (req, res) => {
 
   const whereClause = filters.join(' AND ')
 
+  // 处理排序参数
+  const { sort = 'invoice_date', order = 'desc' } = req.query
+  const allowedSortFields = ['invoice_no', 'invoice_date', 'supplier_name', 'do_no', 'created_at']
+  const safeSort = allowedSortFields.includes(sort) ? sort : 'invoice_date'
+  const safeOrder = ['asc', 'desc'].includes(order?.toLowerCase()) ? order.toLowerCase() : 'desc'
+  
+  // 映射排序字段到数据库列
+  const sortColumnMap = {
+    invoice_no: 'inv.invoice_no',
+    invoice_date: 'inv.invoice_date',
+    supplier_name: 'COALESCE(s.company_name, s.name)',
+    do_no: 'd.do_no',
+    created_at: 'inv.created_at',
+  }
+  const sortColumn = sortColumnMap[safeSort]
+
   try {
     const [list, total] = await Promise.all([
       query(
@@ -98,7 +117,7 @@ router.get('/', async (req, res) => {
           LEFT JOIN suppliers s ON s.id = inv.supplier_id
           LEFT JOIN delivery_orders d ON d.id = inv.do_id
           WHERE ${whereClause}
-          ORDER BY inv.invoice_date DESC, inv.id DESC
+          ORDER BY ${sortColumn} ${safeOrder.toUpperCase()}, inv.id DESC
           LIMIT $${idx} OFFSET $${idx + 1}
         `,
         [...params, pageSize, offset],
@@ -128,6 +147,7 @@ router.get('/:id', async (req, res) => {
       `SELECT inv.id, inv.invoice_no, inv.invoice_date, inv.notes,
               inv.total_amount, inv.total_quantity,
               inv.supplier_id, inv.do_id, inv.warehouse_id, inv.posted_to_inventory,
+              inv.price_includes_discount,
               d.do_no,
               w.name AS warehouse_name,
               COALESCE(s.company_name, s.name) AS supplier_name,
@@ -171,13 +191,14 @@ router.get('/:id', async (req, res) => {
 
 router.post('/', async (req, res) => {
   const tenantId = getTenantId(req)
-  const { supplier_id, do_id, invoice_no, invoice_date, notes, warehouse_id, post_to_inventory, items = [] } = req.body || {}
+  const { supplier_id, do_id, invoice_no, invoice_date, notes, warehouse_id, post_to_inventory, priceIncludesDiscount, items = [] } = req.body || {}
   if (!supplier_id || !invoice_no || !invoice_date) {
     return res.status(400).json({ message: 'supplier_id, invoice_no, invoice_date are required.' })
   }
 
   const normalizedDoId = do_id ? Number(do_id) : null
   const normalizedWarehouseId = warehouse_id ? Number(warehouse_id) : null
+  const useNetPrice = Boolean(priceIncludesDiscount)
   // 规则：有 DO 的 invoice 不入库（已由 DO 处理）；无 DO 且勾选 Post 且选了仓库 才入库
   const willPostStock = !normalizedDoId && Boolean(post_to_inventory) && Boolean(normalizedWarehouseId)
 
@@ -209,16 +230,16 @@ router.post('/', async (req, res) => {
       }
     }
 
-    const { items: normItems, totalQty, totalAmount } = computeTotals(items)
+    const { items: normItems, totalQty, totalAmount } = computeTotals(items, useNetPrice)
 
     const header = await client.query(
       `INSERT INTO supplier_invoices
          (tenant_id, supplier_id, do_id, invoice_no, invoice_date, total_amount, total_quantity,
-          notes, warehouse_id, posted_to_inventory, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          notes, warehouse_id, posted_to_inventory, price_includes_discount, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING id`,
       [tenantId, supplier_id, normalizedDoId, invoice_no, invoice_date, totalAmount, totalQty,
-       notes || null, willPostStock ? normalizedWarehouseId : null, willPostStock, req.user.id],
+       notes || null, willPostStock ? normalizedWarehouseId : null, willPostStock, useNetPrice, req.user.id],
     )
     const invId = header.rows[0].id
 
@@ -268,13 +289,14 @@ router.post('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   const tenantId = getTenantId(req)
-  const { supplier_id, do_id, invoice_no, invoice_date, notes, warehouse_id, post_to_inventory, items = [] } = req.body || {}
+  const { supplier_id, do_id, invoice_no, invoice_date, notes, warehouse_id, post_to_inventory, priceIncludesDiscount, items = [] } = req.body || {}
   if (!supplier_id || !invoice_no || !invoice_date) {
     return res.status(400).json({ message: 'supplier_id, invoice_no, invoice_date are required.' })
   }
 
   const normalizedDoId = do_id ? Number(do_id) : null
   const normalizedWarehouseId = warehouse_id ? Number(warehouse_id) : null
+  const useNetPrice = Boolean(priceIncludesDiscount)
   const willPostStock = !normalizedDoId && Boolean(post_to_inventory) && Boolean(normalizedWarehouseId)
 
   const client = await pool.connect()
@@ -322,17 +344,17 @@ router.put('/:id', async (req, res) => {
       })
     }
 
-    const { items: normItems, totalQty, totalAmount } = computeTotals(items)
+    const { items: normItems, totalQty, totalAmount } = computeTotals(items, useNetPrice)
 
     await client.query(
       `UPDATE supplier_invoices
        SET supplier_id = $1, do_id = $2, invoice_no = $3, invoice_date = $4,
            total_amount = $5, total_quantity = $6, notes = $7,
-           warehouse_id = $8, posted_to_inventory = $9,
+           warehouse_id = $8, posted_to_inventory = $9, price_includes_discount = $10,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $10 AND tenant_id = $11`,
+       WHERE id = $11 AND tenant_id = $12`,
       [supplier_id, normalizedDoId, invoice_no, invoice_date, totalAmount, totalQty,
-       notes || null, willPostStock ? normalizedWarehouseId : null, willPostStock, req.params.id, tenantId],
+       notes || null, willPostStock ? normalizedWarehouseId : null, willPostStock, useNetPrice, req.params.id, tenantId],
     )
 
     await client.query('DELETE FROM supplier_invoice_items WHERE invoice_id = $1', [req.params.id])

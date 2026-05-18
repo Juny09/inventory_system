@@ -127,7 +127,7 @@ const form = reactive({
   supplier_id: '',
   doc_type: 'RETURN',
   document_no: '',
-  document_date: new Date().toISOString().slice(0, 10),
+  document_date: new Date().toLocaleDateString('en-CA'),
   notes: '',
   items: [],
 })
@@ -172,7 +172,7 @@ async function loadExisting(id) {
   form.supplier_id = data.supplier_id
   form.doc_type = data.doc_type
   form.document_no = data.document_no
-  form.document_date = String(data.document_date).slice(0, 10)
+  form.document_date = data.document_date ? new Date(data.document_date).toLocaleDateString('en-CA') : ''
   form.notes = data.notes || ''
   form.items = (data.items || []).map((it) => ({
     product_id: it.product_id,

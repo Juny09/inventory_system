@@ -26,6 +26,22 @@
         </button>
       </div>
 
+      <!-- Stats cards -->
+      <div class="mt-4 grid grid-cols-3 gap-4">
+        <div class="rounded-lg border border-slate-200 bg-white px-4 py-3">
+          <p class="text-xs text-slate-500">Delivery Orders</p>
+          <p class="mt-1 text-2xl font-bold text-slate-800">{{ counts.do }}</p>
+        </div>
+        <div class="rounded-lg border border-slate-200 bg-white px-4 py-3">
+          <p class="text-xs text-slate-500">Invoices</p>
+          <p class="mt-1 text-2xl font-bold text-slate-800">{{ counts.invoice }}</p>
+        </div>
+        <div class="rounded-lg border border-slate-200 bg-white px-4 py-3">
+          <p class="text-xs text-slate-500">Returns / Claim / Repair</p>
+          <p class="mt-1 text-2xl font-bold text-slate-800">{{ counts.returns }}</p>
+        </div>
+      </div>
+
       <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div class="flex flex-wrap items-center gap-2">
           <input
@@ -87,7 +103,10 @@
         {{ errorMessage }}
       </p>
 
-      <div class="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <!-- Top Pagination -->
+      <PaginationBar v-if="pagination.totalPages > 1" class="mt-3" :pagination="pagination" @change="loadList" />
+
+      <div class="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white">
         <div v-if="loading" class="px-5 py-6 text-sm text-slate-500">Loading...</div>
 
         <!-- Delivery Orders table -->
@@ -315,6 +334,8 @@ const suppliers = ref([])
 const modal = ref(null) // 'po' | 'invoice' | 'returns' | null
 const editingId = ref(null)
 
+const counts = ref({ do: 0, invoice: 0, returns: 0 })
+
 const currentTab = computed(() => tabs.find((t) => t.key === activeTab.value))
 const currentTabLabelSingular = computed(() => currentTab.value?.singular || '')
 const searchPlaceholder = computed(() => {
@@ -340,7 +361,9 @@ function monthName(m) {
 
 function formatDate(v) {
   if (!v) return '—'
-  return String(v).slice(0, 10)
+  const d = new Date(v)
+  if (Number.isNaN(d.getTime())) return String(v).slice(0, 10)
+  return d.toLocaleDateString('en-CA')
 }
 function formatDateTime(v) {
   if (!v) return '—'
@@ -425,6 +448,23 @@ async function loadList(page = 1) {
   }
 }
 
+async function loadCounts() {
+  try {
+    const [doRes, invRes, retRes] = await Promise.all([
+      api.get('/delivery-orders', { params: { page: 1, pageSize: 1 } }),
+      api.get('/supplier-invoices', { params: { page: 1, pageSize: 1 } }),
+      api.get('/supplier-returns', { params: { page: 1, pageSize: 1 } }),
+    ])
+    counts.value = {
+      do: doRes.data?.pagination?.total || 0,
+      invoice: invRes.data?.pagination?.total || 0,
+      returns: retRes.data?.pagination?.total || 0,
+    }
+  } catch {
+    // ignore count errors
+  }
+}
+
 function openCreate() {
   editingId.value = null
   modal.value = activeTab.value
@@ -437,9 +477,10 @@ function closeModal() {
   modal.value = null
   editingId.value = null
 }
-function onSaved() {
+async function onSaved() {
   closeModal()
   toastStore.pushToast({ tone: 'success', message: 'Saved.' })
+  await loadCounts()
   loadList(pagination.value.page)
 }
 
@@ -448,6 +489,7 @@ async function removeRow(id) {
   try {
     await api.delete(`${currentTab.value.resource}/${id}`)
     toastStore.pushToast({ tone: 'success', message: 'Deleted.' })
+    await loadCounts()
     loadList(pagination.value.page)
   } catch (error) {
     toastStore.pushToast({ tone: 'error', message: error.response?.data?.message || 'Failed to delete.' })
@@ -456,6 +498,7 @@ async function removeRow(id) {
 
 onMounted(async () => {
   await loadSuppliers()
+  await loadCounts()
   await loadList(1)
 })
 </script>

@@ -7,6 +7,8 @@ export default defineConfig({
   plugins: [vue(), cloudflare()],
   server: {
     port: 5173,
+    host: true,
+    allowedHosts: ['.ngrok-free.dev', '.ngrok.io', 'localhost'],
     proxy: {
       '/api': {
         target: 'http://localhost:4000',

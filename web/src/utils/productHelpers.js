@@ -14,8 +14,31 @@ export const pricingRuleTemplates = [
   { ruleName: 'VIP', channelKey: 'vip', markupPercentage: 12, description: 'Member / loyal customer price' },
 ]
 
-export function generateLocalProductCode() {
-  return `PRD-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`
+export function generateLocalProductCode(name = '', model = '') {
+  // 如果没有名字和model，使用随机生成作为fallback
+  if (!name && !model) {
+    return `PRD-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`
+  }
+  
+  // 提取名字的首字母或前几个字符
+  const namePart = name
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase())
+    .join('')
+    .slice(0, 3)
+  
+  // 提取model部分（通常是名字后面的code）
+  const modelPart = model
+    ? model.toUpperCase().slice(0, 4)
+    : ''
+  
+  // 生成随机后缀以确保唯一性
+  const randomPart = Date.now().toString(36).toUpperCase().slice(-4)
+  
+  // 组合生成code
+  const code = `PRD-${namePart}${modelPart}${randomPart}`
+  
+  return code
 }
 
 export function calculateSuggestedPrice(costPrice, markupPercentage) {

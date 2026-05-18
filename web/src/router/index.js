@@ -28,6 +28,7 @@ const OrderDetailPage = () => import('../pages/OrderDetailPage.vue')
 const BankStatementsPage = () => import('../pages/BankStatementsPage.vue')
 const SupplierDocumentsPage = () => import('../pages/SupplierDocumentsPage.vue')
 const AdminTenantsPage = () => import('../pages/AdminTenantsPage.vue')
+const DocumentUploadPage = () => import('../pages/DocumentUploadPage.vue')
 
 const routes = [
   {
@@ -178,6 +179,12 @@ const routes = [
     path: '/supplier-documents',
     name: 'supplier-documents',
     component: SupplierDocumentsPage,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER', 'STAFF'] },
+  },
+  {
+    path: '/document-upload',
+    name: 'document-upload',
+    component: DocumentUploadPage,
     meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER', 'STAFF'] },
   },
   {

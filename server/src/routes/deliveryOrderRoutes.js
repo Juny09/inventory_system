@@ -18,7 +18,7 @@ const upload = createUploader({ subDir: SUB_DIR })
 router.use(authenticateToken)
 
 /**
- * 列表：支持 ?supplierId=&search=&page=&pageSize=&year=&month=
+ * 列表：支持 ?supplierId=&search=&page=&pageSize=&year=&month=&excludeInvoiced=
  * 响应 { items: [...], pagination }
  */
 router.get('/', async (req, res) => {
@@ -47,7 +47,30 @@ router.get('/', async (req, res) => {
     params.push(Number(req.query.month))
   }
 
+  const excludeInvoiced = req.query.excludeInvoiced === 'true'
+  const joinInvoiced = excludeInvoiced
+    ? `LEFT JOIN supplier_invoices inv ON inv.do_id = d.id`
+    : ''
+  if (excludeInvoiced) {
+    filters.push('inv.id IS NULL')
+  }
+
   const whereClause = filters.join(' AND ')
+
+  // 处理排序参数
+  const { sort = 'do_date', order = 'desc' } = req.query
+  const allowedSortFields = ['do_no', 'do_date', 'supplier_name', 'created_at']
+  const safeSort = allowedSortFields.includes(sort) ? sort : 'do_date'
+  const safeOrder = ['asc', 'desc'].includes(order?.toLowerCase()) ? order.toLowerCase() : 'desc'
+
+  // 映射排序字段到数据库列
+  const sortColumnMap = {
+    do_no: 'd.do_no',
+    do_date: 'd.do_date',
+    supplier_name: 'COALESCE(s.company_name, s.name)',
+    created_at: 'd.created_at',
+  }
+  const sortColumn = sortColumnMap[safeSort]
 
   try {
     const [list, total] = await Promise.all([
@@ -62,8 +85,9 @@ router.get('/', async (req, res) => {
           FROM delivery_orders d
           LEFT JOIN suppliers s ON s.id = d.supplier_id
           LEFT JOIN warehouses w ON w.id = d.warehouse_id
+          ${joinInvoiced}
           WHERE ${whereClause}
-          ORDER BY d.do_date DESC, d.id DESC
+          ORDER BY ${sortColumn} ${safeOrder.toUpperCase()}, d.id DESC
           LIMIT $${idx} OFFSET $${idx + 1}
         `,
         [...params, pageSize, offset],
@@ -71,6 +95,7 @@ router.get('/', async (req, res) => {
       query(
         `SELECT COUNT(*)::int AS total FROM delivery_orders d
          LEFT JOIN suppliers s ON s.id = d.supplier_id
+         ${joinInvoiced}
          WHERE ${whereClause}`,
         params,
       ),
@@ -136,7 +161,10 @@ router.get('/:id', async (req, res) => {
  */
 router.post('/', async (req, res) => {
   const tenantId = getTenantId(req)
-  const { supplier_id, do_no, do_date, notes, warehouse_id, items = [] } = req.body || {}
+  if (!req.body || typeof req.body !== 'object') {
+    return res.status(400).json({ message: 'Request body is required and must be a valid JSON object.' })
+  }
+  const { supplier_id, do_no, do_date, notes, warehouse_id, items = [] } = req.body
 
   if (!supplier_id || !do_no || !do_date) {
     return res.status(400).json({ message: 'supplier_id, do_no, do_date are required.' })
@@ -224,7 +252,10 @@ router.post('/', async (req, res) => {
  */
 router.put('/:id', async (req, res) => {
   const tenantId = getTenantId(req)
-  const { supplier_id, do_no, do_date, notes, warehouse_id, items = [] } = req.body || {}
+  if (!req.body || typeof req.body !== 'object') {
+    return res.status(400).json({ message: 'Request body is required and must be a valid JSON object.' })
+  }
+  const { supplier_id, do_no, do_date, notes, warehouse_id, items = [] } = req.body
   if (!supplier_id || !do_no || !do_date) {
     return res.status(400).json({ message: 'supplier_id, do_no, do_date are required.' })
   }

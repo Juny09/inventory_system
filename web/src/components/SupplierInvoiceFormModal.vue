@@ -60,9 +60,15 @@
         </div>
 
         <div>
-          <div class="mb-2 flex items-center justify-between">
-            <h4 class="text-sm font-semibold text-slate-700">Items</h4>
-            <button type="button" class="rounded bg-slate-700 px-2 py-1 text-xs text-white hover:bg-slate-800" @click="addRow">+ Add row</button>
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <h4 class="text-sm font-semibold text-slate-700">Items</h4>
+              <label class="inline-flex cursor-pointer items-center gap-1.5 text-xs text-slate-600">
+                <input v-model="form.priceIncludesDiscount" type="checkbox" class="rounded border-slate-300 text-indigo-600" />
+                <span>Unit price already includes discount (单价已是折后价)</span>
+              </label>
+            </div>
+            <button type="button" class="text-xs text-indigo-600 hover:underline" @click="addRow">+ Add row</button>
           </div>
           <div class="overflow-x-auto">
             <table class="min-w-full border border-slate-200 text-sm">
@@ -94,7 +100,7 @@
                   <td class="px-2 py-2"><input v-model="row.serial_no" class="w-full rounded border border-slate-300 px-2 py-1 text-sm" /></td>
                   <td class="w-20 px-2 py-2"><input v-model.number="row.quantity" type="number" step="0.001" class="w-full rounded border border-slate-300 px-2 py-1 text-right text-sm" /></td>
                   <td class="w-24 px-2 py-2"><input v-model.number="row.unit_price" type="number" step="0.01" class="w-full rounded border border-slate-300 px-2 py-1 text-right text-sm" /></td>
-                  <td class="w-20 px-2 py-2"><input v-model.number="row.discount" type="number" step="0.01" class="w-full rounded border border-slate-300 px-2 py-1 text-right text-sm" /></td>
+                  <td class="w-20 px-2 py-2"><input v-model.number="row.discount" :disabled="form.priceIncludesDiscount" type="number" step="0.01" :class="['w-full rounded border px-2 py-1 text-right text-sm', form.priceIncludesDiscount ? 'border-slate-200 bg-slate-100 text-slate-400' : 'border-slate-300']" /></td>
                   <td class="w-24 px-2 py-2 text-right text-sm font-medium">{{ rowAmount(row).toFixed(2) }}</td>
                   <td class="px-2 py-2 text-right">
                     <button type="button" class="text-red-500 hover:text-red-700" @click="form.items.splice(idx, 1)">×</button>
@@ -158,12 +164,15 @@ const form = reactive({
   supplier_id: '',
   do_id: '',
   invoice_no: '',
-  invoice_date: new Date().toISOString().slice(0, 10),
+  invoice_date: new Date().toLocaleDateString('en-CA'),
   notes: '',
   post_to_inventory: true,
   warehouse_id: '',
   items: [],
+  priceIncludesDiscount: false,
 })
+
+// When checked, discount fields are disabled (read-only) but values are preserved for display
 const doOptions = ref([])
 const warehouses = ref([])
 const attachments = ref([])
@@ -185,7 +194,13 @@ function blankRow() {
 }
 
 function rowAmount(row) {
-  const raw = (Number(row.quantity) || 0) * (Number(row.unit_price) || 0) - (Number(row.discount) || 0)
+  const q = Number(row.quantity) || 0
+  const u = Number(row.unit_price) || 0
+  if (form.priceIncludesDiscount) {
+    const raw = q * u
+    return Number.isFinite(raw) ? Math.max(0, raw) : 0
+  }
+  const raw = q * u - (Number(row.discount) || 0)
   return Number.isFinite(raw) ? Math.max(0, raw) : 0
 }
 
@@ -193,7 +208,10 @@ const totalQty = computed(() => form.items.reduce((s, r) => s + (Number(r.quanti
 const totalAmount = computed(() => form.items.reduce((s, r) => s + rowAmount(r), 0))
 
 function formatDate(d) {
-  return String(d || '').slice(0, 10)
+  if (!d) return ''
+  const date = new Date(d)
+  if (Number.isNaN(date.getTime())) return String(d).slice(0, 10)
+  return date.toLocaleDateString('en-CA')
 }
 
 function addRow() {
@@ -219,7 +237,7 @@ async function loadDOsForSupplier(supplierId) {
   }
   try {
     const { data } = await api.get('/delivery-orders', {
-      params: { supplierId, page: 1, pageSize: 200 },
+      params: { supplierId, page: 1, pageSize: 200, excludeInvoiced: true },
     })
     doOptions.value = data.items || []
   } catch (error) {
@@ -251,6 +269,10 @@ async function onDoChange() {
     if (!form.invoice_no && data?.do_no) {
       form.invoice_no = data.do_no
     }
+    // 自动填充 invoice_date = do_date
+    if (data?.do_date) {
+      form.invoice_date = new Date(data.do_date).toLocaleDateString('en-CA')
+    }
   } catch (error) {
     errorMessage.value = 'Failed to load DO items.'
   }
@@ -272,7 +294,7 @@ async function loadExisting(id) {
   form.supplier_id = data.supplier_id
   form.do_id = data.do_id
   form.invoice_no = data.invoice_no
-  form.invoice_date = String(data.invoice_date).slice(0, 10)
+  form.invoice_date = data.invoice_date ? new Date(data.invoice_date).toLocaleDateString('en-CA') : ''
   form.notes = data.notes || ''
   form.post_to_inventory = Boolean(data.posted_to_inventory)
   form.warehouse_id = data.warehouse_id ? String(data.warehouse_id) : ''
@@ -286,6 +308,7 @@ async function loadExisting(id) {
     unit_price: Number(it.unit_price) || 0,
     discount: Number(it.discount) || 0,
   }))
+  form.priceIncludesDiscount = Boolean(data.price_includes_discount)
   attachments.value = data.attachments || []
   await loadDOsForSupplier(data.supplier_id)
 }
@@ -302,6 +325,7 @@ async function submit() {
       notes: form.notes || null,
       post_to_inventory: !form.do_id ? form.post_to_inventory : false,
       warehouse_id: !form.do_id && form.post_to_inventory && form.warehouse_id ? Number(form.warehouse_id) : null,
+      priceIncludesDiscount: form.priceIncludesDiscount,
       items: form.items.map((it) => ({
         product_id: it.product_id || null,
         item_code: it.item_code || null,

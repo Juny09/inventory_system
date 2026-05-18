@@ -126,7 +126,7 @@ const form = reactive({
   id: null,
   supplier_id: '',
   do_no: '',
-  do_date: new Date().toISOString().slice(0, 10),
+  do_date: new Date().toLocaleDateString('en-CA'),
   notes: '',
   warehouse_id: '',
   items: [],
@@ -181,7 +181,7 @@ async function loadExisting(id) {
   form.id = data.id
   form.supplier_id = data.supplier_id
   form.do_no = data.do_no
-  form.do_date = String(data.do_date).slice(0, 10)
+  form.do_date = data.do_date ? new Date(data.do_date).toLocaleDateString('en-CA') : ''
   form.notes = data.notes || ''
   form.warehouse_id = data.warehouse_id ? String(data.warehouse_id) : ''
   form.items = (data.items || []).map((it) => ({

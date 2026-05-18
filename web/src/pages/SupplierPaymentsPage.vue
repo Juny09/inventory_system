@@ -106,7 +106,7 @@ function openAddForm(supplierId, month) {
     supplierId: String(supplierId),
     periodMonth: month,
     periodYear: selectedYear.value,
-    paidDate: new Date().toISOString().slice(0, 10),
+    paidDate: new Date().toLocaleDateString('en-CA'),
     amount: '',
     notes: '',
   }
@@ -119,7 +119,7 @@ function openEmptyForm() {
     supplierId: route.query.supplierId ? String(route.query.supplierId) : '',
     periodMonth: new Date().getMonth() + 1,
     periodYear: selectedYear.value,
-    paidDate: new Date().toISOString().slice(0, 10),
+    paidDate: new Date().toLocaleDateString('en-CA'),
     amount: '',
     notes: '',
   }
@@ -184,6 +184,9 @@ const showBatchModal = ref(false)
 const showAddPaymentModal = ref(false)
 const addingPaymentSchedule = ref(null)
 
+const futureSummary = ref({ next3m: { totalRemaining: 0, scheduleCount: 0 }, next6m: { totalRemaining: 0, scheduleCount: 0 }, next12m: { totalRemaining: 0, scheduleCount: 0 } })
+const futureSummaryLoading = ref(false)
+
 async function loadSchedules() {
   schedulesLoading.value = true
   errorMessage.value = ''
@@ -211,6 +214,18 @@ async function loadAlertCounts() {
     overdueCount.value = (o.data.items || []).length
   } catch (_) {
     // silent
+  }
+}
+
+async function loadFutureSummary() {
+  futureSummaryLoading.value = true
+  try {
+    const { data } = await api.get('/supplier-payment-schedules/future-summary')
+    futureSummary.value = data.summary || futureSummary.value
+  } catch (_) {
+    // silent
+  } finally {
+    futureSummaryLoading.value = false
   }
 }
 
@@ -294,13 +309,16 @@ function formatAmount(v) {
 }
 
 function formatDate(d) {
-  return String(d || '').slice(0, 10)
+  if (!d) return ''
+  const date = new Date(d)
+  if (Number.isNaN(date.getTime())) return String(d).slice(0, 10)
+  return date.toLocaleDateString('en-CA')
 }
 
 async function switchTab(tab) {
   activeTab.value = tab
   if (tab === 'schedules') {
-    await Promise.all([loadSchedules(), loadAlertCounts()])
+    await Promise.all([loadSchedules(), loadAlertCounts(), loadFutureSummary()])
   }
 }
 
@@ -490,6 +508,34 @@ onMounted(async () => {
             <p class="text-xs font-semibold uppercase tracking-wider text-rose-700">{{ tr('Overdue', '已逾期') }}</p>
             <p class="mt-1 text-2xl font-bold text-rose-800">{{ overdueCount }}</p>
           </div>
+        </div>
+
+        <!-- Future Amount Summary -->
+        <div class="mt-4 rounded-3xl border border-indigo-200 bg-indigo-50 px-4 py-3">
+          <div class="flex items-center justify-between">
+            <p class="text-xs font-semibold uppercase tracking-wider text-indigo-700">{{ tr('Future Amount Due', '未来应付汇总') }}</p>
+            <span v-if="futureSummaryLoading" class="text-xs text-indigo-400">{{ tr('Loading...', '加载中...') }}</span>
+          </div>
+          <div class="mt-3 grid grid-cols-3 gap-2 text-center">
+            <div class="rounded-xl bg-white/60 px-2 py-2">
+              <p class="text-[11px] font-semibold text-indigo-600">3 {{ tr('months', '个月') }}</p>
+              <p class="mt-0.5 text-lg font-bold text-indigo-800">{{ formatAmount(futureSummary.next3m.totalRemaining) }}</p>
+              <p class="text-[10px] text-indigo-400">{{ futureSummary.next3m.scheduleCount }} {{ tr('bills', '笔') }}</p>
+            </div>
+            <div class="rounded-xl bg-white/60 px-2 py-2">
+              <p class="text-[11px] font-semibold text-indigo-600">6 {{ tr('months', '个月') }}</p>
+              <p class="mt-0.5 text-lg font-bold text-indigo-800">{{ formatAmount(futureSummary.next6m.totalRemaining) }}</p>
+              <p class="text-[10px] text-indigo-400">{{ futureSummary.next6m.scheduleCount }} {{ tr('bills', '笔') }}</p>
+            </div>
+            <div class="rounded-xl bg-white/60 px-2 py-2">
+              <p class="text-[11px] font-semibold text-indigo-600">12 {{ tr('months', '个月') }}</p>
+              <p class="mt-0.5 text-lg font-bold text-indigo-800">{{ formatAmount(futureSummary.next12m.totalRemaining) }}</p>
+              <p class="text-[10px] text-indigo-400">{{ futureSummary.next12m.scheduleCount }} {{ tr('bills', '笔') }}</p>
+            </div>
+          </div>
+          <p class="mt-2 text-[11px] text-indigo-500">
+            {{ tr('Auto-reminder on 1st-7th of each month for bills due this month.', '每月1-7号自动提醒当月待付账单。') }}
+          </p>
         </div>
 
         <!-- Filters -->

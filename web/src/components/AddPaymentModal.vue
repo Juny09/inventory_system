@@ -12,7 +12,7 @@
           <div class="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
             <div><span class="font-semibold">{{ tr('Supplier', '供应商') }}:</span> {{ schedule.supplier_name }}{{ schedule.supplier_branch ? ` (${schedule.supplier_branch})` : '' }}</div>
             <div><span class="font-semibold">{{ tr('Period', '账期') }}:</span> {{ schedule.period_label }}</div>
-            <div><span class="font-semibold">{{ tr('Due Date', '到期日') }}:</span> {{ String(schedule.due_date).slice(0, 10) }}</div>
+            <div><span class="font-semibold">{{ tr('Due Date', '到期日') }}:</span> {{ schedule.due_date ? new Date(schedule.due_date).toLocaleDateString('en-CA') : '' }}</div>
             <div><span class="font-semibold">{{ tr('Amount Due', '应付') }}:</span> {{ Number(schedule.amount_due).toFixed(2) }}</div>
             <div><span class="font-semibold">{{ tr('Paid', '已付') }}:</span> {{ Number(schedule.amount_paid).toFixed(2) }}</div>
             <div><span class="font-semibold">{{ tr('Remaining', '剩余') }}:</span> {{ remaining.toFixed(2) }}</div>
@@ -57,7 +57,7 @@ const remaining = computed(() => Number(props.schedule.amount_due) - Number(prop
 
 const form = reactive({
   amount: remaining.value,
-  paid_date: new Date().toISOString().slice(0, 10),
+  paid_date: new Date().toLocaleDateString('en-CA'),
 })
 const submitting = ref(false)
 const errorMessage = ref('')

@@ -50,6 +50,21 @@ router.get('/', async (req, res) => {
 
   const whereClause = filters.join(' AND ')
 
+  // 处理排序参数
+  const { sort = 'document_date', order = 'desc' } = req.query
+  const allowedSortFields = ['document_no', 'document_date', 'supplier_name', 'created_at']
+  const safeSort = allowedSortFields.includes(sort) ? sort : 'document_date'
+  const safeOrder = ['asc', 'desc'].includes(order?.toLowerCase()) ? order.toLowerCase() : 'desc'
+  
+  // 映射排序字段到数据库列
+  const sortColumnMap = {
+    document_no: 'r.document_no',
+    document_date: 'r.document_date',
+    supplier_name: 'COALESCE(s.company_name, s.name)',
+    created_at: 'r.created_at',
+  }
+  const sortColumn = sortColumnMap[safeSort]
+
   try {
     const [list, total] = await Promise.all([
       query(
@@ -63,7 +78,7 @@ router.get('/', async (req, res) => {
           FROM supplier_returns r
           LEFT JOIN suppliers s ON s.id = r.supplier_id
           WHERE ${whereClause}
-          ORDER BY r.document_date DESC, r.id DESC
+          ORDER BY ${sortColumn} ${safeOrder.toUpperCase()}, r.id DESC
           LIMIT $${idx} OFFSET $${idx + 1}
         `,
         [...params, pageSize, offset],

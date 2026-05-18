@@ -63,7 +63,50 @@ async function materializeReminders(tenantId) {
     )
   }
 
-  // 3. OVERDUE reminders: re-check rows flagged OVERDUE whose last overdue reminder wasn't today
+  // 3. MONTHLY early-month reminders (1st-7th): remind about THIS month's pending/partial schedules
+  const today = new Date()
+  const dayOfMonth = today.getDate()
+  const currentMonth = today.getMonth() + 1
+  const currentYear = today.getFullYear()
+  if (dayOfMonth >= 1 && dayOfMonth <= 7) {
+    const monthlyResult = await query(
+      `SELECT sps.id, sps.period_month, sps.period_year, sps.due_date,
+              sps.amount_due, sps.amount_paid,
+              s.name AS supplier_name, s.company_name AS supplier_branch
+       FROM supplier_payment_schedules sps
+       INNER JOIN suppliers s ON s.id = sps.supplier_id AND s.tenant_id = sps.tenant_id
+       WHERE sps.tenant_id = $1
+         AND sps.status IN ('PENDING', 'PARTIAL')
+         AND sps.period_year = $2
+         AND sps.period_month = $3
+         AND (sps.monthly_reminded_month IS NULL OR sps.monthly_reminded_month <> $3)`,
+      [tenantId, currentYear, currentMonth],
+    )
+    for (const row of monthlyResult.rows) {
+      const supplierLabel = row.supplier_branch
+        ? `${row.supplier_name} (${row.supplier_branch})`
+        : row.supplier_name
+      const period = `${row.period_year}-${String(row.period_month).padStart(2, '0')}`
+      const remaining = Number(row.amount_due) - Number(row.amount_paid)
+      await query(
+        `INSERT INTO system_notifications
+           (tenant_id, notification_type, title, message, metadata, target_role, created_by)
+         VALUES ($1, 'PAYMENT_DUE', $2, $3, $4, 'MANAGER', NULL)`,
+        [
+          tenantId,
+          `Monthly reminder: ${supplierLabel} — ${period}`,
+          `Payment of ${remaining.toFixed(2)} is due this month on ${String(row.due_date).slice(0, 10)}.`,
+          JSON.stringify({ schedule_id: row.id, supplier_name: supplierLabel, period, due_date: String(row.due_date).slice(0, 10), amount: remaining, monthly_reminder: true }),
+        ],
+      )
+      await query(
+        `UPDATE supplier_payment_schedules SET monthly_reminded_month = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [currentMonth, row.id],
+      )
+    }
+  }
+
+  // 4. OVERDUE reminders: re-check rows flagged OVERDUE whose last overdue reminder wasn't today
   const overdueResult = await query(
     `SELECT sps.id, sps.period_month, sps.period_year, sps.due_date,
             sps.amount_due, sps.amount_paid,

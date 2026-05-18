@@ -3,14 +3,14 @@
     <div class="flex max-h-[95vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
       <div class="flex flex-shrink-0 items-center justify-between border-b border-slate-200 px-5 py-3">
         <h3 class="text-lg font-semibold text-slate-800">
-          {{ tr('Generate Monthly Schedules', '批量生成月度还款计划') }}
+          {{ tr('Generate Payment Schedules', '批量生成还款计划') }}
         </h3>
         <button class="text-slate-400 hover:text-slate-600" @click="$emit('close')">×</button>
       </div>
       <form class="flex min-h-0 flex-1 flex-col" @submit.prevent="submit">
         <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-3">
           <p class="text-xs text-slate-500">
-            {{ tr('Quickly create one schedule for each month in the selected range.', '为所选月份区间的每个月快速生成一条还款计划。') }}
+            {{ tr('Quickly create schedules by period (e.g. every 3 months).', '按周期批量生成还款计划（例如每 3 个月一期）。') }}
           </p>
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div class="md:col-span-2">
@@ -25,8 +25,17 @@
               <input v-model.number="form.year" required type="number" min="2000" max="2100" class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm" />
             </div>
             <div>
-              <label class="block text-xs font-medium text-slate-600">{{ tr('Amount per Month', '每月金额') }} <span class="text-red-500">*</span></label>
-              <input v-model.number="form.amount_per_month" required type="number" step="0.01" min="0" class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm" />
+              <label class="block text-xs font-medium text-slate-600">{{ tr('Amount per Period', '每期金额') }} <span class="text-red-500">*</span></label>
+              <input v-model.number="form.amount_per_period" required type="number" step="0.01" min="0" class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-600">{{ tr('Period Interval', '付款周期') }}</label>
+              <select v-model.number="form.period_interval" class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm">
+                <option :value="1">1 {{ tr('month', '个月') }}</option>
+                <option :value="3">3 {{ tr('months', '个月') }}</option>
+                <option :value="6">6 {{ tr('months', '个月') }}</option>
+                <option :value="12">12 {{ tr('months', '个月') }}</option>
+              </select>
             </div>
             <div>
               <label class="block text-xs font-medium text-slate-600">{{ tr('Start Month', '起始月份') }}</label>
@@ -91,7 +100,8 @@ function monthLabel(m) {
 const form = reactive({
   supplier_id: '',
   year: new Date().getFullYear(),
-  amount_per_month: 0,
+  amount_per_period: 0,
+  period_interval: 3,
   start_month: 1,
   end_month: 12,
   due_day: 15,
@@ -112,7 +122,8 @@ async function submit() {
       year: Number(form.year),
       startMonth: Number(form.start_month),
       endMonth: Number(form.end_month),
-      amountPerMonth: Number(form.amount_per_month) || 0,
+      amountPerPeriod: Number(form.amount_per_period) || 0,
+      periodInterval: Number(form.period_interval) || 1,
       dueDay: Number(form.due_day) || 15,
       remindDaysBefore: Number(form.remind_days_before) || 0,
       notes: form.notes || null,
