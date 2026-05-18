@@ -37,6 +37,7 @@ const categories = ref([])
 const errorMessage = ref('')
 const loading = ref(false)
 const imageProcessing = ref(false)
+const scannerOpen = ref(false)
 const searchKeyword = ref('')
 const costPasscode = ref('')
 const costCalculatorInput = ref('')
@@ -407,6 +408,7 @@ function handleBarcodeDetected(barcode) {
     form.barcode = barcode
   }
   searchKeyword.value = barcode
+  scannerOpen.value = false
   loadPageData(1)
 }
 
@@ -689,9 +691,9 @@ watch(
         {{ errorMessage }}
       </p>
 
-      <div class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+      <div class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
         <div>
-          <p class="text-sm font-semibold text-slate-900">{{ localeStore.locale === 'en' ? 'Cost Protection' : '成本保护' }}</p>
+          <p class="text-xs font-semibold text-slate-900">{{ localeStore.locale === 'en' ? 'Cost Protection' : '成本保护' }}</p>
           <p class="mt-1 text-xs text-slate-500">
             {{
               localeStore.locale === 'en'
@@ -705,11 +707,11 @@ watch(
             v-model="costPasscode"
             type="password"
             :placeholder="localeStore.locale === 'en' ? 'Enter passcode' : '输入 passcode'"
-            class="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-brand-500"
+            class="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500"
           />
           <button
             type="button"
-            class="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
+            class="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white"
             :disabled="costAccessStore.loading"
             @click="unlockCost"
           >
@@ -719,17 +721,17 @@ watch(
         <button
           v-else
           type="button"
-          class="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
+          class="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700"
           @click="lockCost"
         >
           {{ localeStore.locale === 'en' ? 'Hide cost again' : '重新隐藏成本' }}
         </button>
       </div>
 
-      <div class="mt-3 rounded-3xl border border-slate-200 bg-white p-4">
+      <div class="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p class="text-sm font-semibold text-slate-900">{{ localeStore.locale === 'en' ? 'C-code calculator' : '成本编码计算器' }}</p>
+            <p class="text-xs font-semibold text-slate-900">{{ localeStore.locale === 'en' ? 'C-code calculator' : '成本编码计算器' }}</p>
             <p class="mt-1 text-xs text-slate-500">
               {{ localeStore.locale === 'en' ? 'Convert amount (块) to code like EHSTX / IHRTX.' : '把金额（块）转换为 EHSTX / IHRTX 这类编码。' }}
             </p>
@@ -741,9 +743,9 @@ watch(
               min="0"
               step="1"
               :placeholder="localeStore.locale === 'en' ? 'Enter amount' : '输入金额'"
-              class="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-brand-500"
+              class="w-40 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500"
             />
-            <div class="rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900">
+            <div class="rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
               {{ calculatedCostCode() }}
             </div>
           </div>
@@ -776,7 +778,7 @@ watch(
                 v-model="searchKeyword"
                 type="text"
                 :placeholder="localeStore.locale === 'en' ? 'Search products / code / barcode / QR' : '搜索商品 / 编码 / 条码 / 二维码'"
-                class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500 md:w-80"
+                class="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm outline-none focus:border-brand-500 md:w-80"
                 @input="handleSearch"
               />
               <button
@@ -851,8 +853,22 @@ watch(
             </button>
           </div>
 
-          <div class="mt-4">
-            <BarcodeScanner @detected="handleBarcodeDetected" />
+          <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="text-sm font-semibold text-slate-900">
+                {{ localeStore.locale === 'en' ? 'Barcode scanner' : '条码扫描' }}
+              </div>
+              <button
+                type="button"
+                class="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700"
+                @click="scannerOpen = !scannerOpen"
+              >
+                {{ scannerOpen ? (localeStore.locale === 'en' ? 'Hide scanner' : '收起扫描') : (localeStore.locale === 'en' ? 'Open scanner' : '打开扫描') }}
+              </button>
+            </div>
+            <div v-if="scannerOpen" class="mt-3">
+              <BarcodeScanner @detected="handleBarcodeDetected" />
+            </div>
           </div>
 
           <div v-if="loading" class="mt-5 rounded-2xl border border-slate-200 px-4 py-4 text-sm text-slate-500">

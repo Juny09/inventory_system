@@ -43,16 +43,16 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="rounded-2xl border border-dashed border-slate-300 p-4">
+  <div class="rounded-2xl border border-dashed border-slate-300 p-3">
     <div class="flex flex-wrap items-center gap-3">
       <button
-        class="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700"
+        class="rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-700"
         @click="startScanning"
       >
         Start Scan
       </button>
       <button
-        class="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+        class="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
         @click="stopScanning"
       >
         Stop
@@ -60,7 +60,7 @@ onBeforeUnmount(() => {
       <span class="text-sm text-slate-500">Use your camera to capture a barcode or QR code.</span>
     </div>
 
-    <video ref="videoRef" class="mt-4 min-h-52 w-full rounded-2xl bg-slate-950 object-cover" />
+    <video ref="videoRef" class="mt-3 min-h-40 w-full rounded-2xl bg-slate-950 object-cover" />
     <p v-if="scanning" class="mt-3 text-sm text-emerald-600">Scanning...</p>
     <p v-if="errorMessage" class="mt-3 text-sm text-rose-500">{{ errorMessage }}</p>
   </div>
