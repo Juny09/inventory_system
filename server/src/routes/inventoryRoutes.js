@@ -281,6 +281,102 @@ router.get('/transactions', async (req, res) => {
   }
 })
 
+async function syncProductPricingFromUnitCost(client, { tenantId, productId, unitCost, userId, referenceNo }) {
+  const nextCost = Number(unitCost || 0)
+  if (!productId || !Number.isFinite(nextCost) || nextCost <= 0) {
+    return
+  }
+
+  const current = await client.query(
+    `SELECT cost_price, markup_percentage FROM products WHERE id = $1 AND tenant_id = $2`,
+    [productId, tenantId],
+  )
+  const row = current.rows[0]
+  if (!row) {
+    return
+  }
+
+  const oldCost = Number(row.cost_price || 0)
+  const costChanged = nextCost !== oldCost
+
+  if (costChanged) {
+    await client.query(
+      `UPDATE products
+       SET cost_price = $3,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1 AND tenant_id = $2`,
+      [productId, tenantId, Number(nextCost.toFixed(2))],
+    )
+
+    const percentChange = oldCost > 0 ? ((nextCost - oldCost) / oldCost) * 100 : nextCost === 0 ? 0 : 100
+    await client.query(
+      `
+        INSERT INTO product_cost_price_histories (
+          tenant_id,
+          product_id,
+          old_cost_price,
+          new_cost_price,
+          percent_change,
+          reason,
+          changed_by
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `,
+      [
+        tenantId,
+        productId,
+        oldCost,
+        nextCost,
+        Number.isFinite(percentChange) ? percentChange : 0,
+        referenceNo ? `Stock in ${referenceNo}` : 'Stock in',
+        userId || null,
+      ],
+    )
+
+    await client.query(
+      `
+        DELETE FROM product_cost_price_histories
+        WHERE id IN (
+          SELECT id
+          FROM product_cost_price_histories
+          WHERE product_id = $1 AND tenant_id = $2
+          ORDER BY changed_at DESC
+          OFFSET 5
+        )
+      `,
+      [productId, tenantId],
+    )
+  }
+
+  await client.query(
+    `
+      UPDATE product_pricing_rules
+      SET suggested_price = ROUND($3 * (1 + COALESCE(markup_percentage, 0) / 100.0), 2)
+      WHERE tenant_id = $2
+        AND product_id = $1
+        AND COALESCE(suggested_price, 0) = 0
+    `,
+    [productId, tenantId, nextCost],
+  )
+
+  await client.query(
+    `
+      UPDATE products
+      SET
+        suggested_price = CASE
+          WHEN COALESCE(suggested_price, 0) = 0 THEN ROUND($3 * (1 + COALESCE(markup_percentage, 0) / 100.0), 2)
+          ELSE suggested_price
+        END,
+        selling_price = CASE
+          WHEN COALESCE(selling_price, 0) = 0 THEN ROUND($3 * (1 + COALESCE(markup_percentage, 0) / 100.0), 2)
+          ELSE selling_price
+        END
+      WHERE id = $1 AND tenant_id = $2
+    `,
+    [productId, tenantId, nextCost],
+  )
+}
+
 async function createMovement(req, res, movementType) {
   const { variantId, productId, warehouseId, sourceWarehouseId, destinationWarehouseId, quantity, referenceNo, notes, supplierId, unitCost, purchaseReason } =
     req.body
@@ -351,6 +447,14 @@ async function createMovement(req, res, movementType) {
           req.user.id,
         ],
       )
+
+      await syncProductPricingFromUnitCost(client, {
+        tenantId,
+        productId: resolvedProductId,
+        unitCost,
+        userId: req.user.id,
+        referenceNo,
+      })
 
       await client.query('COMMIT')
       return res.status(201).json(result.rows[0])
