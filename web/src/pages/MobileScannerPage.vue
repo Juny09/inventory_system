@@ -18,6 +18,9 @@ const searchMode = ref('')
 const matchedProducts = ref([])
 const matchedVariant = ref(null)
 const productDetail = ref(null)
+const continuousMode = ref(true)
+const recentScans = ref([])
+const scanBusy = ref(false)
 
 const primaryProduct = computed(() => productDetail.value?.product || matchedProducts.value[0] || null)
 const inventorySummary = computed(() => productDetail.value?.summary || {
@@ -28,6 +31,7 @@ const inventorySummary = computed(() => productDetail.value?.summary || {
 })
 const inventoryStockLevels = computed(() => productDetail.value?.stockLevels || [])
 const canOpenProductsPage = computed(() => ['ADMIN', 'MANAGER'].includes(authStore.user?.role || ''))
+const recentMovements = computed(() => productDetail.value?.recentMovements || [])
 const resolvedVariantId = computed(() => {
   if (matchedVariant.value?.id) {
     return Number(matchedVariant.value.id)
@@ -36,6 +40,12 @@ const resolvedVariantId = computed(() => {
   const defaultVariant = variants.find((item) => String(item.variant_label || '').toUpperCase() === 'DEFAULT')
   return Number(defaultVariant?.id || variants[0]?.id || 0) || null
 })
+const latestStockInMovement = computed(() => {
+  return recentMovements.value.find((movement) => String(movement?.movement_type || '').toUpperCase() === 'IN') || null
+})
+const latestStockOutMovement = computed(() => {
+  return recentMovements.value.find((movement) => String(movement?.movement_type || '').toUpperCase() === 'OUT') || null
+})
 
 function normalizeCode(value) {
   return String(value || '').trim()
@@ -43,6 +53,13 @@ function normalizeCode(value) {
 
 function normalizeCompareValue(value) {
   return String(value || '').trim().toUpperCase()
+}
+
+function formatDateTime(value) {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+  return date.toLocaleString()
 }
 
 function uniqueValues(values = []) {
@@ -149,6 +166,33 @@ function pickPreferredWarehouseId(action) {
   return ''
 }
 
+function formatWarehouseLocation(stock) {
+  const warehouseName = stock?.warehouse_name || '未设置仓库'
+  const warehouseCode = stock?.warehouse_code ? `(${stock.warehouse_code})` : ''
+  return `${warehouseName} ${warehouseCode}`.trim()
+}
+
+function formatShelfBin(stock) {
+  const shelf = String(stock?.shelf || '').trim()
+  const bin = String(stock?.bin || '').trim()
+  if (shelf || bin) {
+    return `Shelf ${shelf || '—'} / Bin ${bin || '—'}`
+  }
+  return 'Shelf / Bin 未设置'
+}
+
+function pushRecentScan(code) {
+  recentScans.value = [
+    {
+      code,
+      time: new Date().toISOString(),
+      productName: primaryProduct.value?.name || '',
+      sku: matchedVariant.value?.sku || primaryProduct.value?.sku || '',
+    },
+    ...recentScans.value,
+  ].slice(0, 6)
+}
+
 async function searchProductsByCode(rawValue) {
   const candidates = extractLookupCandidates(rawValue)
   if (candidates.length === 0) {
@@ -233,12 +277,13 @@ async function searchProductsByCode(rawValue) {
 
 async function handleDetected(code) {
   const normalized = normalizeCode(code)
-  if (!normalized) return
+  if (!normalized || scanBusy.value) return
 
   if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
     navigator.vibrate(120)
   }
 
+  scanBusy.value = true
   lastScannedCode.value = normalized
   manualCode.value = normalized
   errorMessage.value = ''
@@ -246,6 +291,7 @@ async function handleDetected(code) {
 
   try {
     await searchProductsByCode(normalized)
+    pushRecentScan(normalized)
   } catch (error) {
     matchedProducts.value = []
     matchedVariant.value = null
@@ -255,6 +301,7 @@ async function handleDetected(code) {
     errorMessage.value = error.response?.data?.message || error.message || '扫码后查询货品失败。'
   } finally {
     loading.value = false
+    scanBusy.value = false
   }
 }
 
@@ -315,17 +362,26 @@ function goToInventoryAction(action) {
           <div class="rounded-3xl border border-slate-200 bg-slate-950 p-3">
             <BarcodeScanner
               auto-start
+              :stop-after-detect="!continuousMode"
+              :detect-cooldown-ms="continuousMode ? 1800 : 1000"
               start-label="重新开始扫码"
               stop-label="暂停相机"
-              hint-text="建议使用手机后置摄像头，对准条码或二维码中央。"
+              :hint-text="continuousMode ? '连续扫描已开启：扫完一个后直接对准下一个货品。' : '单次扫描模式：扫到后会自动停下，适合逐个确认。'"
               panel-class="rounded-3xl bg-slate-950 p-0"
               video-class="aspect-[3/4] w-full rounded-[1.4rem] bg-black object-cover"
+              @detected="handleDetected"
             />
           </div>
 
           <div class="space-y-4">
             <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-              <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Scan Result</p>
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Scan Result</p>
+                <label class="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700">
+                  <input v-model="continuousMode" type="checkbox" class="size-4 rounded border-emerald-300" />
+                  连续扫描模式
+                </label>
+              </div>
               <p class="mt-2 break-all text-base font-semibold text-slate-900">
                 {{ lastScannedCode || '还没有扫码结果' }}
               </p>
@@ -348,6 +404,9 @@ function goToInventoryAction(action) {
               <p v-if="searchSummary" class="mt-3 text-sm text-emerald-700">{{ searchSummary }}</p>
               <p v-if="loading" class="mt-3 text-sm text-slate-500">正在查询货品资料...</p>
               <p v-if="errorMessage" class="mt-3 text-sm text-rose-600">{{ errorMessage }}</p>
+              <p class="mt-3 text-xs text-slate-500">
+                {{ continuousMode ? '当前为连续模式，扫到一个货品后相机不会停，适合一件一件点货。' : '当前为单次模式，适合只查一个货品。' }}
+              </p>
             </div>
 
             <div v-if="primaryProduct" class="rounded-3xl border border-emerald-200 bg-emerald-50 p-4">
@@ -433,6 +492,23 @@ function goToInventoryAction(action) {
                 </span>
               </div>
 
+              <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p class="text-xs uppercase tracking-[0.2em] text-slate-400">最近一次入库</p>
+                  <p class="mt-1 font-semibold text-slate-900">{{ formatDateTime(latestStockInMovement?.created_at) }}</p>
+                  <p class="mt-1 text-xs text-slate-500">
+                    {{ latestStockInMovement?.destination_warehouse_name || latestStockInMovement?.source_warehouse_name || '暂无记录' }}
+                  </p>
+                </div>
+                <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p class="text-xs uppercase tracking-[0.2em] text-slate-400">最近一次出库</p>
+                  <p class="mt-1 font-semibold text-slate-900">{{ formatDateTime(latestStockOutMovement?.created_at) }}</p>
+                  <p class="mt-1 text-xs text-slate-500">
+                    {{ latestStockOutMovement?.source_warehouse_name || latestStockOutMovement?.destination_warehouse_name || '暂无记录' }}
+                  </p>
+                </div>
+              </div>
+
               <div class="mt-4 grid gap-3 grid-cols-2 sm:grid-cols-4">
                 <div class="rounded-2xl bg-slate-50 px-4 py-3">
                   <p class="text-xs uppercase tracking-[0.2em] text-slate-400">On Hand</p>
@@ -470,10 +546,47 @@ function goToInventoryAction(action) {
                   <p class="mt-2 text-xs text-slate-500">
                     On hand {{ stock.on_hand_quantity }} · Allocated {{ stock.order_allocated_quantity }}
                   </p>
+                  <div class="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div class="rounded-xl bg-white px-3 py-2">
+                      <p class="text-[11px] uppercase tracking-[0.15em] text-slate-400">仓库位置</p>
+                      <p class="mt-1 text-xs font-semibold text-slate-900">{{ formatWarehouseLocation(stock) }}</p>
+                    </div>
+                    <div class="rounded-xl bg-white px-3 py-2">
+                      <p class="text-[11px] uppercase tracking-[0.15em] text-slate-400">Shelf / Bin</p>
+                      <p class="mt-1 text-xs font-semibold text-slate-900">{{ formatShelfBin(stock) }}</p>
+                    </div>
+                  </div>
                 </div>
                 <p v-if="inventoryStockLevels.length === 0" class="text-sm text-slate-500">
                   这件货目前还没有库存记录，你仍然可以直接带去做入库。
                 </p>
+              </div>
+            </div>
+
+            <div v-if="recentScans.length > 0" class="rounded-3xl border border-slate-200 bg-white p-4">
+              <div class="flex items-center justify-between gap-3">
+                <p class="text-sm font-semibold text-slate-900">最近扫描</p>
+                <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                  {{ recentScans.length }} 条
+                </span>
+              </div>
+              <div class="mt-3 space-y-2">
+                <div
+                  v-for="(scan, index) in recentScans"
+                  :key="`${scan.code}-${scan.time}-${index}`"
+                  class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+                >
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                      <p class="break-all text-sm font-semibold text-slate-900">{{ scan.code }}</p>
+                      <p class="mt-1 text-xs text-slate-500">
+                        {{ scan.productName || '正在匹配货品' }}
+                        <span v-if="scan.sku" class="ml-1">· {{ scan.sku }}</span>
+                      </p>
+                    </div>
+                    <span class="shrink-0 text-[11px] text-slate-500">{{ formatDateTime(scan.time) }}</span>
+                  </div>
+                </div>
               </div>
             </div>
 

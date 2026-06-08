@@ -5,6 +5,7 @@ import { onBeforeUnmount, nextTick, ref, watch } from 'vue'
 const props = defineProps({
   autoStart: { type: Boolean, default: false },
   stopAfterDetect: { type: Boolean, default: true },
+  detectCooldownMs: { type: Number, default: 1200 },
   showControls: { type: Boolean, default: true },
   startLabel: { type: String, default: 'Start Scan' },
   stopLabel: { type: String, default: 'Stop' },
@@ -20,11 +21,30 @@ const videoRef = ref(null)
 const errorMessage = ref('')
 const scanning = ref(false)
 const reader = new BrowserMultiFormatReader()
+let lastDetectedText = ''
+let lastDetectedAt = 0
 let controls = null
 
 function handleDecode(result, error) {
   if (result) {
-    emit('detected', result.getText())
+    const detectedText = String(result.getText() || '').trim()
+    const now = Date.now()
+    if (!detectedText) {
+      return
+    }
+
+    // 中文注释：连续扫描时，同一个码短时间内会被相机重复识别，这里做冷却去重避免连续触发。
+    if (
+      detectedText === lastDetectedText
+      && props.detectCooldownMs > 0
+      && now - lastDetectedAt < props.detectCooldownMs
+    ) {
+      return
+    }
+
+    lastDetectedText = detectedText
+    lastDetectedAt = now
+    emit('detected', detectedText)
     if (props.stopAfterDetect) {
       stopScanning()
     }
@@ -71,6 +91,8 @@ function stopScanning() {
   controls?.stop()
   controls = null
   scanning.value = false
+  lastDetectedText = ''
+  lastDetectedAt = 0
 }
 
 watch(
