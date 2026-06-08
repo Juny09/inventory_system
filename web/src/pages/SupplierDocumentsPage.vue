@@ -1049,6 +1049,12 @@ function handleScanHighlightBoxClick(box) {
 function onScanItemSelected(payload) {
   const itemIndex = Number(payload?.itemIndex)
   if (!Number.isInteger(itemIndex) || itemIndex < 0) return
+  if (payload?.ocrReviewContext && typeof payload.ocrReviewContext === 'object') {
+    parsedDraft.value = {
+      ...payload.ocrReviewContext,
+      imported_from_scan: true,
+    }
+  }
   scanReviewExpanded.value = true
   setScanReviewFocus(`item-${itemIndex}`)
 }

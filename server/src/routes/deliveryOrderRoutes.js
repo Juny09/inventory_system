@@ -49,6 +49,56 @@ function normalizeOcrConfirmationAudit(rawAudit = [], req) {
     .filter(Boolean)
 }
 
+function normalizeOcrReviewContext(rawContext = null, documentType = 'delivery_order') {
+  if (!rawContext || typeof rawContext !== 'object') {
+    return null
+  }
+
+  const items = Array.isArray(rawContext.items)
+    ? rawContext.items.map((item) => ({
+        product_id: item?.product_id || null,
+        product_label: item?.product_label || '',
+        item_code: item?.item_code || '',
+        description: item?.description || '',
+        serial_no: item?.serial_no || '',
+        quantity: Number(item?.quantity) || 0,
+        unit_price: Number(item?.unit_price) || 0,
+        discount: Number(item?.discount) || 0,
+        extracted_amount: Number(item?.extracted_amount) || 0,
+        ocr_confidence_percent: Number(item?.ocr_confidence_percent) || 0,
+        ocr_confidence_level: item?.ocr_confidence_level || '',
+        ocr_confidence_label: item?.ocr_confidence_label || '',
+      }))
+    : []
+
+  const normalized = {
+    imported_from_scan: true,
+    source_file_name: rawContext?.source_file_name || '',
+    supplier_id: rawContext?.supplier_id ? String(rawContext.supplier_id) : '',
+    supplier_name: rawContext?.supplier_name || '',
+    warehouse_id: rawContext?.warehouse_id ? String(rawContext.warehouse_id) : '',
+    document_no: rawContext?.document_no || '',
+    document_date: rawContext?.document_date || '',
+    notes: rawContext?.notes || '',
+    items,
+    type: documentType,
+    detected_type: rawContext?.detected_type || documentType,
+    raw_text: rawContext?.raw_text || '',
+    file_url: rawContext?.file_url || '',
+    file_mime_type: rawContext?.file_mime_type || '',
+    ocr_words: Array.isArray(rawContext?.ocr_words) ? rawContext.ocr_words : [],
+    ocr_preview_url: rawContext?.ocr_preview_url || '',
+    ocr_preview_width: Number(rawContext?.ocr_preview_width) || 0,
+    ocr_preview_height: Number(rawContext?.ocr_preview_height) || 0,
+  }
+
+  if (!normalized.file_url && !normalized.ocr_preview_url && !normalized.raw_text && normalized.ocr_words.length === 0) {
+    return null
+  }
+
+  return normalized
+}
+
 async function loadOcrConfirmationTimeline(entityId, tenantId) {
   const result = await query(
     `SELECT id, user_email, user_role, action, description, metadata, created_at
@@ -63,6 +113,7 @@ async function loadOcrConfirmationTimeline(entityId, tenantId) {
 
   return result.rows.map((row) => {
     const summary = row.metadata?.lowConfidenceConfirmations || {}
+    const ocrReviewContext = normalizeOcrReviewContext(summary.ocrReviewContext, 'delivery_order')
     return {
       audit_id: row.id,
       action: row.action,
@@ -75,6 +126,7 @@ async function loadOcrConfirmationTimeline(entityId, tenantId) {
       confirmation_count: Number(summary.confirmationCount) || 0,
       confirmed_by: summary.confirmedBy || null,
       items: Array.isArray(summary.items) ? summary.items : [],
+      ocr_review_context: ocrReviewContext,
     }
   })
 }
@@ -213,11 +265,14 @@ router.get('/:id', async (req, res) => {
       loadOcrConfirmationTimeline(req.params.id, tenantId),
     ])
 
+    const latestOcrReviewContext = ocrConfirmationTimeline.find((entry) => entry.ocr_review_context)?.ocr_review_context || null
+
     return res.json({
       ...header.rows[0],
       items: items.rows,
       attachments: attachments.rows,
       ocr_confirmation_timeline: ocrConfirmationTimeline,
+      ocr_review_context: latestOcrReviewContext,
     })
   } catch (error) {
     return res.status(500).json({ message: 'Failed to load delivery order.', error: error.message })
@@ -232,7 +287,16 @@ router.post('/', async (req, res) => {
   if (!req.body || typeof req.body !== 'object') {
     return res.status(400).json({ message: 'Request body is required and must be a valid JSON object.' })
   }
-  const { supplier_id, do_no, do_date, notes, warehouse_id, items = [], ocr_confirmation_audit = [] } = req.body
+  const {
+    supplier_id,
+    do_no,
+    do_date,
+    notes,
+    warehouse_id,
+    items = [],
+    ocr_confirmation_audit = [],
+    ocr_review_context = null,
+  } = req.body
 
   if (!supplier_id || !do_no || !do_date) {
     return res.status(400).json({ message: 'supplier_id, do_no, do_date are required.' })
@@ -297,6 +361,7 @@ router.post('/', async (req, res) => {
     await client.query('COMMIT')
 
     const confirmationAudit = normalizeOcrConfirmationAudit(ocr_confirmation_audit, req)
+    const ocrReviewContext = normalizeOcrReviewContext(ocr_review_context, 'delivery_order')
     req.auditContext = {
       action: 'DELIVERY_ORDER_CREATE',
       entityType: 'DELIVERY_ORDER',
@@ -314,6 +379,7 @@ router.post('/', async (req, res) => {
                 role: req.user?.role || null,
               },
               items: confirmationAudit,
+              ocrReviewContext: ocrReviewContext || undefined,
             },
           }
         : undefined,
@@ -339,7 +405,16 @@ router.put('/:id', async (req, res) => {
   if (!req.body || typeof req.body !== 'object') {
     return res.status(400).json({ message: 'Request body is required and must be a valid JSON object.' })
   }
-  const { supplier_id, do_no, do_date, notes, warehouse_id, items = [], ocr_confirmation_audit = [] } = req.body
+  const {
+    supplier_id,
+    do_no,
+    do_date,
+    notes,
+    warehouse_id,
+    items = [],
+    ocr_confirmation_audit = [],
+    ocr_review_context = null,
+  } = req.body
   if (!supplier_id || !do_no || !do_date) {
     return res.status(400).json({ message: 'supplier_id, do_no, do_date are required.' })
   }
@@ -434,6 +509,7 @@ router.put('/:id', async (req, res) => {
     await client.query('COMMIT')
 
     const confirmationAudit = normalizeOcrConfirmationAudit(ocr_confirmation_audit, req)
+    const ocrReviewContext = normalizeOcrReviewContext(ocr_review_context, 'delivery_order')
     req.auditContext = {
       action: 'DELIVERY_ORDER_UPDATE',
       entityType: 'DELIVERY_ORDER',
@@ -451,6 +527,7 @@ router.put('/:id', async (req, res) => {
                 role: req.user?.role || null,
               },
               items: confirmationAudit,
+              ocrReviewContext: ocrReviewContext || undefined,
             },
           }
         : undefined,

@@ -102,10 +102,12 @@
                 </span>
               </div>
               <div class="mt-3 space-y-2">
-                <div
+                <button
                   v-for="item in entry.items || []"
                   :key="`${entry.audit_id}-${item.itemIndex}-${item.sortOrder}`"
-                  class="rounded border border-slate-200 bg-slate-50 px-3 py-2"
+                  type="button"
+                  class="w-full rounded border border-slate-200 bg-slate-50 px-3 py-2 text-left transition hover:border-amber-300 hover:bg-amber-50"
+                  @click="handleTimelineItemClick(entry, item)"
                 >
                   <div class="flex flex-wrap items-center justify-between gap-2">
                     <div class="flex flex-wrap items-center gap-2">
@@ -124,7 +126,7 @@
                   <div class="mt-2 flex flex-wrap gap-2">
                     <span class="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700">Qty {{ Number(item.quantity) || 0 }}</span>
                   </div>
-                </div>
+                </button>
               </div>
             </div>
           </div>
@@ -262,6 +264,7 @@ const attachmentRef = ref(null)
 const submitting = ref(false)
 const errorMessage = ref('')
 const importedSourceFile = ref(null)
+const ocrReviewContext = ref(null)
 const itemRowRefs = ref([])
 const activeScanItemIndex = ref(null)
 const ocrConfirmationTimeline = ref([])
@@ -333,6 +336,58 @@ function setItemRowRef(element, index) {
 function getScanItemIndexFromKey(key) {
   const matched = String(key || '').match(/^item-(\d+)$/)
   return matched ? Number(matched[1]) : null
+}
+
+function normalizeOcrReviewContext(input, fallbackType = 'delivery_order') {
+  if (!input || typeof input !== 'object') return null
+
+  const items = Array.isArray(input.items)
+    ? input.items.map((item) => ({
+        product_id: item?.product_id || null,
+        product_label: item?.product_label || '',
+        item_code: item?.item_code || '',
+        description: item?.description || '',
+        serial_no: item?.serial_no || '',
+        quantity: Number(item?.quantity) || 0,
+        unit_price: Number(item?.unit_price) || 0,
+        discount: Number(item?.discount) || 0,
+        extracted_amount: Number(item?.extracted_amount) || 0,
+        ocr_confidence_percent: Number(item?.ocr_confidence_percent) || 0,
+        ocr_confidence_level: item?.ocr_confidence_level || '',
+        ocr_confidence_label: item?.ocr_confidence_label || '',
+      }))
+    : []
+
+  const normalized = {
+    imported_from_scan: true,
+    source_file_name: input?.source_file_name || '',
+    supplier_id: input?.supplier_id ? String(input.supplier_id) : '',
+    supplier_name: input?.supplier_name || '',
+    warehouse_id: input?.warehouse_id ? String(input.warehouse_id) : '',
+    document_no: input?.document_no || '',
+    document_date: input?.document_date || '',
+    notes: input?.notes || '',
+    items,
+    type: input?.type === 'invoice' ? 'invoice' : fallbackType,
+    detected_type: input?.detected_type || fallbackType,
+    raw_text: input?.raw_text || '',
+    file_url: input?.file_url || '',
+    file_mime_type: input?.file_mime_type || '',
+    ocr_words: Array.isArray(input?.ocr_words) ? input.ocr_words : [],
+    ocr_preview_url: input?.ocr_preview_url || '',
+    ocr_preview_width: Number(input?.ocr_preview_width) || 0,
+    ocr_preview_height: Number(input?.ocr_preview_height) || 0,
+  }
+
+  if (!normalized.file_url && !normalized.ocr_preview_url && !normalized.raw_text && normalized.ocr_words.length === 0) {
+    return null
+  }
+
+  return normalized
+}
+
+function buildOcrReviewContextPayload() {
+  return normalizeOcrReviewContext(ocrReviewContext.value, 'delivery_order')
 }
 
 // 中文注释：用户直接点击表单某一行时，把选中的 item 序号回传给右侧 OCR 面板做反向高亮。
@@ -413,6 +468,15 @@ async function jumpToLowConfidenceItem(index) {
   await focusScanItemRow(index)
 }
 
+// 中文注释：点击时间线里的某条确认记录时，同时聚焦表单行，并把当时保存下来的 OCR 上下文交给父页面恢复右侧核对面板。
+async function handleTimelineItemClick(entry, item) {
+  const itemIndex = Number(item?.itemIndex)
+  if (!Number.isInteger(itemIndex) || itemIndex < 0) return
+  const context = normalizeOcrReviewContext(entry?.ocr_review_context || ocrReviewContext.value, 'delivery_order')
+  emit('scan-item-selected', { itemIndex, ocrReviewContext: context })
+  await focusScanItemRow(itemIndex)
+}
+
 // 中文注释：把识别结果预填到 DO 表单，用户打开弹窗后只需要检查再保存。
 function applyInitialData(initialData) {
   form.id = null
@@ -439,6 +503,7 @@ function applyInitialData(initialData) {
     : [blankRow()]
   attachments.value = []
   importedSourceFile.value = initialData?.source_file || null
+  ocrReviewContext.value = normalizeOcrReviewContext(initialData, 'delivery_order')
   ocrConfirmationTimeline.value = []
 }
 
@@ -489,6 +554,7 @@ async function loadExisting(id) {
   }))
   attachments.value = data.attachments || []
   importedSourceFile.value = null
+  ocrReviewContext.value = normalizeOcrReviewContext(data.ocr_review_context, 'delivery_order')
   ocrConfirmationTimeline.value = Array.isArray(data.ocr_confirmation_timeline) ? data.ocr_confirmation_timeline : []
 }
 
@@ -524,6 +590,7 @@ async function submit() {
       warehouse_id: form.warehouse_id ? Number(form.warehouse_id) : null,
       notes: form.notes || null,
       ocr_confirmation_audit: buildOcrConfirmationAuditPayload(),
+      ocr_review_context: buildOcrReviewContextPayload(),
       items: form.items.map((it) => ({
         product_id: it.product_id || null,
         item_code: it.item_code || null,
