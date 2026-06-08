@@ -52,11 +52,14 @@
               </div>
             </div>
             <div class="mt-3 grid gap-2 md:grid-cols-2">
-              <div
+              <button
                 v-for="field in traceComparison.fields"
                 :key="field.key"
-                class="rounded border px-3 py-2"
-                :class="field.changed ? 'border-rose-200 bg-rose-50' : 'border-emerald-200 bg-emerald-50/70'"
+                type="button"
+                class="rounded border px-3 py-2 text-left"
+                :class="field.changed ? 'border-rose-200 bg-rose-50 hover:bg-rose-100' : 'border-emerald-200 bg-emerald-50/70'"
+                :disabled="!field.changed"
+                @click="handleTraceFieldClick(field)"
               >
                 <div class="flex items-center justify-between gap-2">
                   <p class="text-xs font-semibold text-slate-800">{{ field.label }}</p>
@@ -64,7 +67,7 @@
                     class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
                     :class="field.changed ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'"
                   >
-                    {{ field.changed ? '已变更' : '一致' }}
+                    {{ field.changed ? '已变更，可点击定位' : '一致' }}
                   </span>
                 </div>
                 <div class="mt-2 space-y-1 text-xs">
@@ -73,7 +76,7 @@
                   <p class="pt-1 text-slate-500">当前单据值</p>
                   <p class="font-medium" :class="field.changed ? 'text-rose-700' : 'text-emerald-700'">{{ field.currentDisplay }}</p>
                 </div>
-              </div>
+              </button>
             </div>
           </div>
         </div>
@@ -265,9 +268,9 @@
                       @select="(p) => onProductSelect(row, p)"
                     />
                   </td>
-                  <td class="px-2 py-2"><input v-model="row.item_code" class="w-full rounded border border-slate-300 px-2 py-1 text-sm" /></td>
+                  <td class="px-2 py-2"><input v-model="row.item_code" data-trace-field="item_code" class="w-full rounded border border-slate-300 px-2 py-1 text-sm" /></td>
                   <td class="px-2 py-2">
-                    <input v-model="row.description" class="w-full rounded border border-slate-300 px-2 py-1 text-sm" />
+                    <input v-model="row.description" data-trace-field="description" class="w-full rounded border border-slate-300 px-2 py-1 text-sm" />
                     <div v-if="row.ocr_confidence_label" class="mt-1">
                       <span
                         class="inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold"
@@ -290,10 +293,18 @@
                     </div>
                   </td>
                   <td class="px-2 py-2"><input v-model="row.serial_no" class="w-full rounded border border-slate-300 px-2 py-1 text-sm" /></td>
-                  <td class="w-20 px-2 py-2"><input v-model.number="row.quantity" type="number" step="0.001" class="w-full rounded border border-slate-300 px-2 py-1 text-right text-sm" /></td>
-                  <td class="w-24 px-2 py-2"><input v-model.number="row.unit_price" type="number" step="0.01" class="w-full rounded border border-slate-300 px-2 py-1 text-right text-sm" /></td>
+                  <td class="w-20 px-2 py-2"><input v-model.number="row.quantity" data-trace-field="quantity" type="number" step="0.001" class="w-full rounded border border-slate-300 px-2 py-1 text-right text-sm" /></td>
+                  <td class="w-24 px-2 py-2"><input v-model.number="row.unit_price" data-trace-field="unit_price" type="number" step="0.01" class="w-full rounded border border-slate-300 px-2 py-1 text-right text-sm" /></td>
                   <td class="w-20 px-2 py-2"><input v-model.number="row.discount" :disabled="form.priceIncludesDiscount" type="number" step="0.01" :class="['w-full rounded border px-2 py-1 text-right text-sm', form.priceIncludesDiscount ? 'border-slate-200 bg-slate-100 text-slate-400' : 'border-slate-300']" /></td>
-                  <td class="w-24 px-2 py-2 text-right text-sm font-medium">{{ rowAmount(row).toFixed(2) }}</td>
+                  <td class="w-24 px-2 py-2">
+                    <input
+                      :value="rowAmount(row).toFixed(2)"
+                      data-trace-field="amount"
+                      readonly
+                      tabindex="-1"
+                      class="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 text-right text-sm font-medium text-slate-700"
+                    />
+                  </td>
                   <td class="px-2 py-2 text-right">
                     <button type="button" class="text-red-500 hover:text-red-700" @click="form.items.splice(idx, 1)">×</button>
                   </td>
@@ -582,6 +593,25 @@ function buildTraceField(key, label, historicalValue, currentValue, type = 'text
     currentDisplay: formatCompareValue(currentValue, type),
     changed: !isSameCompareValue(historicalValue, currentValue, type),
   }
+}
+
+// 中文注释：点击历史对比里的“已变更”字段时，自动跳到对应输入框；Amount 会聚焦金额栏本身。
+async function focusTraceField(index, fieldKey) {
+  if (!Number.isInteger(index) || index < 0 || !fieldKey) return
+  await focusScanItemRow(index)
+  await nextTick()
+  const rowElement = itemRowRefs.value[index]
+  const target = rowElement?.querySelector(`[data-trace-field="${fieldKey}"]`)
+  if (!target || typeof target.focus !== 'function') return
+  target.focus({ preventScroll: true })
+  if (fieldKey !== 'amount' && typeof target.select === 'function') {
+    target.select()
+  }
+}
+
+async function handleTraceFieldClick(field) {
+  if (!field?.changed || !activeTimelineTrace.value) return
+  await focusTraceField(Number(activeTimelineTrace.value.itemIndex), field.key)
 }
 
 const traceComparison = computed(() => {
