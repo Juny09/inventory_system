@@ -1,4 +1,5 @@
 const fs = require('fs')
+const path = require('path')
 const axios = require('axios')
 const pdfParse = require('pdf-parse')
 const Tesseract = require('tesseract.js')
@@ -192,41 +193,97 @@ function scoreOcrText(text) {
 }
 
 async function buildOcrVariants(filePath) {
-  const base = sharp(filePath).rotate()
-  const variants = [
-    {
-      name: 'normalized',
-      buffer: await base
+  async function createVariant(name, pipeline) {
+    const buffer = await pipeline.png().toBuffer()
+    const metadata = await sharp(buffer).metadata()
+    return {
+      name,
+      buffer,
+      width: metadata.width || 0,
+      height: metadata.height || 0,
+    }
+  }
+
+  return Promise.all([
+    createVariant(
+      'normalized',
+      sharp(filePath)
+        .rotate()
         .greyscale()
         .normalise()
         .sharpen({ sigma: 1.2, m1: 1, m2: 2 })
-        .resize(2200, 2200, { fit: 'inside', withoutEnlargement: true })
-        .toBuffer(),
-    },
-    {
-      name: 'threshold',
-      buffer: await sharp(filePath)
+        .resize(2200, 2200, { fit: 'inside', withoutEnlargement: true }),
+    ),
+    createVariant(
+      'threshold',
+      sharp(filePath)
         .rotate()
         .greyscale()
         .normalise()
         .sharpen()
         .threshold(170)
-        .resize(2200, 2200, { fit: 'inside', withoutEnlargement: true })
-        .toBuffer(),
-    },
-  ]
-
-  return variants
+        .resize(2200, 2200, { fit: 'inside', withoutEnlargement: true }),
+    ),
+  ])
 }
 
 async function recognizeBuffer(buffer) {
-  const {
-    data: { text },
-  } = await Tesseract.recognize(buffer, 'eng', {
+  const { data } = await Tesseract.recognize(buffer, 'eng', {
     logger: () => {},
   })
 
-  return text || ''
+  return {
+    text: data?.text || '',
+    words: (data?.words || [])
+      .filter((word) => String(word?.text || '').trim())
+      .map((word) => {
+        const bbox = word?.bbox || {}
+        const left = Number(bbox.x0) || 0
+        const top = Number(bbox.y0) || 0
+        const right = Number(bbox.x1) || 0
+        const bottom = Number(bbox.y1) || 0
+        return {
+          text: String(word.text || '').trim(),
+          confidence: Number(word.confidence) || 0,
+          left,
+          top,
+          width: Math.max(0, right - left),
+          height: Math.max(0, bottom - top),
+        }
+      }),
+  }
+}
+
+async function saveOcrPreviewBuffer(filePath, buffer) {
+  const parsed = path.parse(filePath)
+  const previewPath = path.join(parsed.dir, `${parsed.name}-ocr-preview.png`)
+  await sharp(buffer).png().toFile(previewPath)
+  return previewPath
+}
+
+async function buildRotatedVariants(filePath) {
+  async function createVariant(name, angle) {
+    const buffer = await sharp(filePath)
+      .rotate(angle, { background: { r: 255, g: 255, b: 255, alpha: 1 } })
+      .greyscale()
+      .normalise()
+      .sharpen()
+      .resize(2200, 2200, { fit: 'inside', withoutEnlargement: true })
+      .png()
+      .toBuffer()
+    const metadata = await sharp(buffer).metadata()
+    return {
+      name,
+      buffer,
+      width: metadata.width || 0,
+      height: metadata.height || 0,
+    }
+  }
+
+  return Promise.all([
+    createVariant('rotated-left', -2),
+    createVariant('rotated-right', 2),
+  ])
 }
 
 /**
@@ -235,47 +292,54 @@ async function recognizeBuffer(buffer) {
  */
 async function extractImageText(filePath) {
   const variants = await buildOcrVariants(filePath)
-  let bestText = ''
+  let bestResult = null
   let bestScore = -1
 
   for (const variant of variants) {
     const recognized = await recognizeBuffer(variant.buffer)
-    const score = scoreOcrText(recognized)
+    const score = scoreOcrText(recognized.text)
     if (score > bestScore) {
       bestScore = score
-      bestText = recognized
-    }
-  }
-
-  if (bestScore < 120) {
-    const rotatedBuffers = await Promise.all([
-      sharp(filePath)
-        .rotate(-2, { background: { r: 255, g: 255, b: 255, alpha: 1 } })
-        .greyscale()
-        .normalise()
-        .sharpen()
-        .resize(2200, 2200, { fit: 'inside', withoutEnlargement: true })
-        .toBuffer(),
-      sharp(filePath)
-        .rotate(2, { background: { r: 255, g: 255, b: 255, alpha: 1 } })
-        .greyscale()
-        .normalise()
-        .sharpen()
-        .resize(2200, 2200, { fit: 'inside', withoutEnlargement: true })
-        .toBuffer(),
-    ])
-
-    for (const buffer of rotatedBuffers) {
-      const recognized = await recognizeBuffer(buffer)
-      const score = scoreOcrText(recognized)
-      if (score > bestScore) {
-        bestScore = score
-        bestText = recognized
+      bestResult = {
+        text: recognized.text,
+        ocrWords: recognized.words,
+        previewBuffer: variant.buffer,
+        previewWidth: variant.width,
+        previewHeight: variant.height,
       }
     }
   }
 
-  return bestText || ''
+  if (bestScore < 120) {
+    const rotatedVariants = await buildRotatedVariants(filePath)
+    for (const variant of rotatedVariants) {
+      const recognized = await recognizeBuffer(variant.buffer)
+      const score = scoreOcrText(recognized.text)
+      if (score > bestScore) {
+        bestScore = score
+        bestResult = {
+          text: recognized.text,
+          ocrWords: recognized.words,
+          previewBuffer: variant.buffer,
+          previewWidth: variant.width,
+          previewHeight: variant.height,
+        }
+      }
+    }
+  }
+
+  if (!bestResult) {
+    return { text: '', ocrWords: [], ocrPreviewPath: null, ocrPreviewWidth: 0, ocrPreviewHeight: 0 }
+  }
+
+  const ocrPreviewPath = await saveOcrPreviewBuffer(filePath, bestResult.previewBuffer)
+  return {
+    text: bestResult.text || '',
+    ocrWords: bestResult.ocrWords || [],
+    ocrPreviewPath,
+    ocrPreviewWidth: bestResult.previewWidth || 0,
+    ocrPreviewHeight: bestResult.previewHeight || 0,
+  }
 }
 
 /**

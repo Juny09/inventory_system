@@ -153,6 +153,117 @@
           </button>
         </div>
       </div>
+      <button
+        v-if="parsedDraft?.imported_from_scan && !scanReviewExpanded && (modal === 'do' || modal === 'invoice')"
+        type="button"
+        class="fixed bottom-4 right-4 z-[110] rounded-full border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-700 shadow-lg hover:bg-indigo-50"
+        @click="scanReviewExpanded = true"
+      >
+        打开 OCR 核对
+      </button>
+      <aside
+        v-if="showScanReviewPanel"
+        class="fixed inset-y-4 right-4 z-[110] w-[min(430px,calc(100vw-2rem))]"
+      >
+        <div class="flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
+          <div class="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+            <div>
+              <h3 class="text-sm font-semibold text-slate-900">OCR 核对面板</h3>
+              <p class="text-xs text-slate-500">边看原图 / Raw text，边检查表单有没有识别错。</p>
+            </div>
+            <button
+              type="button"
+              class="rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+              @click="scanReviewExpanded = false"
+            >
+              隐藏
+            </button>
+          </div>
+          <div class="flex-1 space-y-4 overflow-y-auto p-4">
+            <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <p class="text-xs font-medium uppercase tracking-wide text-slate-500">File</p>
+                  <p class="mt-1 break-all text-sm font-medium text-slate-800">{{ parsedDraft?.source_file_name || '—' }}</p>
+                </div>
+                <a
+                  v-if="scanOriginalPreviewUrl"
+                  :href="scanOriginalPreviewUrl"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="text-xs font-medium text-indigo-600 hover:underline"
+                >
+                  新窗口打开
+                </a>
+              </div>
+              <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
+                <div class="rounded border border-slate-200 bg-white px-2 py-2">
+                  <p class="text-slate-500">当前类型</p>
+                  <p class="mt-1 font-semibold text-slate-800">{{ parsedDraft?.type === 'delivery_order' ? 'DO' : 'Invoice' }}</p>
+                </div>
+                <div class="rounded border border-slate-200 bg-white px-2 py-2">
+                  <p class="text-slate-500">系统判断</p>
+                  <p class="mt-1 font-semibold text-slate-800">{{ parsedDraft?.detected_type || 'unknown' }}</p>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="scanReviewHighlights.length > 0" class="rounded-lg border border-slate-200 p-3">
+              <p class="text-xs font-medium uppercase tracking-wide text-slate-500">重点核对字段</p>
+              <div class="mt-3 flex flex-wrap gap-2">
+                <span
+                  v-for="highlight in scanReviewHighlights"
+                  :key="highlight.key"
+                  class="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800"
+                >
+                  {{ highlight.label }}: {{ highlight.value }}
+                </span>
+              </div>
+            </div>
+
+            <div v-if="scanIsImageFile && scanOriginalPreviewUrl" class="rounded-lg border border-slate-200 p-3">
+              <p class="text-xs font-medium uppercase tracking-wide text-slate-500">原图</p>
+              <div class="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                <img :src="scanOriginalPreviewUrl" alt="原图预览" class="block max-h-[360px] w-full object-contain" />
+              </div>
+            </div>
+
+            <div v-if="scanIsPdfFile && scanOriginalPreviewUrl" class="rounded-lg border border-slate-200 p-3">
+              <p class="text-xs font-medium uppercase tracking-wide text-slate-500">PDF 预览</p>
+              <div class="mt-3 overflow-hidden rounded-lg border border-slate-200">
+                <iframe :src="scanOriginalPreviewUrl" title="PDF preview" class="h-[360px] w-full bg-white"></iframe>
+              </div>
+            </div>
+
+            <div v-if="scanOcrPreviewUrl" class="rounded-lg border border-slate-200 p-3">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <p class="text-xs font-medium uppercase tracking-wide text-slate-500">OCR 高亮图</p>
+                  <p class="mt-1 text-xs text-slate-500">黄色框是 OCR 识别到并和关键字段匹配的文字区域。</p>
+                </div>
+                <span class="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-800">
+                  {{ scanImageHighlightBoxes.length }} 处高亮
+                </span>
+              </div>
+              <div class="relative mt-3 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                <img :src="scanOcrPreviewUrl" alt="OCR highlight preview" class="block w-full" />
+                <div
+                  v-for="box in scanImageHighlightBoxes"
+                  :key="box.key"
+                  class="absolute rounded border-2 border-amber-400 bg-amber-200/20"
+                  :style="box.style"
+                  :title="box.label"
+                ></div>
+              </div>
+            </div>
+
+            <div class="rounded-lg border border-slate-200 p-3">
+              <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Raw Text</p>
+              <pre class="mt-3 max-h-[420px] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 text-xs leading-6 text-slate-700" v-html="highlightedRawText"></pre>
+            </div>
+          </div>
+        </div>
+      </aside>
 
       <!-- Top Pagination -->
       <PaginationBar v-if="pagination.totalPages > 1" class="mt-3" :pagination="pagination" @change="loadList" />
@@ -390,6 +501,7 @@ const parsedDraft = ref(null)
 const scanLoading = ref(false)
 const scanErrorMessage = ref('')
 const scanFileInputRef = ref(null)
+const scanReviewExpanded = ref(false)
 
 const counts = ref({ do: 0, invoice: 0, returns: 0 })
 
@@ -430,6 +542,144 @@ function formatMatchedProductLabel(product) {
   const code = product.product_code || product.sku || ''
   const name = product.name || ''
   return [code, name].filter(Boolean).join(' · ')
+}
+
+function uniqueValues(values) {
+  return [...new Set(values.filter(Boolean))]
+}
+
+function normalizePreviewToken(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/gi, '')
+}
+
+function buildKeywordTokens(value, options = {}) {
+  const raw = String(value || '').trim()
+  if (!raw) return []
+  const tokens = []
+
+  if (options.includeWhole !== false) {
+    tokens.push(raw)
+  }
+
+  const parts = raw
+    .split(/[\s,;:/()#|]+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 2)
+
+  if (parts.length > 0) {
+    tokens.push(...parts.slice(0, options.maxParts || parts.length))
+  }
+
+  return uniqueValues(tokens)
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function highlightText(text, tokens) {
+  const source = String(text || '')
+  const usableTokens = uniqueValues(tokens)
+    .map((token) => String(token || '').trim())
+    .filter((token) => token.length >= 2)
+    .sort((a, b) => b.length - a.length)
+
+  if (!source) {
+    return '<span style="color:#94a3b8;">暂无 OCR 原文。</span>'
+  }
+
+  if (usableTokens.length === 0) {
+    return escapeHtml(source)
+  }
+
+  const pattern = new RegExp(usableTokens.map(escapeRegExp).join('|'), 'gi')
+  let cursor = 0
+  let html = ''
+  let match
+
+  while ((match = pattern.exec(source)) !== null) {
+    const matchText = match[0]
+    const start = match.index
+    if (start > cursor) {
+      html += escapeHtml(source.slice(cursor, start))
+    }
+    html += `<mark style="background:#fef08a;color:#854d0e;padding:0 2px;border-radius:3px;">${escapeHtml(matchText)}</mark>`
+    cursor = start + matchText.length
+  }
+
+  if (cursor < source.length) {
+    html += escapeHtml(source.slice(cursor))
+  }
+
+  return html
+}
+
+function resolveAssetUrl(assetPath) {
+  if (!assetPath || typeof window === 'undefined') return ''
+  if (/^https?:\/\//i.test(assetPath)) return assetPath
+  const baseUrl = String(api.defaults.baseURL || '')
+  if (baseUrl.startsWith('http')) {
+    return new URL(assetPath, baseUrl).toString()
+  }
+  return new URL(assetPath, window.location.origin).toString()
+}
+
+function buildReviewHighlights(draft) {
+  if (!draft) return []
+
+  const highlights = []
+  if (draft.document_no) {
+    highlights.push({
+      key: 'document-no',
+      label: '单号',
+      value: draft.document_no,
+      tokens: buildKeywordTokens(draft.document_no, { maxParts: 3 }),
+    })
+  }
+  if (draft.document_date) {
+    highlights.push({
+      key: 'document-date',
+      label: '日期',
+      value: draft.document_date,
+      tokens: buildKeywordTokens(draft.document_date, { maxParts: 3 }),
+    })
+  }
+  if (draft.supplier_name) {
+    highlights.push({
+      key: 'supplier-name',
+      label: '供应商',
+      value: draft.supplier_name,
+      tokens: buildKeywordTokens(draft.supplier_name, { maxParts: 4 }),
+    })
+  }
+
+  draft.items.slice(0, 6).forEach((item, index) => {
+    const label = item.description || item.product_label || ''
+    const qty = Number(item.quantity) || 0
+    if (!label) return
+    highlights.push({
+      key: `item-${index}`,
+      label: `Item ${index + 1}`,
+      value: qty > 0 ? `${label} x ${qty}` : label,
+      tokens: uniqueValues([
+        ...buildKeywordTokens(label, { maxParts: 3 }),
+        qty > 0 ? String(qty) : '',
+      ]),
+    })
+  })
+
+  return highlights
 }
 
 function resolveDraftType(parsedType) {
@@ -487,6 +737,7 @@ function buildParsedDraft(preview, documentType, sourceFile) {
     source_file_name: preview?.fileName || '',
     source_file: sourceFile || null,
     supplier_id: preview?.matchedSupplier?.id ? String(preview.matchedSupplier.id) : '',
+    supplier_name: preview?.matchedSupplier?.name || preview?.supplierName || '',
     warehouse_id: preview?.defaultWarehouse?.id ? String(preview.defaultWarehouse.id) : '',
     document_no: preview?.documentNumber || '',
     document_date: toInputDate(preview?.date) || new Date().toLocaleDateString('en-CA'),
@@ -494,8 +745,56 @@ function buildParsedDraft(preview, documentType, sourceFile) {
     items,
     type: normalizedType,
     detected_type: preview?.documentType || 'unknown',
+    raw_text: preview?.rawText || '',
+    file_url: preview?.fileUrl || '',
+    file_mime_type: preview?.fileMimeType || '',
+    ocr_words: Array.isArray(preview?.ocrWords) ? preview.ocrWords : [],
+    ocr_preview_url: preview?.ocrPreviewUrl || '',
+    ocr_preview_width: Number(preview?.ocrPreviewWidth) || 0,
+    ocr_preview_height: Number(preview?.ocrPreviewHeight) || 0,
   }
 }
+
+const showScanReviewPanel = computed(() => {
+  return Boolean(parsedDraft.value?.imported_from_scan && scanReviewExpanded.value && (modal.value === 'do' || modal.value === 'invoice'))
+})
+
+const scanReviewHighlights = computed(() => buildReviewHighlights(parsedDraft.value))
+const scanHighlightTokens = computed(() => uniqueValues(scanReviewHighlights.value.flatMap((item) => item.tokens || [])))
+const highlightedRawText = computed(() => highlightText(parsedDraft.value?.raw_text || '', scanHighlightTokens.value))
+const scanOriginalPreviewUrl = computed(() => resolveAssetUrl(parsedDraft.value?.file_url || ''))
+const scanOcrPreviewUrl = computed(() => resolveAssetUrl(parsedDraft.value?.ocr_preview_url || ''))
+const scanIsImageFile = computed(() => String(parsedDraft.value?.file_mime_type || '').startsWith('image/'))
+const scanIsPdfFile = computed(() => parsedDraft.value?.file_mime_type === 'application/pdf')
+const scanImageHighlightBoxes = computed(() => {
+  const previewWidth = Number(parsedDraft.value?.ocr_preview_width) || 0
+  const previewHeight = Number(parsedDraft.value?.ocr_preview_height) || 0
+  const words = Array.isArray(parsedDraft.value?.ocr_words) ? parsedDraft.value.ocr_words : []
+  if (!previewWidth || !previewHeight || words.length === 0) return []
+
+  const normalizedTokens = new Set(
+    scanHighlightTokens.value
+      .map((token) => normalizePreviewToken(token))
+      .filter(Boolean),
+  )
+
+  return words
+    .filter((word) => {
+      const text = normalizePreviewToken(word?.text)
+      return text && normalizedTokens.has(text) && Number(word?.width) > 0 && Number(word?.height) > 0
+    })
+    .slice(0, 120)
+    .map((word, index) => ({
+      key: `${index}-${word.text}-${word.left}-${word.top}`,
+      label: word.text,
+      style: {
+        left: `${(Number(word.left) / previewWidth) * 100}%`,
+        top: `${(Number(word.top) / previewHeight) * 100}%`,
+        width: `${(Number(word.width) / previewWidth) * 100}%`,
+        height: `${(Number(word.height) / previewHeight) * 100}%`,
+      },
+    }))
+})
 
 function formatDate(v) {
   if (!v) return '—'
@@ -561,6 +860,7 @@ function switchParsedDraftType(nextType) {
     ...parsedDraft.value,
     type: nextType,
   }
+  scanReviewExpanded.value = true
   activeTab.value = toModalTab(nextType)
   editingId.value = null
   modal.value = activeTab.value
@@ -590,6 +890,7 @@ async function handleScanFileChange(event) {
     }
 
     parsedDraft.value = buildParsedDraft(data, documentType, selectedFile)
+    scanReviewExpanded.value = true
     editingId.value = null
     activeTab.value = toModalTab(documentType)
     modal.value = activeTab.value
@@ -667,17 +968,20 @@ async function loadCounts() {
 function openCreate() {
   editingId.value = null
   parsedDraft.value = null
+  scanReviewExpanded.value = false
   modal.value = activeTab.value
 }
 function openEdit(id) {
   editingId.value = id
   parsedDraft.value = null
+  scanReviewExpanded.value = false
   modal.value = activeTab.value
 }
 function closeModal() {
   modal.value = null
   editingId.value = null
   parsedDraft.value = null
+  scanReviewExpanded.value = false
 }
 async function onSaved(payload) {
   const attachmentWarning = payload?.attachmentWarning || ''

@@ -108,7 +108,12 @@ router.post('/parse', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), upload.single
     }
 
     // 2. 提取文本（用于正则回退 + rawText 展示）
-    const rawText = await extractDocumentText(filePath, req.file.mimetype)
+    const extractResult = await extractDocumentText(filePath, req.file.mimetype)
+    const rawText = typeof extractResult === 'string' ? extractResult : extractResult?.text || ''
+    const ocrWords = Array.isArray(extractResult?.ocrWords) ? extractResult.ocrWords : []
+    const ocrPreviewUrl = extractResult?.ocrPreviewPath
+      ? `/uploads/documents/${path.basename(extractResult.ocrPreviewPath)}`
+      : null
 
     // 3. 解析字段（优先使用 Ollama 结果，否则正则回退）
     const parsed = parseDocument(rawText, ollamaResult)
@@ -168,7 +173,12 @@ router.post('/parse', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), upload.single
       defaultWarehouse: defaultWarehouse,
       rawText: parsed.rawText,
       fileName: req.file.originalname,
+      fileMimeType: req.file.mimetype,
       fileUrl: `/uploads/documents/${path.basename(filePath)}`,
+      ocrWords,
+      ocrPreviewUrl,
+      ocrPreviewWidth: Number(extractResult?.ocrPreviewWidth) || 0,
+      ocrPreviewHeight: Number(extractResult?.ocrPreviewHeight) || 0,
     })
   } catch (error) {
     console.error('Document parse error:', error)
