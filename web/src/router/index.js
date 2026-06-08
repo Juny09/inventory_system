@@ -32,6 +32,7 @@ const BankStatementsPage = () => import('../pages/BankStatementsPage.vue')
 const SupplierDocumentsPage = () => import('../pages/SupplierDocumentsPage.vue')
 const AdminTenantsPage = () => import('../pages/AdminTenantsPage.vue')
 const DocumentUploadPage = () => import('../pages/DocumentUploadPage.vue')
+const MobileScannerPage = () => import('../pages/MobileScannerPage.vue')
 
 const routes = [
   {
@@ -206,6 +207,12 @@ const routes = [
     path: '/document-upload',
     name: 'document-upload',
     component: DocumentUploadPage,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER', 'STAFF'] },
+  },
+  {
+    path: '/mobile-scanner',
+    name: 'mobile-scanner',
+    component: MobileScannerPage,
     meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER', 'STAFF'] },
   },
   {

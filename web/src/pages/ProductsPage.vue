@@ -881,6 +881,13 @@ watch(
               </button>
               <button
                 type="button"
+                class="rounded-2xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 hover:bg-emerald-100"
+                @click="router.push({ name: 'mobile-scanner' })"
+              >
+                {{ localeStore.locale === 'en' ? 'Open Mobile Scanner' : '打开手机扫码页' }}
+              </button>
+              <button
+                type="button"
                 class="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
                 :disabled="selectedProductIds.length === 0"
                 @click="batchPrintSelected"
