@@ -14,6 +14,26 @@
           已从文档自动带入资料，请检查数量、单价和供应商后再保存。
           <span v-if="props.initialData?.source_file_name" class="ml-1 font-medium">{{ props.initialData.source_file_name }}</span>
         </div>
+        <div v-if="activeTimelineTrace" class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-xs font-medium uppercase tracking-wide text-amber-700">追查模式</p>
+              <p class="mt-1 font-semibold">当前正在追查 {{ activeTimelineTrace.itemLabel }}</p>
+              <p class="mt-1 text-xs text-amber-800">
+                {{ activeTimelineTrace.documentLabel }}
+                <span v-if="activeTimelineTrace.userLabel" class="ml-1">· {{ activeTimelineTrace.userLabel }}</span>
+                <span v-if="activeTimelineTrace.timeLabel" class="ml-1">· {{ activeTimelineTrace.timeLabel }}</span>
+              </p>
+            </div>
+            <button
+              type="button"
+              class="rounded border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+              @click="clearActiveTraceMode"
+            >
+              退出追查模式
+            </button>
+          </div>
+        </div>
         <div v-if="lowConfidenceItems.length > 0" class="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           <p class="font-semibold">发现 {{ lowConfidenceItems.length }} 条低置信度 Item，保存前必须先完成人工确认。</p>
           <p class="mt-1 text-xs text-rose-700">当前还有 {{ pendingLowConfidenceItems.length }} 条未确认，未确认时系统会禁止保存。</p>
@@ -106,7 +126,10 @@
                   v-for="item in entry.items || []"
                   :key="`${entry.audit_id}-${item.itemIndex}-${item.sortOrder}`"
                   type="button"
-                  class="w-full rounded border border-slate-200 bg-slate-50 px-3 py-2 text-left transition hover:border-amber-300 hover:bg-amber-50"
+                  class="w-full rounded border px-3 py-2 text-left transition"
+                  :class="isActiveTimelineTrace(entry, item)
+                    ? 'border-amber-400 bg-amber-50 ring-2 ring-amber-200'
+                    : 'border-slate-200 bg-slate-50 hover:border-amber-300 hover:bg-amber-50'"
                   @click="handleTimelineItemClick(entry, item)"
                 >
                   <div class="flex flex-wrap items-center justify-between gap-2">
@@ -287,7 +310,7 @@ const props = defineProps({
   scanFocusKey: { type: String, default: 'all' },
   scanFocusRequestId: { type: Number, default: 0 },
 })
-const emit = defineEmits(['close', 'saved', 'scan-item-selected'])
+const emit = defineEmits(['close', 'saved', 'scan-item-selected', 'scan-trace-cleared'])
 const localeStore = useLocaleStore()
 
 const form = reactive({
@@ -315,6 +338,7 @@ const ocrReviewContext = ref(null)
 const itemRowRefs = ref([])
 const activeScanItemIndex = ref(null)
 const ocrConfirmationTimeline = ref([])
+const activeTimelineTrace = ref(null)
 
 async function loadWarehouses() {
   try {
@@ -439,9 +463,37 @@ function buildOcrReviewContextPayload() {
   return normalizeOcrReviewContext(ocrReviewContext.value, 'invoice')
 }
 
+function buildTimelineTraceKey(entry, item) {
+  return `${entry?.audit_id || 'audit'}-${Number(item?.itemIndex) || 0}-${Number(item?.sortOrder) || 0}`
+}
+
+function buildTimelineTraceContext(entry, item) {
+  return {
+    key: buildTimelineTraceKey(entry, item),
+    auditId: entry?.audit_id || null,
+    itemIndex: Number(item?.itemIndex) || 0,
+    itemLabel: item?.itemLabel || `Item ${Number(item?.itemIndex) + 1}`,
+    documentLabel: entry?.document_no ? `Invoice #${entry.document_no}` : 'Invoice 确认记录',
+    userLabel: entry?.user_email || entry?.confirmed_by?.email || 'System',
+    timeLabel: formatAuditTimelineTime(item?.manualConfirmedAt || entry?.created_at),
+  }
+}
+
+function isActiveTimelineTrace(entry, item) {
+  if (!activeTimelineTrace.value?.key) return false
+  return activeTimelineTrace.value.key === buildTimelineTraceKey(entry, item)
+}
+
+function clearActiveTraceMode() {
+  activeTimelineTrace.value = null
+  emit('scan-trace-cleared')
+}
+
 // 中文注释：点击 invoice 某一行 item 时，通知父页面切换 OCR 聚焦到同一条商品。
 function handleItemRowClick(index) {
   if (!Number.isInteger(index) || index < 0) return
+  activeTimelineTrace.value = null
+  emit('scan-trace-cleared')
   activeScanItemIndex.value = index
   emit('scan-item-selected', { itemIndex: index })
 }
@@ -524,7 +576,9 @@ async function handleTimelineItemClick(entry, item) {
   const itemIndex = Number(item?.itemIndex)
   if (!Number.isInteger(itemIndex) || itemIndex < 0) return
   const context = normalizeOcrReviewContext(entry?.ocr_review_context || ocrReviewContext.value, 'invoice')
-  emit('scan-item-selected', { itemIndex, ocrReviewContext: context })
+  const traceContext = buildTimelineTraceContext(entry, item)
+  activeTimelineTrace.value = traceContext
+  emit('scan-item-selected', { itemIndex, ocrReviewContext: context, traceContext })
   await focusScanItemRow(itemIndex)
 }
 
@@ -561,6 +615,7 @@ async function applyInitialData(initialData) {
   importedSourceFile.value = initialData?.source_file || null
   ocrReviewContext.value = normalizeOcrReviewContext(initialData, 'invoice')
   ocrConfirmationTimeline.value = []
+  activeTimelineTrace.value = null
   if (form.supplier_id) {
     await loadDOsForSupplier(form.supplier_id)
   }
@@ -692,6 +747,7 @@ async function loadExisting(id) {
   importedSourceFile.value = null
   ocrReviewContext.value = normalizeOcrReviewContext(data.ocr_review_context, 'invoice')
   ocrConfirmationTimeline.value = Array.isArray(data.ocr_confirmation_timeline) ? data.ocr_confirmation_timeline : []
+  activeTimelineTrace.value = null
   await loadDOsForSupplier(data.supplier_id)
 }
 

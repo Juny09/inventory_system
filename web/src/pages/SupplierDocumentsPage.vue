@@ -202,6 +202,28 @@
             </button>
           </div>
           <div class="flex-1 space-y-4 overflow-y-auto p-4">
+            <div v-if="scanTraceContext" class="rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <p class="text-xs font-medium uppercase tracking-wide text-amber-700">追查模式</p>
+                  <p class="mt-1 text-sm font-semibold text-amber-900">
+                    当前正在追查 {{ scanTraceContext.itemLabel || '某条确认记录' }}
+                  </p>
+                  <p class="mt-1 text-xs text-amber-800">
+                    {{ scanTraceContext.documentLabel || '单据确认记录' }}
+                    <span v-if="scanTraceContext.userLabel" class="ml-1">· {{ scanTraceContext.userLabel }}</span>
+                    <span v-if="scanTraceContext.timeLabel" class="ml-1">· {{ scanTraceContext.timeLabel }}</span>
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  class="rounded border border-amber-300 bg-white px-2 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-100"
+                  @click="clearScanTraceMode()"
+                >
+                  退出追查模式
+                </button>
+              </div>
+            </div>
             <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
               <div class="flex items-start justify-between gap-3">
                 <div>
@@ -244,7 +266,7 @@
                   :key="`risk-${item.key}`"
                   type="button"
                   class="flex w-full items-center justify-between rounded-lg border border-rose-300 bg-white px-3 py-2 text-left text-xs text-rose-800 hover:bg-rose-100"
-                  @click="setScanReviewFocus(item.key, { triggerScroll: true })"
+                  @click="setScanReviewFocus(item.key, { triggerScroll: true, clearTrace: true })"
                 >
                   <span class="font-semibold">{{ item.label }} · {{ item.value }}</span>
                   <span class="rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-800">{{ item.confidence?.label || '低' }}</span>
@@ -261,7 +283,7 @@
                 <button
                   type="button"
                   class="rounded border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
-                  @click="setScanReviewFocus('all')"
+                  @click="setScanReviewFocus('all', { clearTrace: true })"
                 >
                   显示全部
                 </button>
@@ -273,7 +295,7 @@
                   :class="scanReviewFocusKey === 'all'
                     ? 'border-indigo-600 bg-indigo-600 text-white'
                     : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'"
-                  @click="setScanReviewFocus('all')"
+                  @click="setScanReviewFocus('all', { clearTrace: true })"
                 >
                   全部字段
                 </button>
@@ -285,7 +307,7 @@
                   :class="scanReviewFocusKey === highlight.key
                     ? 'border-amber-500 bg-amber-500 text-white'
                     : 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'"
-                  @click="setScanReviewFocus(highlight.key)"
+                  @click="setScanReviewFocus(highlight.key, { clearTrace: true })"
                 >
                   {{ highlight.label }}: {{ highlight.value }}
                 </button>
@@ -301,7 +323,7 @@
                     :class="scanReviewFocusKey === itemOption.key
                       ? 'border-indigo-600 bg-indigo-50 text-indigo-800'
                       : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'"
-                    @click="setScanReviewFocus(itemOption.key)"
+                    @click="setScanReviewFocus(itemOption.key, { clearTrace: true })"
                   >
                     <div class="flex items-start justify-between gap-3">
                       <div>
@@ -542,6 +564,7 @@
       @close="closeModal"
       @saved="onSaved"
       @scan-item-selected="onScanItemSelected"
+      @scan-trace-cleared="clearScanTraceMode"
     />
     <SupplierInvoiceFormModal
       v-if="modal === 'invoice'"
@@ -553,6 +576,7 @@
       @close="closeModal"
       @saved="onSaved"
       @scan-item-selected="onScanItemSelected"
+      @scan-trace-cleared="clearScanTraceMode"
     />
     <SupplierReturnFormModal
       v-if="modal === 'returns'"
@@ -620,6 +644,7 @@ const scanFileInputRef = ref(null)
 const scanReviewExpanded = ref(false)
 const scanReviewFocusKey = ref('all')
 const scanFocusRequestId = ref(0)
+const scanTraceContext = ref(null)
 
 const counts = ref({ do: 0, invoice: 0, returns: 0 })
 
@@ -1033,8 +1058,15 @@ const scanImageHighlightBoxes = computed(() => {
     .slice(0, 160)
 })
 
+function clearScanTraceMode() {
+  scanTraceContext.value = null
+}
+
 function setScanReviewFocus(key = 'all', options = {}) {
   scanReviewFocusKey.value = key || 'all'
+  if (options.clearTrace) {
+    clearScanTraceMode()
+  }
   if (options.triggerScroll) {
     scanFocusRequestId.value += 1
   }
@@ -1054,6 +1086,11 @@ function onScanItemSelected(payload) {
       ...payload.ocrReviewContext,
       imported_from_scan: true,
     }
+  }
+  if (payload?.traceContext && typeof payload.traceContext === 'object') {
+    scanTraceContext.value = payload.traceContext
+  } else {
+    clearScanTraceMode()
   }
   scanReviewExpanded.value = true
   setScanReviewFocus(`item-${itemIndex}`)
@@ -1123,6 +1160,7 @@ function switchParsedDraftType(nextType) {
     ...parsedDraft.value,
     type: nextType,
   }
+  clearScanTraceMode()
   scanReviewExpanded.value = true
   activeTab.value = toModalTab(nextType)
   editingId.value = null
@@ -1136,6 +1174,7 @@ async function handleScanFileChange(event) {
 
   scanLoading.value = true
   scanErrorMessage.value = ''
+      clearScanTraceMode()
 
   try {
     const formData = new FormData()
@@ -1233,6 +1272,7 @@ async function loadCounts() {
 function openCreate() {
   editingId.value = null
   parsedDraft.value = null
+  clearScanTraceMode()
   scanReviewExpanded.value = false
   scanReviewFocusKey.value = 'all'
   scanFocusRequestId.value = 0
@@ -1241,6 +1281,7 @@ function openCreate() {
 function openEdit(id) {
   editingId.value = id
   parsedDraft.value = null
+  clearScanTraceMode()
   scanReviewExpanded.value = false
   scanReviewFocusKey.value = 'all'
   scanFocusRequestId.value = 0
@@ -1250,6 +1291,7 @@ function closeModal() {
   modal.value = null
   editingId.value = null
   parsedDraft.value = null
+  clearScanTraceMode()
   scanReviewExpanded.value = false
   scanReviewFocusKey.value = 'all'
   scanFocusRequestId.value = 0
