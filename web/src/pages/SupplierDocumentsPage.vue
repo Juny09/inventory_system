@@ -223,6 +223,47 @@
                   退出追查模式
                 </button>
               </div>
+              <div v-if="scanTraceComparison" class="mt-3 rounded-lg border border-amber-200 bg-white/80 p-3">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <p class="text-xs font-semibold text-amber-900">历史确认摘要</p>
+                  <div class="flex flex-wrap gap-2 text-[11px]">
+                    <span class="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800">
+                      历史 OCR {{ scanTraceComparison.historicalConfidence }}
+                    </span>
+                    <span class="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">
+                      当前 OCR {{ scanTraceComparison.currentConfidence }}
+                    </span>
+                  </div>
+                </div>
+                <div class="mt-3 grid gap-2">
+                  <div
+                    v-for="field in scanTraceComparison.fields"
+                    :key="field.key"
+                    class="rounded border px-3 py-2"
+                    :class="field.changed ? 'border-rose-200 bg-rose-50' : 'border-emerald-200 bg-emerald-50/70'"
+                  >
+                    <div class="flex items-center justify-between gap-2">
+                      <p class="text-xs font-semibold text-slate-800">{{ field.label }}</p>
+                      <span
+                        class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                        :class="field.changed ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'"
+                      >
+                        {{ field.changed ? '已变更' : '一致' }}
+                      </span>
+                    </div>
+                    <div class="mt-2 grid grid-cols-2 gap-3 text-xs">
+                      <div>
+                        <p class="text-slate-500">历史确认值</p>
+                        <p class="mt-1 font-medium text-slate-900">{{ field.historicalDisplay }}</p>
+                      </div>
+                      <div>
+                        <p class="text-slate-500">当前 OCR/表单值</p>
+                        <p class="mt-1 font-medium" :class="field.changed ? 'text-rose-700' : 'text-emerald-700'">{{ field.currentDisplay }}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
             <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
               <div class="flex items-start justify-between gap-3">
@@ -1061,6 +1102,76 @@ const scanImageHighlightBoxes = computed(() => {
 function clearScanTraceMode() {
   scanTraceContext.value = null
 }
+
+function normalizeTraceText(value) {
+  return String(value ?? '').trim()
+}
+
+function normalizeTraceNumber(value, decimals = 3) {
+  const numberValue = Number(value)
+  if (!Number.isFinite(numberValue)) return null
+  return Number(numberValue.toFixed(decimals))
+}
+
+function formatTraceValue(value, type = 'text') {
+  if (type === 'qty') {
+    const normalized = normalizeTraceNumber(value, 3)
+    return normalized === null ? '—' : normalized.toLocaleString('en-US', { maximumFractionDigits: 3 })
+  }
+  if (type === 'money') {
+    const normalized = normalizeTraceNumber(value, 2)
+    return normalized === null ? '—' : normalized.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
+  const normalized = normalizeTraceText(value)
+  return normalized || '—'
+}
+
+function isSameTraceValue(left, right, type = 'text') {
+  if (type === 'qty') {
+    return normalizeTraceNumber(left, 3) === normalizeTraceNumber(right, 3)
+  }
+  if (type === 'money') {
+    return normalizeTraceNumber(left, 2) === normalizeTraceNumber(right, 2)
+  }
+  return normalizeTraceText(left) === normalizeTraceText(right)
+}
+
+function buildTraceCompareField(key, label, historicalValue, currentValue, type = 'text') {
+  return {
+    key,
+    label,
+    historicalDisplay: formatTraceValue(historicalValue, type),
+    currentDisplay: formatTraceValue(currentValue, type),
+    changed: !isSameTraceValue(historicalValue, currentValue, type),
+  }
+}
+
+const scanTraceComparison = computed(() => {
+  if (!scanTraceContext.value) return null
+
+  const itemIndex = Number(scanTraceContext.value.itemIndex)
+  const currentItem = Number.isInteger(itemIndex) && itemIndex >= 0 ? parsedDraft.value?.items?.[itemIndex] || {} : {}
+  const historicalItem = scanTraceContext.value.historicalItem || {}
+  const isInvoiceTrace = parsedDraft.value?.type === 'invoice'
+  const fields = [
+    buildTraceCompareField('item_code', 'Item Code', historicalItem.item_code, currentItem.item_code),
+    buildTraceCompareField('description', 'Description', historicalItem.description, currentItem.description),
+    buildTraceCompareField('quantity', 'Qty', historicalItem.quantity, currentItem.quantity, 'qty'),
+  ]
+
+  if (isInvoiceTrace) {
+    fields.push(
+      buildTraceCompareField('unit_price', 'Unit Price', historicalItem.unit_price, currentItem.unit_price, 'money'),
+      buildTraceCompareField('amount', 'Amount', historicalItem.amount, currentItem.extracted_amount, 'money'),
+    )
+  }
+
+  return {
+    historicalConfidence: formatAuditConfidence(historicalItem.ocr_confidence_level, historicalItem.ocr_confidence_percent),
+    currentConfidence: formatAuditConfidence(currentItem.ocr_confidence_level, currentItem.ocr_confidence_percent),
+    fields,
+  }
+})
 
 function setScanReviewFocus(key = 'all', options = {}) {
   scanReviewFocusKey.value = key || 'all'

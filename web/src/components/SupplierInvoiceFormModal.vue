@@ -33,6 +33,49 @@
               退出追查模式
             </button>
           </div>
+          <div v-if="traceComparison" class="mt-3 rounded-lg border border-amber-200 bg-white/80 p-3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <p class="text-xs font-semibold text-amber-900">历史对比面板</p>
+              <div class="flex flex-wrap gap-2 text-[11px]">
+                <span class="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800">
+                  历史 OCR {{ traceComparison.historicalConfidence }}
+                </span>
+                <span class="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">
+                  当前 OCR {{ traceComparison.currentConfidence }}
+                </span>
+                <span
+                  class="rounded-full px-2 py-0.5 font-semibold"
+                  :class="traceComparison.changedCount > 0 ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'"
+                >
+                  {{ traceComparison.changedCount > 0 ? `${traceComparison.changedCount} 项已变更` : '与历史一致' }}
+                </span>
+              </div>
+            </div>
+            <div class="mt-3 grid gap-2 md:grid-cols-2">
+              <div
+                v-for="field in traceComparison.fields"
+                :key="field.key"
+                class="rounded border px-3 py-2"
+                :class="field.changed ? 'border-rose-200 bg-rose-50' : 'border-emerald-200 bg-emerald-50/70'"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <p class="text-xs font-semibold text-slate-800">{{ field.label }}</p>
+                  <span
+                    class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                    :class="field.changed ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'"
+                  >
+                    {{ field.changed ? '已变更' : '一致' }}
+                  </span>
+                </div>
+                <div class="mt-2 space-y-1 text-xs">
+                  <p class="text-slate-500">历史确认值</p>
+                  <p class="font-medium text-slate-900">{{ field.historicalDisplay }}</p>
+                  <p class="pt-1 text-slate-500">当前单据值</p>
+                  <p class="font-medium" :class="field.changed ? 'text-rose-700' : 'text-emerald-700'">{{ field.currentDisplay }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
         <div v-if="lowConfidenceItems.length > 0" class="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           <p class="font-semibold">发现 {{ lowConfidenceItems.length }} 条低置信度 Item，保存前必须先完成人工确认。</p>
@@ -476,6 +519,15 @@ function buildTimelineTraceContext(entry, item) {
     documentLabel: entry?.document_no ? `Invoice #${entry.document_no}` : 'Invoice 确认记录',
     userLabel: entry?.user_email || entry?.confirmed_by?.email || 'System',
     timeLabel: formatAuditTimelineTime(item?.manualConfirmedAt || entry?.created_at),
+    historicalItem: {
+      item_code: item?.itemCode || '',
+      description: item?.description || '',
+      quantity: Number(item?.quantity) || 0,
+      unit_price: Number(item?.unitPrice) || 0,
+      amount: Number(item?.amount) || 0,
+      ocr_confidence_level: item?.ocrConfidenceLevel || '',
+      ocr_confidence_percent: Number(item?.ocrConfidencePercent) || 0,
+    },
   }
 }
 
@@ -488,6 +540,72 @@ function clearActiveTraceMode() {
   activeTimelineTrace.value = null
   emit('scan-trace-cleared')
 }
+
+function normalizeCompareText(value) {
+  return String(value ?? '').trim()
+}
+
+function normalizeCompareNumber(value, decimals = 3) {
+  const numberValue = Number(value)
+  if (!Number.isFinite(numberValue)) return null
+  return Number(numberValue.toFixed(decimals))
+}
+
+function formatCompareValue(value, type = 'text') {
+  if (type === 'qty') {
+    const normalized = normalizeCompareNumber(value, 3)
+    return normalized === null ? '—' : normalized.toLocaleString('en-US', { maximumFractionDigits: 3 })
+  }
+  if (type === 'money') {
+    const normalized = normalizeCompareNumber(value, 2)
+    return normalized === null ? '—' : normalized.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
+  const normalized = normalizeCompareText(value)
+  return normalized || '—'
+}
+
+function isSameCompareValue(left, right, type = 'text') {
+  if (type === 'qty') {
+    return normalizeCompareNumber(left, 3) === normalizeCompareNumber(right, 3)
+  }
+  if (type === 'money') {
+    return normalizeCompareNumber(left, 2) === normalizeCompareNumber(right, 2)
+  }
+  return normalizeCompareText(left) === normalizeCompareText(right)
+}
+
+function buildTraceField(key, label, historicalValue, currentValue, type = 'text') {
+  return {
+    key,
+    label,
+    historicalDisplay: formatCompareValue(historicalValue, type),
+    currentDisplay: formatCompareValue(currentValue, type),
+    changed: !isSameCompareValue(historicalValue, currentValue, type),
+  }
+}
+
+const traceComparison = computed(() => {
+  if (!activeTimelineTrace.value) return null
+
+  const itemIndex = Number(activeTimelineTrace.value.itemIndex)
+  const currentRow = Number.isInteger(itemIndex) && itemIndex >= 0 ? form.items[itemIndex] || {} : {}
+  const currentOcrRow = Number.isInteger(itemIndex) && itemIndex >= 0 ? ocrReviewContext.value?.items?.[itemIndex] || {} : {}
+  const historicalItem = activeTimelineTrace.value.historicalItem || {}
+  const fields = [
+    buildTraceField('item_code', 'Item Code', historicalItem.item_code, currentRow.item_code),
+    buildTraceField('description', 'Description', historicalItem.description, currentRow.description),
+    buildTraceField('quantity', 'Qty', historicalItem.quantity, currentRow.quantity, 'qty'),
+    buildTraceField('unit_price', 'Unit Price', historicalItem.unit_price, currentRow.unit_price, 'money'),
+    buildTraceField('amount', 'Amount', historicalItem.amount, rowAmount(currentRow), 'money'),
+  ]
+
+  return {
+    historicalConfidence: formatAuditConfidence(historicalItem.ocr_confidence_level, historicalItem.ocr_confidence_percent),
+    currentConfidence: formatAuditConfidence(currentOcrRow.ocr_confidence_level, currentOcrRow.ocr_confidence_percent),
+    fields,
+    changedCount: fields.filter((field) => field.changed).length,
+  }
+})
 
 // 中文注释：点击 invoice 某一行 item 时，通知父页面切换 OCR 聚焦到同一条商品。
 function handleItemRowClick(index) {
