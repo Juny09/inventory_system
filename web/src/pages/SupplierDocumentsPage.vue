@@ -259,8 +259,19 @@
                       : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'"
                     @click="setScanReviewFocus(itemOption.key)"
                   >
-                    <span class="font-semibold">{{ itemOption.label }}</span>
-                    <span class="ml-2">{{ itemOption.value }}</span>
+                    <div class="flex items-start justify-between gap-3">
+                      <div>
+                        <span class="font-semibold">{{ itemOption.label }}</span>
+                        <span class="ml-2">{{ itemOption.value }}</span>
+                      </div>
+                      <span
+                        v-if="itemOption.confidence"
+                        class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                        :class="confidenceBadgeClass(itemOption.confidence.level)"
+                      >
+                        {{ itemOption.confidence.label }}
+                      </span>
+                    </div>
                   </button>
                 </div>
               </div>
@@ -486,6 +497,7 @@
       :scan-focus-request-id="scanFocusRequestId"
       @close="closeModal"
       @saved="onSaved"
+      @scan-item-selected="onScanItemSelected"
     />
     <SupplierInvoiceFormModal
       v-if="modal === 'invoice'"
@@ -496,6 +508,7 @@
       :scan-focus-request-id="scanFocusRequestId"
       @close="closeModal"
       @saved="onSaved"
+      @scan-item-selected="onScanItemSelected"
     />
     <SupplierReturnFormModal
       v-if="modal === 'returns'"
@@ -734,6 +747,13 @@ function buildReviewHighlights(draft) {
       label: `Item ${index + 1}`,
       value: qty > 0 ? `${label} x ${qty}` : label,
       itemIndex: index,
+      confidence: item?.ocr_confidence_label
+        ? {
+            percent: Number(item.ocr_confidence_percent) || 0,
+            level: item.ocr_confidence_level || 'low',
+            label: item.ocr_confidence_label,
+          }
+        : null,
       tokens: uniqueValues([
         ...buildKeywordTokens(label, { maxParts: 3 }),
         qty > 0 ? String(qty) : '',
@@ -774,12 +794,81 @@ function deriveUnitPrice(item) {
   return 0
 }
 
+function buildItemReviewTokens(item, matchedProduct) {
+  const quantity = Number(item?.extractedQuantity) || 0
+  return uniqueValues([
+    ...buildKeywordTokens(item?.extractedDescription || matchedProduct?.name || '', { maxParts: 4 }),
+    matchedProduct?.product_code || matchedProduct?.sku || '',
+    quantity > 0 ? String(quantity) : '',
+  ])
+}
+
+function computeConfidenceLevel(score) {
+  if (score >= 85) return 'high'
+  if (score >= 60) return 'medium'
+  return 'low'
+}
+
+function formatConfidenceLabel(level, score) {
+  const prefix = level === 'high' ? '高' : level === 'medium' ? '中' : '低'
+  return `${prefix} ${score}%`
+}
+
+// 中文注释：把 OCR 单词命中率和 OCR 自带置信度合并成一个更直观的 item 评分。
+function computeItemConfidence(tokens, ocrWords) {
+  const normalizedTokens = uniqueValues(tokens)
+    .map((token) => normalizePreviewToken(token))
+    .filter(Boolean)
+
+  if (normalizedTokens.length === 0 || !Array.isArray(ocrWords) || ocrWords.length === 0) {
+    return {
+      percent: 0,
+      level: 'low',
+      label: '低 0%',
+      matchedWords: 0,
+    }
+  }
+
+  const tokenSet = new Set(normalizedTokens)
+  const matchedWords = ocrWords.filter((word) => tokenSet.has(normalizePreviewToken(word?.text)))
+  if (matchedWords.length === 0) {
+    return {
+      percent: 0,
+      level: 'low',
+      label: '低 0%',
+      matchedWords: 0,
+    }
+  }
+
+  const matchedTokenSet = new Set(matchedWords.map((word) => normalizePreviewToken(word?.text)).filter(Boolean))
+  const coverageScore = (matchedTokenSet.size / tokenSet.size) * 100
+  const avgWordConfidence = matchedWords.reduce((sum, word) => sum + (Number(word?.confidence) || 0), 0) / matchedWords.length
+  const finalScore = Math.max(0, Math.min(100, Math.round(avgWordConfidence * 0.7 + coverageScore * 0.3)))
+  const level = computeConfidenceLevel(finalScore)
+
+  return {
+    percent: finalScore,
+    level,
+    label: formatConfidenceLabel(level, finalScore),
+    matchedWords: matchedWords.length,
+  }
+}
+
+function confidenceBadgeClass(level) {
+  if (level === 'high') return 'bg-emerald-100 text-emerald-800'
+  if (level === 'medium') return 'bg-amber-100 text-amber-800'
+  return 'bg-rose-100 text-rose-800'
+}
+
 // 中文注释：把 OCR/解析结果转换成现有表单能直接吃的结构，做到“上传后直接弹出并自动带值”。
 function buildParsedDraft(preview, documentType, sourceFile) {
   const normalizedType = documentType === 'delivery_order' ? 'delivery_order' : 'invoice'
+  const ocrWords = Array.isArray(preview?.ocrWords) ? preview.ocrWords : []
   const items = Array.isArray(preview?.items)
     ? preview.items.map((item) => {
         const matchedProduct = item?.matchedProducts?.[0] || null
+        const itemTokens = buildItemReviewTokens(item, matchedProduct)
+        const confidence = computeItemConfidence(itemTokens, ocrWords)
         return {
           product_id: matchedProduct?.id || null,
           product_label: formatMatchedProductLabel(matchedProduct),
@@ -790,6 +879,10 @@ function buildParsedDraft(preview, documentType, sourceFile) {
           unit_price: normalizedType === 'invoice' ? deriveUnitPrice(item) : 0,
           discount: 0,
           extracted_amount: normalizedType === 'invoice' ? normalizePositiveNumber(item?.extractedAmount) || 0 : 0,
+          ocr_confidence_percent: confidence.percent,
+          ocr_confidence_level: confidence.level,
+          ocr_confidence_label: confidence.label,
+          ocr_confidence_matched_words: confidence.matchedWords,
         }
       })
     : []
@@ -891,6 +984,14 @@ function setScanReviewFocus(key = 'all', options = {}) {
 function handleScanHighlightBoxClick(box) {
   if (!box?.isItemFocus || !box.focusKey) return
   setScanReviewFocus(box.focusKey, { triggerScroll: true })
+}
+
+// 中文注释：当用户从表单里点某一行 item 时，右侧 OCR 面板同步切到同一条商品，实现双向联动。
+function onScanItemSelected(payload) {
+  const itemIndex = Number(payload?.itemIndex)
+  if (!Number.isInteger(itemIndex) || itemIndex < 0) return
+  scanReviewExpanded.value = true
+  setScanReviewFocus(`item-${itemIndex}`)
 }
 
 function formatDate(v) {

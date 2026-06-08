@@ -73,6 +73,7 @@
                     'border-t border-slate-200 align-top transition-colors',
                     activeScanItemIndex === idx ? 'bg-amber-50 ring-2 ring-inset ring-amber-300' : '',
                   ]"
+                  @click="handleItemRowClick(idx)"
                 >
                   <td class="w-64 px-2 py-2">
                     <ProductSelector
@@ -83,7 +84,17 @@
                     />
                   </td>
                   <td class="px-2 py-2"><input v-model="row.item_code" class="w-full rounded border border-slate-300 px-2 py-1 text-sm" /></td>
-                  <td class="px-2 py-2"><input v-model="row.description" class="w-full rounded border border-slate-300 px-2 py-1 text-sm" /></td>
+                  <td class="px-2 py-2">
+                    <input v-model="row.description" class="w-full rounded border border-slate-300 px-2 py-1 text-sm" />
+                    <div v-if="row.ocr_confidence_label" class="mt-1">
+                      <span
+                        class="inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                        :class="confidenceBadgeClass(row.ocr_confidence_level)"
+                      >
+                        OCR {{ row.ocr_confidence_label }}
+                      </span>
+                    </div>
+                  </td>
                   <td class="px-2 py-2"><input v-model="row.serial_no" class="w-full rounded border border-slate-300 px-2 py-1 text-sm" /></td>
                   <td class="w-24 px-2 py-2"><input v-model.number="row.quantity" type="number" step="0.001" class="w-full rounded border border-slate-300 px-2 py-1 text-sm" /></td>
                   <td class="px-2 py-2 text-right">
@@ -135,7 +146,7 @@ const props = defineProps({
   scanFocusKey: { type: String, default: 'all' },
   scanFocusRequestId: { type: Number, default: 0 },
 })
-const emit = defineEmits(['close', 'saved'])
+const emit = defineEmits(['close', 'saved', 'scan-item-selected'])
 
 const form = reactive({
   id: null,
@@ -165,7 +176,23 @@ async function loadWarehouses() {
 }
 
 function blankRow() {
-  return { product_id: null, product_label: '', item_code: '', description: '', serial_no: '', quantity: 1 }
+  return {
+    product_id: null,
+    product_label: '',
+    item_code: '',
+    description: '',
+    serial_no: '',
+    quantity: 1,
+    ocr_confidence_percent: 0,
+    ocr_confidence_level: '',
+    ocr_confidence_label: '',
+  }
+}
+
+function confidenceBadgeClass(level) {
+  if (level === 'high') return 'bg-emerald-100 text-emerald-800'
+  if (level === 'medium') return 'bg-amber-100 text-amber-800'
+  return 'bg-rose-100 text-rose-800'
 }
 
 function setItemRowRef(element, index) {
@@ -176,6 +203,13 @@ function setItemRowRef(element, index) {
 function getScanItemIndexFromKey(key) {
   const matched = String(key || '').match(/^item-(\d+)$/)
   return matched ? Number(matched[1]) : null
+}
+
+// 中文注释：用户直接点击表单某一行时，把选中的 item 序号回传给右侧 OCR 面板做反向高亮。
+function handleItemRowClick(index) {
+  if (!Number.isInteger(index) || index < 0) return
+  activeScanItemIndex.value = index
+  emit('scan-item-selected', { itemIndex: index })
 }
 
 // 中文注释：当用户从 OCR 高亮框点进来时，自动把对应的 item 行滚动到视口并加亮一下。
@@ -216,6 +250,9 @@ function applyInitialData(initialData) {
         description: item.description || '',
         serial_no: item.serial_no || '',
         quantity: Number(item.quantity) || 1,
+        ocr_confidence_percent: Number(item.ocr_confidence_percent) || 0,
+        ocr_confidence_level: item.ocr_confidence_level || '',
+        ocr_confidence_label: item.ocr_confidence_label || '',
       }))
     : [blankRow()]
   attachments.value = []
