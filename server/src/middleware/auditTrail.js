@@ -44,6 +44,22 @@ function inferAuditContext(req, res) {
   }
 }
 
+function buildAuditMetadata(req, res, context) {
+  const baseMetadata = {
+    body: sanitizeBody(req.body),
+    statusCode: res.statusCode,
+  }
+
+  if (!context?.metadata || typeof context.metadata !== 'object') {
+    return baseMetadata
+  }
+
+  return {
+    ...baseMetadata,
+    ...context.metadata,
+  }
+}
+
 function auditTrail(req, res, next) {
   res.on('finish', async () => {
     const context = inferAuditContext(req, res)
@@ -67,10 +83,7 @@ function auditTrail(req, res, next) {
         method: req.method,
         path: req.originalUrl,
         description: context.description,
-        metadata: {
-          body: sanitizeBody(req.body),
-          statusCode: res.statusCode,
-        },
+        metadata: buildAuditMetadata(req, res, context),
       })
     } catch (error) {
       console.error('Failed to write audit log:', error.message)

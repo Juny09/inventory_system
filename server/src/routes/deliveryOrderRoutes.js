@@ -17,6 +17,38 @@ const upload = createUploader({ subDir: SUB_DIR })
 
 router.use(authenticateToken)
 
+function normalizeOcrConfirmationAudit(rawAudit = [], req) {
+  if (!Array.isArray(rawAudit)) {
+    return []
+  }
+
+  return rawAudit
+    .map((entry, index) => {
+      const itemIndex = Number(entry?.item_index)
+      if (!Number.isInteger(itemIndex) || itemIndex < 0) {
+        return null
+      }
+
+      return {
+        itemIndex,
+        itemLabel: entry?.item_label || `Item ${itemIndex + 1}`,
+        itemCode: entry?.item_code || null,
+        description: entry?.description || null,
+        quantity: Number(entry?.quantity) || 0,
+        ocrConfidenceLevel: entry?.ocr_confidence_level || 'low',
+        ocrConfidencePercent: Number(entry?.ocr_confidence_percent) || 0,
+        manualConfirmedAt: entry?.manual_confirmed_at || null,
+        sortOrder: index,
+        confirmedBy: {
+          id: req.user?.id || null,
+          email: req.user?.email || null,
+          role: req.user?.role || null,
+        },
+      }
+    })
+    .filter(Boolean)
+}
+
 /**
  * 列表：支持 ?supplierId=&search=&page=&pageSize=&year=&month=&excludeInvoiced=
  * 响应 { items: [...], pagination }
@@ -164,7 +196,7 @@ router.post('/', async (req, res) => {
   if (!req.body || typeof req.body !== 'object') {
     return res.status(400).json({ message: 'Request body is required and must be a valid JSON object.' })
   }
-  const { supplier_id, do_no, do_date, notes, warehouse_id, items = [] } = req.body
+  const { supplier_id, do_no, do_date, notes, warehouse_id, items = [], ocr_confirmation_audit = [] } = req.body
 
   if (!supplier_id || !do_no || !do_date) {
     return res.status(400).json({ message: 'supplier_id, do_no, do_date are required.' })
@@ -228,11 +260,27 @@ router.post('/', async (req, res) => {
 
     await client.query('COMMIT')
 
+    const confirmationAudit = normalizeOcrConfirmationAudit(ocr_confirmation_audit, req)
     req.auditContext = {
       action: 'DELIVERY_ORDER_CREATE',
       entityType: 'DELIVERY_ORDER',
       entityId: String(doId),
       description: `Created delivery order ${do_no}${willPostStock ? ' (stock posted)' : ''}`,
+      metadata: confirmationAudit.length > 0
+        ? {
+            lowConfidenceConfirmations: {
+              documentType: 'delivery_order',
+              documentNo: do_no,
+              confirmationCount: confirmationAudit.length,
+              confirmedBy: {
+                id: req.user?.id || null,
+                email: req.user?.email || null,
+                role: req.user?.role || null,
+              },
+              items: confirmationAudit,
+            },
+          }
+        : undefined,
     }
 
     return res.status(201).json({ id: doId })
@@ -255,7 +303,7 @@ router.put('/:id', async (req, res) => {
   if (!req.body || typeof req.body !== 'object') {
     return res.status(400).json({ message: 'Request body is required and must be a valid JSON object.' })
   }
-  const { supplier_id, do_no, do_date, notes, warehouse_id, items = [] } = req.body
+  const { supplier_id, do_no, do_date, notes, warehouse_id, items = [], ocr_confirmation_audit = [] } = req.body
   if (!supplier_id || !do_no || !do_date) {
     return res.status(400).json({ message: 'supplier_id, do_no, do_date are required.' })
   }
@@ -349,11 +397,27 @@ router.put('/:id', async (req, res) => {
 
     await client.query('COMMIT')
 
+    const confirmationAudit = normalizeOcrConfirmationAudit(ocr_confirmation_audit, req)
     req.auditContext = {
       action: 'DELIVERY_ORDER_UPDATE',
       entityType: 'DELIVERY_ORDER',
       entityId: String(req.params.id),
       description: `Updated delivery order ${do_no}`,
+      metadata: confirmationAudit.length > 0
+        ? {
+            lowConfidenceConfirmations: {
+              documentType: 'delivery_order',
+              documentNo: do_no,
+              confirmationCount: confirmationAudit.length,
+              confirmedBy: {
+                id: req.user?.id || null,
+                email: req.user?.email || null,
+                role: req.user?.role || null,
+              },
+              items: confirmationAudit,
+            },
+          }
+        : undefined,
     }
 
     return res.json({ id: Number(req.params.id) })

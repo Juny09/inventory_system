@@ -129,6 +129,9 @@
                       >
                         {{ row.manual_confirmation_done ? '已人工确认' : '点击确认无误' }}
                       </button>
+                      <span v-if="row.manual_confirmation_done && row.manual_confirmation_confirmed_at" class="ml-2 text-[11px] text-emerald-700">
+                        {{ formatConfirmationTime(row.manual_confirmation_confirmed_at) }}
+                      </span>
                     </div>
                   </td>
                   <td class="px-2 py-2"><input v-model="row.serial_no" class="w-full rounded border border-slate-300 px-2 py-1 text-sm" /></td>
@@ -224,6 +227,7 @@ function blankRow() {
     ocr_confidence_label: '',
     manual_confirmation_required: false,
     manual_confirmation_done: true,
+    manual_confirmation_confirmed_at: '',
   }
 }
 
@@ -239,6 +243,13 @@ function isLowConfidenceRow(row) {
 
 function requiresManualConfirmation(row) {
   return Boolean(row?.manual_confirmation_required)
+}
+
+function formatConfirmationTime(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return `确认时间 ${date.toLocaleString('zh-CN', { hour12: false })}`
 }
 
 function setItemRowRef(element, index) {
@@ -273,14 +284,32 @@ const pendingLowConfidenceItems = computed(() => {
 function toggleManualConfirmation(row) {
   if (!requiresManualConfirmation(row)) return
   row.manual_confirmation_done = !row.manual_confirmation_done
+  row.manual_confirmation_confirmed_at = row.manual_confirmation_done ? new Date().toISOString() : ''
 }
 
 function confirmAllLowConfidenceItems() {
   form.items.forEach((row) => {
     if (requiresManualConfirmation(row)) {
       row.manual_confirmation_done = true
+      row.manual_confirmation_confirmed_at = row.manual_confirmation_confirmed_at || new Date().toISOString()
     }
   })
+}
+
+function buildOcrConfirmationAuditPayload() {
+  return form.items
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => requiresManualConfirmation(row) && row.manual_confirmation_done)
+    .map(({ row, index }) => ({
+      item_index: index,
+      item_label: `Item ${index + 1}`,
+      item_code: row.item_code || '',
+      description: row.description || '',
+      quantity: Number(row.quantity) || 0,
+      ocr_confidence_level: row.ocr_confidence_level || 'low',
+      ocr_confidence_percent: Number(row.ocr_confidence_percent) || 0,
+      manual_confirmed_at: row.manual_confirmation_confirmed_at || new Date().toISOString(),
+    }))
 }
 
 // 中文注释：当用户从 OCR 高亮框点进来时，自动把对应的 item 行滚动到视口并加亮一下。
@@ -332,6 +361,7 @@ function applyInitialData(initialData) {
         ocr_confidence_label: item.ocr_confidence_label || '',
         manual_confirmation_required: item.ocr_confidence_level === 'low',
         manual_confirmation_done: item.ocr_confidence_level !== 'low',
+        manual_confirmation_confirmed_at: item.ocr_confidence_level === 'low' ? '' : new Date().toISOString(),
       }))
     : [blankRow()]
   attachments.value = []
@@ -381,6 +411,7 @@ async function loadExisting(id) {
     quantity: Number(it.quantity) || 0,
     manual_confirmation_required: false,
     manual_confirmation_done: true,
+    manual_confirmation_confirmed_at: '',
   }))
   attachments.value = data.attachments || []
   importedSourceFile.value = null
@@ -417,6 +448,7 @@ async function submit() {
       do_date: form.do_date,
       warehouse_id: form.warehouse_id ? Number(form.warehouse_id) : null,
       notes: form.notes || null,
+      ocr_confirmation_audit: buildOcrConfirmationAuditPayload(),
       items: form.items.map((it) => ({
         product_id: it.product_id || null,
         item_code: it.item_code || null,

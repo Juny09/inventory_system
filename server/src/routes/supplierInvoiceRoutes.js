@@ -17,6 +17,40 @@ const upload = createUploader({ subDir: SUB_DIR })
 
 router.use(authenticateToken)
 
+function normalizeOcrConfirmationAudit(rawAudit = [], req) {
+  if (!Array.isArray(rawAudit)) {
+    return []
+  }
+
+  return rawAudit
+    .map((entry, index) => {
+      const itemIndex = Number(entry?.item_index)
+      if (!Number.isInteger(itemIndex) || itemIndex < 0) {
+        return null
+      }
+
+      return {
+        itemIndex,
+        itemLabel: entry?.item_label || `Item ${itemIndex + 1}`,
+        itemCode: entry?.item_code || null,
+        description: entry?.description || null,
+        quantity: Number(entry?.quantity) || 0,
+        unitPrice: Number(entry?.unit_price) || 0,
+        amount: Number(entry?.amount) || 0,
+        ocrConfidenceLevel: entry?.ocr_confidence_level || 'low',
+        ocrConfidencePercent: Number(entry?.ocr_confidence_percent) || 0,
+        manualConfirmedAt: entry?.manual_confirmed_at || null,
+        sortOrder: index,
+        confirmedBy: {
+          id: req.user?.id || null,
+          email: req.user?.email || null,
+          role: req.user?.role || null,
+        },
+      }
+    })
+    .filter(Boolean)
+}
+
 function computeAmount(quantity, unitPrice, discount, priceIncludesDiscount = false) {
   const q = Number(quantity) || 0
   const u = Number(unitPrice) || 0
@@ -307,7 +341,18 @@ router.get('/:id', async (req, res) => {
 
 router.post('/', async (req, res) => {
   const tenantId = getTenantId(req)
-  const { supplier_id, do_id, invoice_no, invoice_date, notes, warehouse_id, post_to_inventory, priceIncludesDiscount, items = [] } = req.body || {}
+  const {
+    supplier_id,
+    do_id,
+    invoice_no,
+    invoice_date,
+    notes,
+    warehouse_id,
+    post_to_inventory,
+    priceIncludesDiscount,
+    items = [],
+    ocr_confirmation_audit = [],
+  } = req.body || {}
   if (!supplier_id || !invoice_no || !invoice_date) {
     return res.status(400).json({ message: 'supplier_id, invoice_no, invoice_date are required.' })
   }
@@ -391,11 +436,27 @@ router.post('/', async (req, res) => {
 
     await client.query('COMMIT')
 
+    const confirmationAudit = normalizeOcrConfirmationAudit(ocr_confirmation_audit, req)
     req.auditContext = {
       action: 'SUPPLIER_INVOICE_CREATE',
       entityType: 'SUPPLIER_INVOICE',
       entityId: String(invId),
       description: `Created invoice ${invoice_no}${willPostStock ? ' (stock posted)' : ''}`,
+      metadata: confirmationAudit.length > 0
+        ? {
+            lowConfidenceConfirmations: {
+              documentType: 'supplier_invoice',
+              documentNo: invoice_no,
+              confirmationCount: confirmationAudit.length,
+              confirmedBy: {
+                id: req.user?.id || null,
+                email: req.user?.email || null,
+                role: req.user?.role || null,
+              },
+              items: confirmationAudit,
+            },
+          }
+        : undefined,
     }
 
     return res.status(201).json({ id: invId })
@@ -412,7 +473,18 @@ router.post('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   const tenantId = getTenantId(req)
-  const { supplier_id, do_id, invoice_no, invoice_date, notes, warehouse_id, post_to_inventory, priceIncludesDiscount, items = [] } = req.body || {}
+  const {
+    supplier_id,
+    do_id,
+    invoice_no,
+    invoice_date,
+    notes,
+    warehouse_id,
+    post_to_inventory,
+    priceIncludesDiscount,
+    items = [],
+    ocr_confirmation_audit = [],
+  } = req.body || {}
   if (!supplier_id || !invoice_no || !invoice_date) {
     return res.status(400).json({ message: 'supplier_id, invoice_no, invoice_date are required.' })
   }
@@ -513,11 +585,27 @@ router.put('/:id', async (req, res) => {
 
     await client.query('COMMIT')
 
+    const confirmationAudit = normalizeOcrConfirmationAudit(ocr_confirmation_audit, req)
     req.auditContext = {
       action: 'SUPPLIER_INVOICE_UPDATE',
       entityType: 'SUPPLIER_INVOICE',
       entityId: String(req.params.id),
       description: `Updated invoice ${invoice_no}`,
+      metadata: confirmationAudit.length > 0
+        ? {
+            lowConfidenceConfirmations: {
+              documentType: 'supplier_invoice',
+              documentNo: invoice_no,
+              confirmationCount: confirmationAudit.length,
+              confirmedBy: {
+                id: req.user?.id || null,
+                email: req.user?.email || null,
+                role: req.user?.role || null,
+              },
+              items: confirmationAudit,
+            },
+          }
+        : undefined,
     }
 
     return res.json({ id: Number(req.params.id) })

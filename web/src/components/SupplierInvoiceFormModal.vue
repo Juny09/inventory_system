@@ -154,6 +154,9 @@
                       >
                         {{ row.manual_confirmation_done ? '已人工确认' : '点击确认无误' }}
                       </button>
+                      <span v-if="row.manual_confirmation_done && row.manual_confirmation_confirmed_at" class="ml-2 text-[11px] text-emerald-700">
+                        {{ formatConfirmationTime(row.manual_confirmation_confirmed_at) }}
+                      </span>
                     </div>
                   </td>
                   <td class="px-2 py-2"><input v-model="row.serial_no" class="w-full rounded border border-slate-300 px-2 py-1 text-sm" /></td>
@@ -271,6 +274,7 @@ function blankRow() {
     ocr_confidence_label: '',
     manual_confirmation_required: false,
     manual_confirmation_done: true,
+    manual_confirmation_confirmed_at: '',
   }
 }
 
@@ -286,6 +290,13 @@ function isLowConfidenceRow(row) {
 
 function requiresManualConfirmation(row) {
   return Boolean(row?.manual_confirmation_required)
+}
+
+function formatConfirmationTime(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return `确认时间 ${date.toLocaleString('zh-CN', { hour12: false })}`
 }
 
 function setItemRowRef(element, index) {
@@ -320,14 +331,34 @@ const pendingLowConfidenceItems = computed(() => {
 function toggleManualConfirmation(row) {
   if (!requiresManualConfirmation(row)) return
   row.manual_confirmation_done = !row.manual_confirmation_done
+  row.manual_confirmation_confirmed_at = row.manual_confirmation_done ? new Date().toISOString() : ''
 }
 
 function confirmAllLowConfidenceItems() {
   form.items.forEach((row) => {
     if (requiresManualConfirmation(row)) {
       row.manual_confirmation_done = true
+      row.manual_confirmation_confirmed_at = row.manual_confirmation_confirmed_at || new Date().toISOString()
     }
   })
+}
+
+function buildOcrConfirmationAuditPayload() {
+  return form.items
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => requiresManualConfirmation(row) && row.manual_confirmation_done)
+    .map(({ row, index }) => ({
+      item_index: index,
+      item_label: `Item ${index + 1}`,
+      item_code: row.item_code || '',
+      description: row.description || '',
+      quantity: Number(row.quantity) || 0,
+      unit_price: Number(row.unit_price) || 0,
+      amount: rowAmount(row),
+      ocr_confidence_level: row.ocr_confidence_level || 'low',
+      ocr_confidence_percent: Number(row.ocr_confidence_percent) || 0,
+      manual_confirmed_at: row.manual_confirmation_confirmed_at || new Date().toISOString(),
+    }))
 }
 
 // 中文注释：点击 OCR 图片黄框后，自动滚动到对应的 invoice item 行，并短暂高亮方便肉眼定位。
@@ -384,6 +415,7 @@ async function applyInitialData(initialData) {
         ocr_confidence_label: item.ocr_confidence_label || '',
         manual_confirmation_required: item.ocr_confidence_level === 'low',
         manual_confirmation_done: item.ocr_confidence_level !== 'low',
+        manual_confirmation_confirmed_at: item.ocr_confidence_level === 'low' ? '' : new Date().toISOString(),
       }))
     : [blankRow()]
   attachments.value = []
@@ -466,6 +498,7 @@ async function onDoChange() {
       discount: 0,
       manual_confirmation_required: false,
       manual_confirmation_done: true,
+      manual_confirmation_confirmed_at: '',
     }))
     // 自动填充 invoice_no = do_no（仅当当前为空时）
     if (!form.invoice_no && data?.do_no) {
@@ -511,6 +544,7 @@ async function loadExisting(id) {
     discount: Number(it.discount) || 0,
     manual_confirmation_required: false,
     manual_confirmation_done: true,
+    manual_confirmation_confirmed_at: '',
   }))
   form.priceIncludesDiscount = Boolean(data.price_includes_discount)
   attachments.value = data.attachments || []
@@ -559,6 +593,7 @@ async function submit() {
       post_to_inventory: !form.do_id ? form.post_to_inventory : false,
       warehouse_id: !form.do_id && form.post_to_inventory && form.warehouse_id ? Number(form.warehouse_id) : null,
       priceIncludesDiscount: form.priceIncludesDiscount,
+      ocr_confirmation_audit: buildOcrConfirmationAuditPayload(),
       items: form.items.map((it) => ({
         product_id: it.product_id || null,
         item_code: it.item_code || null,
