@@ -141,6 +141,7 @@ const attachments = ref([])
 const attachmentRef = ref(null)
 const submitting = ref(false)
 const errorMessage = ref('')
+const importedSourceFile = ref(null)
 
 async function loadWarehouses() {
   try {
@@ -174,6 +175,7 @@ function applyInitialData(initialData) {
       }))
     : [blankRow()]
   attachments.value = []
+  importedSourceFile.value = initialData?.source_file || null
 }
 
 function addRow() {
@@ -219,6 +221,23 @@ async function loadExisting(id) {
     quantity: Number(it.quantity) || 0,
   }))
   attachments.value = data.attachments || []
+  importedSourceFile.value = null
+}
+
+// 中文注释：扫描创建成功后，把原始图片/PDF 自动补传到当前 DO 附件区，方便以后回查。
+async function uploadImportedSourceFile(parentId) {
+  if (!parentId || !importedSourceFile.value) return ''
+  try {
+    const formData = new FormData()
+    formData.append('file', importedSourceFile.value)
+    await api.post(`/delivery-orders/${parentId}/attachments`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    importedSourceFile.value = null
+    return ''
+  } catch (error) {
+    return error.response?.data?.message || error.message || 'DO saved, but source attachment upload failed.'
+  }
 }
 
 async function submit() {
@@ -248,7 +267,8 @@ async function submit() {
     if (attachmentRef.value && typeof attachmentRef.value.flush === 'function') {
       await attachmentRef.value.flush(form.id)
     }
-    emit('saved', form.id)
+    const attachmentWarning = await uploadImportedSourceFile(form.id)
+    emit('saved', { id: form.id, attachmentWarning })
   } catch (error) {
     errorMessage.value = error.response?.data?.message || error.message || 'Failed to save.'
   } finally {

@@ -109,9 +109,9 @@ Extract these fields and return ONLY a JSON object with this exact structure:
   "documentNumber": "the reference number like DO-12345 or INV-67890",
   "date": "YYYY-MM-DD if found",
   "supplierName": "the company/vendor name",
-  "items": [{"description": "product name", "quantity": number}]
+  "items": [{"description": "product name", "quantity": number, "unitPrice": number or null, "amount": number or null}]
 }
-Use null for missing fields. Output ONLY JSON, no markdown fences.`
+For invoice items, try your best to extract unitPrice and line amount. Use null for missing fields. Output ONLY JSON, no markdown fences.`
 
 function getDefaultPrompt() {
   return DEFAULT_EXTRACTION_PROMPT
@@ -183,24 +183,99 @@ async function extractPdfText(filePath) {
   return data.text || ''
 }
 
+function scoreOcrText(text) {
+  const normalized = String(text || '').trim()
+  if (!normalized) return 0
+  const alnumCount = (normalized.match(/[A-Z0-9]/gi) || []).length
+  const moneyHints = (normalized.match(/\b(?:RM|INVOICE|DELIVERY|ORDER|QTY|TOTAL)\b/gi) || []).length
+  return normalized.length + alnumCount + moneyHints * 25
+}
+
+async function buildOcrVariants(filePath) {
+  const base = sharp(filePath).rotate()
+  const variants = [
+    {
+      name: 'normalized',
+      buffer: await base
+        .greyscale()
+        .normalise()
+        .sharpen({ sigma: 1.2, m1: 1, m2: 2 })
+        .resize(2200, 2200, { fit: 'inside', withoutEnlargement: true })
+        .toBuffer(),
+    },
+    {
+      name: 'threshold',
+      buffer: await sharp(filePath)
+        .rotate()
+        .greyscale()
+        .normalise()
+        .sharpen()
+        .threshold(170)
+        .resize(2200, 2200, { fit: 'inside', withoutEnlargement: true })
+        .toBuffer(),
+    },
+  ]
+
+  return variants
+}
+
+async function recognizeBuffer(buffer) {
+  const {
+    data: { text },
+  } = await Tesseract.recognize(buffer, 'eng', {
+    logger: () => {},
+  })
+
+  return text || ''
+}
+
 /**
  * 从图片中提取文本（OCR）
  * 先压缩图片提高 OCR 速度和准确度
  */
 async function extractImageText(filePath) {
-  // 先转为灰度图并缩放，提高 OCR 准确度
-  const processedBuffer = await sharp(filePath)
-    .greyscale()
-    .resize(2000, 2000, { fit: 'inside', withoutEnlargement: true })
-    .toBuffer()
+  const variants = await buildOcrVariants(filePath)
+  let bestText = ''
+  let bestScore = -1
 
-  const {
-    data: { text },
-  } = await Tesseract.recognize(processedBuffer, 'eng', {
-    logger: () => {}, // 静默日志
-  })
+  for (const variant of variants) {
+    const recognized = await recognizeBuffer(variant.buffer)
+    const score = scoreOcrText(recognized)
+    if (score > bestScore) {
+      bestScore = score
+      bestText = recognized
+    }
+  }
 
-  return text || ''
+  if (bestScore < 120) {
+    const rotatedBuffers = await Promise.all([
+      sharp(filePath)
+        .rotate(-2, { background: { r: 255, g: 255, b: 255, alpha: 1 } })
+        .greyscale()
+        .normalise()
+        .sharpen()
+        .resize(2200, 2200, { fit: 'inside', withoutEnlargement: true })
+        .toBuffer(),
+      sharp(filePath)
+        .rotate(2, { background: { r: 255, g: 255, b: 255, alpha: 1 } })
+        .greyscale()
+        .normalise()
+        .sharpen()
+        .resize(2200, 2200, { fit: 'inside', withoutEnlargement: true })
+        .toBuffer(),
+    ])
+
+    for (const buffer of rotatedBuffers) {
+      const recognized = await recognizeBuffer(buffer)
+      const score = scoreOcrText(recognized)
+      if (score > bestScore) {
+        bestScore = score
+        bestText = recognized
+      }
+    }
+  }
+
+  return bestText || ''
 }
 
 /**

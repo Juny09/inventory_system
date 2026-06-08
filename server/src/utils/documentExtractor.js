@@ -11,6 +11,40 @@ function normalizeText(text) {
     .trim()
 }
 
+function parseNumberToken(value) {
+  if (value === null || value === undefined) return null
+  const cleaned = String(value)
+    .replace(/[^0-9.,-]/g, '')
+    .replace(/,(?=\d{3}\b)/g, '')
+    .trim()
+  if (!cleaned) return null
+  const numberValue = Number(cleaned)
+  return Number.isFinite(numberValue) ? numberValue : null
+}
+
+function pickLastPriceTokens(line) {
+  const matches = [...line.matchAll(/(?:RM|MYR|USD|\$)?\s*-?\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?/gi)]
+    .map((match) => ({
+      raw: match[0],
+      value: parseNumberToken(match[0]),
+      index: match.index ?? -1,
+    }))
+    .filter((token) => token.value !== null)
+
+  return matches
+}
+
+function cleanupItemDescription(line) {
+  return line
+    .replace(/\$[\d,.]+/gi, '')
+    .replace(/\b(?:RM|MYR|USD)\s*[\d,.]+\b/gi, '')
+    .replace(/\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}/g, '')
+    .replace(/\b\d+(?:\.\d+)?\s*(?:pcs?|units?|sets?|boxes?|cartons?|packs?|kg|g|ml|l|lengths?)\b/gi, '')
+    .replace(/\b\d+\.\d{2}\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 /**
  * 判断文档类型
  */
@@ -182,7 +216,7 @@ function extractSupplierName(text) {
  * 提取产品列表行
  * 简单启发式：找包含数量+描述/金额的行
  */
-function extractItemLines(text) {
+function extractItemLines(text, docType = 'unknown') {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
   const items = []
 
@@ -196,20 +230,39 @@ function extractItemLines(text) {
     if (qtyMatch && hasDescription && (hasAmount || line.length > 20)) {
       const qty = parseFloat(qtyMatch[1])
       if (qty > 0 && qty < 100000) {
-        // 尝试提取产品描述（去掉数字和价格部分）
-        let description = line
-          .replace(/\$[\d,.]+/g, '')
-          .replace(/RM[\d,.]+/g, '')
-          .replace(/\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}/g, '')
-          .replace(/\b\d+(?:\.\d+)?\s*(?:pcs?|units?|sets?|boxes?|cartons?|packs?|kg|g|ml|l)?\b/gi, '')
-          .replace(/\d+\.\d{2}/g, '')
-          .replace(/\s+/g, ' ')
-          .trim()
+        const numericTokens = pickLastPriceTokens(line)
+        let unitPrice = null
+        let amount = null
+
+        if (docType === 'invoice' && numericTokens.length > 0) {
+          const decimalTokens = numericTokens.filter((token) => String(token.raw).includes('.'))
+          const relevantTokens = decimalTokens.length > 0 ? decimalTokens : numericTokens
+          const lastToken = relevantTokens[relevantTokens.length - 1]
+          const secondLastToken = relevantTokens[relevantTokens.length - 2]
+
+          if (lastToken) {
+            amount = lastToken.value
+          }
+          if (secondLastToken) {
+            unitPrice = secondLastToken.value
+          }
+
+          if (unitPrice === null && amount !== null && qty > 0) {
+            unitPrice = Number((amount / qty).toFixed(2))
+          }
+          if (amount === null && unitPrice !== null) {
+            amount = Number((qty * unitPrice).toFixed(2))
+          }
+        }
+
+        const description = cleanupItemDescription(line)
 
         if (description.length > 3) {
           items.push({
             quantity: qty,
-            description: description,
+            description,
+            unitPrice,
+            amount,
             raw: line,
           })
         }
@@ -234,6 +287,8 @@ function parseDocument(text, ollamaResult = null) {
       items: (ollamaResult.items || []).map(it => ({
         quantity: Number(it.quantity) || 1,
         description: it.description || '',
+        unitPrice: Number(it.unitPrice) > 0 ? Number(it.unitPrice) : null,
+        amount: Number(it.amount) > 0 ? Number(it.amount) : null,
         raw: `${it.description || ''} x${it.quantity || 1}`,
       })),
       rawText: text ? text.slice(0, 5000) : '',
@@ -246,7 +301,7 @@ function parseDocument(text, ollamaResult = null) {
   const docNumber = extractDocumentNumber(normalized, docType)
   const date = extractDate(normalized)
   const supplierName = extractSupplierName(normalized)
-  const items = extractItemLines(normalized)
+  const items = extractItemLines(normalized, docType)
 
   return {
     documentType: docType,

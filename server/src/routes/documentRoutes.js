@@ -144,6 +144,8 @@ router.post('/parse', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), upload.single
       matchedItems.push({
         extractedQuantity: item.quantity,
         extractedDescription: item.description,
+        extractedUnitPrice: item.unitPrice ?? null,
+        extractedAmount: item.amount ?? null,
         matchedProducts: prodResult.rows,
       })
     }

@@ -122,6 +122,37 @@
       <p v-if="scanErrorMessage" class="mt-4 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
         {{ scanErrorMessage }}
       </p>
+      <div
+        v-if="parsedDraft?.imported_from_scan && (modal === 'do' || modal === 'invoice')"
+        class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-800"
+      >
+        <div>
+          <span class="font-medium">识别后已打开表单。</span>
+          <span class="ml-1">如果类型判断不准，可以手动切换成正确的 DO / Invoice。</span>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            class="rounded border px-3 py-1.5 text-xs font-semibold transition"
+            :class="parsedDraft?.type === 'delivery_order'
+              ? 'border-indigo-600 bg-indigo-600 text-white'
+              : 'border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-100'"
+            @click="switchParsedDraftType('delivery_order')"
+          >
+            切换为 DO
+          </button>
+          <button
+            type="button"
+            class="rounded border px-3 py-1.5 text-xs font-semibold transition"
+            :class="parsedDraft?.type === 'invoice'
+              ? 'border-indigo-600 bg-indigo-600 text-white'
+              : 'border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-100'"
+            @click="switchParsedDraftType('invoice')"
+          >
+            切换为 Invoice
+          </button>
+        </div>
+      </div>
 
       <!-- Top Pagination -->
       <PaginationBar v-if="pagination.totalPages > 1" class="mt-3" :pagination="pagination" @change="loadList" />
@@ -401,8 +432,38 @@ function formatMatchedProductLabel(product) {
   return [code, name].filter(Boolean).join(' · ')
 }
 
+function resolveDraftType(parsedType) {
+  if (parsedType === 'delivery_order' || parsedType === 'invoice') {
+    return parsedType
+  }
+  if (activeTab.value === 'do') return 'delivery_order'
+  if (activeTab.value === 'invoice') return 'invoice'
+  return 'invoice'
+}
+
+function toModalTab(documentType) {
+  return documentType === 'delivery_order' ? 'do' : 'invoice'
+}
+
+function normalizePositiveNumber(value) {
+  const numberValue = Number(value)
+  return Number.isFinite(numberValue) && numberValue > 0 ? Number(numberValue.toFixed(2)) : null
+}
+
+function deriveUnitPrice(item) {
+  const extractedUnitPrice = normalizePositiveNumber(item?.extractedUnitPrice)
+  if (extractedUnitPrice !== null) return extractedUnitPrice
+
+  const quantity = Number(item?.extractedQuantity) || 0
+  const extractedAmount = normalizePositiveNumber(item?.extractedAmount)
+  if (quantity > 0 && extractedAmount !== null) {
+    return Number((extractedAmount / quantity).toFixed(2))
+  }
+  return 0
+}
+
 // 中文注释：把 OCR/解析结果转换成现有表单能直接吃的结构，做到“上传后直接弹出并自动带值”。
-function buildParsedDraft(preview, documentType) {
+function buildParsedDraft(preview, documentType, sourceFile) {
   const normalizedType = documentType === 'delivery_order' ? 'delivery_order' : 'invoice'
   const items = Array.isArray(preview?.items)
     ? preview.items.map((item) => {
@@ -414,8 +475,9 @@ function buildParsedDraft(preview, documentType) {
           description: item?.extractedDescription || matchedProduct?.name || '',
           serial_no: '',
           quantity: Number(item?.extractedQuantity) || 1,
-          unit_price: 0,
+          unit_price: normalizedType === 'invoice' ? deriveUnitPrice(item) : 0,
           discount: 0,
+          extracted_amount: normalizedType === 'invoice' ? normalizePositiveNumber(item?.extractedAmount) || 0 : 0,
         }
       })
     : []
@@ -423,6 +485,7 @@ function buildParsedDraft(preview, documentType) {
   return {
     imported_from_scan: true,
     source_file_name: preview?.fileName || '',
+    source_file: sourceFile || null,
     supplier_id: preview?.matchedSupplier?.id ? String(preview.matchedSupplier.id) : '',
     warehouse_id: preview?.defaultWarehouse?.id ? String(preview.defaultWarehouse.id) : '',
     document_no: preview?.documentNumber || '',
@@ -430,16 +493,8 @@ function buildParsedDraft(preview, documentType) {
     notes: preview?.fileName ? `Imported from document scan: ${preview.fileName}` : '',
     items,
     type: normalizedType,
+    detected_type: preview?.documentType || 'unknown',
   }
-}
-
-function resolveDocumentType(parsedType) {
-  if (parsedType === 'delivery_order' || parsedType === 'invoice') {
-    return parsedType
-  }
-  if (activeTab.value === 'do') return 'delivery_order'
-  if (activeTab.value === 'invoice') return 'invoice'
-  return ''
 }
 
 function formatDate(v) {
@@ -499,6 +554,18 @@ function triggerScanUpload() {
   scanFileInputRef.value?.click()
 }
 
+// 中文注释：允许用户在扫描后手动切换 DO / Invoice 类型，复用同一份解析结果。
+function switchParsedDraftType(nextType) {
+  if (!parsedDraft.value) return
+  parsedDraft.value = {
+    ...parsedDraft.value,
+    type: nextType,
+  }
+  activeTab.value = toModalTab(nextType)
+  editingId.value = null
+  modal.value = activeTab.value
+}
+
 // 中文注释：上传文档后直接调用现有解析接口，成功就打开对应 DO / Invoice 弹窗。
 async function handleScanFileChange(event) {
   const selectedFile = event.target?.files?.[0]
@@ -514,15 +581,17 @@ async function handleScanFileChange(event) {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
 
-    const documentType = resolveDocumentType(data?.documentType)
-    if (!documentType) {
-      scanErrorMessage.value = 'Cannot determine whether this file is a DO or Invoice. Please switch to DO/Invoice tab and try again.'
-      return
+    const detectedType = data?.documentType === 'delivery_order' || data?.documentType === 'invoice'
+      ? data.documentType
+      : 'unknown'
+    const documentType = resolveDraftType(detectedType)
+    if (detectedType === 'unknown') {
+      scanErrorMessage.value = '系统暂时无法 100% 判断这是 DO 还是 Invoice，已先按当前页签打开；如果不对，可以点击上方按钮手动切换。'
     }
 
-    parsedDraft.value = buildParsedDraft(data, documentType)
+    parsedDraft.value = buildParsedDraft(data, documentType, selectedFile)
     editingId.value = null
-    activeTab.value = documentType === 'delivery_order' ? 'do' : 'invoice'
+    activeTab.value = toModalTab(documentType)
     modal.value = activeTab.value
 
     toastStore.pushToast({
@@ -610,9 +679,13 @@ function closeModal() {
   editingId.value = null
   parsedDraft.value = null
 }
-async function onSaved() {
+async function onSaved(payload) {
+  const attachmentWarning = payload?.attachmentWarning || ''
   closeModal()
-  toastStore.pushToast({ tone: 'success', message: 'Saved.' })
+  toastStore.pushToast({
+    tone: attachmentWarning ? 'warning' : 'success',
+    message: attachmentWarning || 'Saved.',
+  })
   await loadCounts()
   loadList(pagination.value.page)
 }

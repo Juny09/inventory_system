@@ -186,6 +186,7 @@ const attachments = ref([])
 const attachmentRef = ref(null)
 const submitting = ref(false)
 const errorMessage = ref('')
+const importedSourceFile = ref(null)
 
 async function loadWarehouses() {
   try {
@@ -200,7 +201,7 @@ function blankRow() {
   return { product_id: null, product_label: '', item_code: '', description: '', serial_no: '', quantity: 1, unit_price: 0, discount: 0 }
 }
 
-// 中文注释：把识别结果预填到 Invoice 表单，保留单价为空让用户最后确认金额。
+// 中文注释：把识别结果预填到 Invoice 表单，能识别到的数量和单价先自动带入，用户最后复核即可。
 async function applyInitialData(initialData) {
   form.id = null
   form.supplier_id = initialData?.supplier_id || ''
@@ -224,6 +225,7 @@ async function applyInitialData(initialData) {
       }))
     : [blankRow()]
   attachments.value = []
+  importedSourceFile.value = initialData?.source_file || null
   if (form.supplier_id) {
     await loadDOsForSupplier(form.supplier_id)
   }
@@ -346,7 +348,24 @@ async function loadExisting(id) {
   }))
   form.priceIncludesDiscount = Boolean(data.price_includes_discount)
   attachments.value = data.attachments || []
+  importedSourceFile.value = null
   await loadDOsForSupplier(data.supplier_id)
+}
+
+// 中文注释：Invoice 保存成功后自动上传原始扫描件，方便日后核对 OCR 与附件原图。
+async function uploadImportedSourceFile(parentId) {
+  if (!parentId || !importedSourceFile.value) return ''
+  try {
+    const formData = new FormData()
+    formData.append('file', importedSourceFile.value)
+    await api.post(`/supplier-invoices/${parentId}/attachments`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    importedSourceFile.value = null
+    return ''
+  } catch (error) {
+    return error.response?.data?.message || error.message || 'Invoice saved, but source attachment upload failed.'
+  }
 }
 
 async function submit() {
@@ -388,7 +407,8 @@ async function submit() {
     if (attachmentRef.value && typeof attachmentRef.value.flush === 'function') {
       await attachmentRef.value.flush(form.id)
     }
-    emit('saved', form.id)
+    const attachmentWarning = await uploadImportedSourceFile(form.id)
+    emit('saved', { id: form.id, attachmentWarning })
   } catch (error) {
     errorMessage.value = error.response?.data?.message || error.message || 'Failed to save.'
   } finally {
