@@ -292,13 +292,18 @@
               </div>
               <div class="relative mt-3 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
                 <img :src="scanOcrPreviewUrl" alt="OCR highlight preview" class="block w-full" />
-                <div
+                <button
                   v-for="box in scanImageHighlightBoxes"
                   :key="box.key"
-                  class="absolute rounded border-2 border-amber-400 bg-amber-200/20"
+                  type="button"
+                  class="absolute rounded border-2 bg-amber-200/20 transition hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                  :class="box.isItemFocus ? 'cursor-pointer border-amber-500 hover:bg-amber-300/30' : 'cursor-default border-slate-300/70'"
                   :style="box.style"
-                  :title="box.label"
-                ></div>
+                  :title="box.title"
+                  @click="handleScanHighlightBoxClick(box)"
+                >
+                  <span class="sr-only">{{ box.title }}</span>
+                </button>
               </div>
             </div>
 
@@ -477,6 +482,8 @@
       :id="editingId"
       :suppliers="suppliers"
       :initial-data="parsedDraft"
+      :scan-focus-key="scanReviewFocusKey"
+      :scan-focus-request-id="scanFocusRequestId"
       @close="closeModal"
       @saved="onSaved"
     />
@@ -485,6 +492,8 @@
       :id="editingId"
       :suppliers="suppliers"
       :initial-data="parsedDraft"
+      :scan-focus-key="scanReviewFocusKey"
+      :scan-focus-request-id="scanFocusRequestId"
       @close="closeModal"
       @saved="onSaved"
     />
@@ -553,6 +562,7 @@ const scanErrorMessage = ref('')
 const scanFileInputRef = ref(null)
 const scanReviewExpanded = ref(false)
 const scanReviewFocusKey = ref('all')
+const scanFocusRequestId = ref(0)
 
 const counts = ref({ do: 0, invoice: 0, returns: 0 })
 
@@ -723,6 +733,7 @@ function buildReviewHighlights(draft) {
       key: `item-${index}`,
       label: `Item ${index + 1}`,
       value: qty > 0 ? `${label} x ${qty}` : label,
+      itemIndex: index,
       tokens: uniqueValues([
         ...buildKeywordTokens(label, { maxParts: 3 }),
         qty > 0 ? String(qty) : '',
@@ -837,32 +848,49 @@ const scanImageHighlightBoxes = computed(() => {
   const words = Array.isArray(parsedDraft.value?.ocr_words) ? parsedDraft.value.ocr_words : []
   if (!previewWidth || !previewHeight || words.length === 0) return []
 
-  const normalizedTokens = new Set(
-    scanHighlightTokens.value
-      .map((token) => normalizePreviewToken(token))
-      .filter(Boolean),
-  )
+  return scanActiveReviewHighlights.value
+    .flatMap((highlight) => {
+      const normalizedTokens = new Set(
+        (highlight.tokens || [])
+          .map((token) => normalizePreviewToken(token))
+          .filter(Boolean),
+      )
 
-  return words
-    .filter((word) => {
-      const text = normalizePreviewToken(word?.text)
-      return text && normalizedTokens.has(text) && Number(word?.width) > 0 && Number(word?.height) > 0
+      return words
+        .filter((word) => {
+          const text = normalizePreviewToken(word?.text)
+          return text && normalizedTokens.has(text) && Number(word?.width) > 0 && Number(word?.height) > 0
+        })
+        .slice(0, 120)
+        .map((word, index) => ({
+          key: `${highlight.key}-${index}-${word.text}-${word.left}-${word.top}`,
+          label: word.text,
+          title: `${highlight.label}: ${highlight.value}`,
+          focusKey: highlight.key,
+          itemIndex: typeof highlight.itemIndex === 'number' ? highlight.itemIndex : null,
+          isItemFocus: typeof highlight.itemIndex === 'number',
+          style: {
+            left: `${(Number(word.left) / previewWidth) * 100}%`,
+            top: `${(Number(word.top) / previewHeight) * 100}%`,
+            width: `${(Number(word.width) / previewWidth) * 100}%`,
+            height: `${(Number(word.height) / previewHeight) * 100}%`,
+            zIndex: typeof highlight.itemIndex === 'number' ? 20 : 10,
+          },
+        }))
     })
-    .slice(0, 120)
-    .map((word, index) => ({
-      key: `${index}-${word.text}-${word.left}-${word.top}`,
-      label: word.text,
-      style: {
-        left: `${(Number(word.left) / previewWidth) * 100}%`,
-        top: `${(Number(word.top) / previewHeight) * 100}%`,
-        width: `${(Number(word.width) / previewWidth) * 100}%`,
-        height: `${(Number(word.height) / previewHeight) * 100}%`,
-      },
-    }))
+    .slice(0, 160)
 })
 
-function setScanReviewFocus(key = 'all') {
+function setScanReviewFocus(key = 'all', options = {}) {
   scanReviewFocusKey.value = key || 'all'
+  if (options.triggerScroll) {
+    scanFocusRequestId.value += 1
+  }
+}
+
+function handleScanHighlightBoxClick(box) {
+  if (!box?.isItemFocus || !box.focusKey) return
+  setScanReviewFocus(box.focusKey, { triggerScroll: true })
 }
 
 function formatDate(v) {
@@ -961,6 +989,7 @@ async function handleScanFileChange(event) {
     parsedDraft.value = buildParsedDraft(data, documentType, selectedFile)
     scanReviewExpanded.value = true
     scanReviewFocusKey.value = 'all'
+    scanFocusRequestId.value = 0
     editingId.value = null
     activeTab.value = toModalTab(documentType)
     modal.value = activeTab.value
@@ -1040,6 +1069,7 @@ function openCreate() {
   parsedDraft.value = null
   scanReviewExpanded.value = false
   scanReviewFocusKey.value = 'all'
+  scanFocusRequestId.value = 0
   modal.value = activeTab.value
 }
 function openEdit(id) {
@@ -1047,6 +1077,7 @@ function openEdit(id) {
   parsedDraft.value = null
   scanReviewExpanded.value = false
   scanReviewFocusKey.value = 'all'
+  scanFocusRequestId.value = 0
   modal.value = activeTab.value
 }
 function closeModal() {
@@ -1055,6 +1086,7 @@ function closeModal() {
   parsedDraft.value = null
   scanReviewExpanded.value = false
   scanReviewFocusKey.value = 'all'
+  scanFocusRequestId.value = 0
 }
 async function onSaved(payload) {
   const attachmentWarning = payload?.attachmentWarning || ''

@@ -90,7 +90,15 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(row, idx) in form.items" :key="idx" class="border-t border-slate-200 align-top">
+                <tr
+                  v-for="(row, idx) in form.items"
+                  :key="idx"
+                  :ref="(el) => setItemRowRef(el, idx)"
+                  :class="[
+                    'border-t border-slate-200 align-top transition-colors',
+                    activeScanItemIndex === idx ? 'bg-amber-50 ring-2 ring-inset ring-amber-300' : '',
+                  ]"
+                >
                   <td class="w-56 px-2 py-2">
                     <ProductSelector
                       :model-value="row.product_id"
@@ -151,7 +159,7 @@
 </template>
 
 <script setup>
-import { reactive, ref, computed, watch, onMounted } from 'vue'
+import { reactive, ref, computed, watch, onMounted, nextTick } from 'vue'
 import api from '../services/api'
 import ProductSelector from './ProductSelector.vue'
 import AttachmentSection from './AttachmentSection.vue'
@@ -162,6 +170,8 @@ const props = defineProps({
   id: { type: [Number, String, null], default: null },
   suppliers: { type: Array, default: () => [] },
   initialData: { type: Object, default: null },
+  scanFocusKey: { type: String, default: 'all' },
+  scanFocusRequestId: { type: Number, default: 0 },
 })
 const emit = defineEmits(['close', 'saved'])
 const localeStore = useLocaleStore()
@@ -187,6 +197,8 @@ const attachmentRef = ref(null)
 const submitting = ref(false)
 const errorMessage = ref('')
 const importedSourceFile = ref(null)
+const itemRowRefs = ref([])
+const activeScanItemIndex = ref(null)
 
 async function loadWarehouses() {
   try {
@@ -199,6 +211,38 @@ async function loadWarehouses() {
 
 function blankRow() {
   return { product_id: null, product_label: '', item_code: '', description: '', serial_no: '', quantity: 1, unit_price: 0, discount: 0 }
+}
+
+function setItemRowRef(element, index) {
+  if (!element) return
+  itemRowRefs.value[index] = element
+}
+
+function getScanItemIndexFromKey(key) {
+  const matched = String(key || '').match(/^item-(\d+)$/)
+  return matched ? Number(matched[1]) : null
+}
+
+// 中文注释：点击 OCR 图片黄框后，自动滚动到对应的 invoice item 行，并短暂高亮方便肉眼定位。
+async function focusScanItemRow(index) {
+  if (!Number.isInteger(index) || index < 0) return
+  await nextTick()
+  const rowElement = itemRowRefs.value[index]
+  if (!rowElement) return
+
+  activeScanItemIndex.value = index
+  rowElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  const firstInput = rowElement.querySelector('input, button, textarea, select')
+  if (firstInput && typeof firstInput.focus === 'function') {
+    firstInput.focus({ preventScroll: true })
+  }
+
+  window.clearTimeout(focusScanItemRow._timer)
+  focusScanItemRow._timer = window.setTimeout(() => {
+    if (activeScanItemIndex.value === index) {
+      activeScanItemIndex.value = null
+    }
+  }, 2200)
 }
 
 // 中文注释：把识别结果预填到 Invoice 表单，能识别到的数量和单价先自动带入，用户最后复核即可。
@@ -426,4 +470,16 @@ onMounted(() => {
     form.items = [blankRow()]
   }
 })
+
+watch(
+  () => [props.scanFocusKey, props.scanFocusRequestId],
+  async ([focusKey]) => {
+    const itemIndex = getScanItemIndexFromKey(focusKey)
+    if (itemIndex === null) {
+      activeScanItemIndex.value = null
+      return
+    }
+    await focusScanItemRow(itemIndex)
+  },
+)
 </script>
