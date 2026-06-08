@@ -70,6 +70,66 @@
           <textarea v-model="form.notes" rows="2" class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"></textarea>
         </div>
 
+        <div v-if="ocrConfirmationTimeline.length > 0" class="rounded-lg border border-indigo-100 bg-indigo-50/70 px-4 py-3">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="text-xs font-medium uppercase tracking-wide text-indigo-500">OCR Confirmation Timeline</p>
+              <h4 class="mt-1 text-sm font-semibold text-indigo-900">这张 DO 的人工确认历史</h4>
+              <p class="mt-1 text-xs text-indigo-700">可直接查看谁确认了哪些低置信度 Item，以及确认时间。</p>
+            </div>
+            <span class="rounded-full bg-white px-3 py-1 text-xs font-semibold text-indigo-700">
+              {{ ocrConfirmationTimeline.length }} 条记录
+            </span>
+          </div>
+          <div class="mt-3 space-y-3">
+            <div
+              v-for="entry in ocrConfirmationTimeline"
+              :key="entry.audit_id"
+              class="rounded-lg border border-white bg-white p-3 shadow-sm"
+            >
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p class="text-sm font-semibold text-slate-900">{{ entry.document_no ? `DO #${entry.document_no}` : 'Delivery Order' }}</p>
+                  <p class="mt-1 text-xs text-slate-500">
+                    {{ entry.user_email || entry.confirmed_by?.email || 'System' }}
+                    <span v-if="entry.user_role" class="ml-1">· {{ entry.user_role }}</span>
+                    <span class="ml-1">· {{ formatAuditTimelineTime(entry.created_at) }}</span>
+                  </p>
+                  <p v-if="entry.description" class="mt-2 text-xs text-slate-600">{{ entry.description }}</p>
+                </div>
+                <span class="rounded-full bg-indigo-100 px-2 py-1 text-xs font-semibold text-indigo-700">
+                  {{ entry.confirmation_count || entry.items?.length || 0 }} 条确认
+                </span>
+              </div>
+              <div class="mt-3 space-y-2">
+                <div
+                  v-for="item in entry.items || []"
+                  :key="`${entry.audit_id}-${item.itemIndex}-${item.sortOrder}`"
+                  class="rounded border border-slate-200 bg-slate-50 px-3 py-2"
+                >
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="text-xs font-semibold text-slate-900">{{ item.itemLabel || `Item ${Number(item.itemIndex) + 1}` }}</span>
+                      <span v-if="item.itemCode" class="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700">{{ item.itemCode }}</span>
+                      <span
+                        class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                        :class="confidenceBadgeClass(item.ocrConfidenceLevel)"
+                      >
+                        {{ formatAuditConfidence(item.ocrConfidenceLevel, item.ocrConfidencePercent) }}
+                      </span>
+                    </div>
+                    <span class="text-[11px] text-slate-500">{{ formatAuditTimelineTime(item.manualConfirmedAt) }}</span>
+                  </div>
+                  <p class="mt-2 text-xs text-slate-600">{{ item.description || '无描述' }}</p>
+                  <div class="mt-2 flex flex-wrap gap-2">
+                    <span class="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700">Qty {{ Number(item.quantity) || 0 }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div>
           <div class="mb-2 flex items-center justify-between">
             <h4 class="text-sm font-semibold text-slate-700">Items</h4>
@@ -204,6 +264,7 @@ const errorMessage = ref('')
 const importedSourceFile = ref(null)
 const itemRowRefs = ref([])
 const activeScanItemIndex = ref(null)
+const ocrConfirmationTimeline = ref([])
 
 async function loadWarehouses() {
   try {
@@ -250,6 +311,18 @@ function formatConfirmationTime(value) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
   return `确认时间 ${date.toLocaleString('zh-CN', { hour12: false })}`
+}
+
+function formatAuditTimelineTime(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return date.toLocaleString('zh-CN', { hour12: false })
+}
+
+function formatAuditConfidence(level, percent) {
+  const prefix = level === 'high' ? '高' : level === 'medium' ? '中' : '低'
+  return `${prefix} ${Number(percent) || 0}%`
 }
 
 function setItemRowRef(element, index) {
@@ -366,6 +439,7 @@ function applyInitialData(initialData) {
     : [blankRow()]
   attachments.value = []
   importedSourceFile.value = initialData?.source_file || null
+  ocrConfirmationTimeline.value = []
 }
 
 function addRow() {
@@ -415,6 +489,7 @@ async function loadExisting(id) {
   }))
   attachments.value = data.attachments || []
   importedSourceFile.value = null
+  ocrConfirmationTimeline.value = Array.isArray(data.ocr_confirmation_timeline) ? data.ocr_confirmation_timeline : []
 }
 
 // 中文注释：扫描创建成功后，把原始图片/PDF 自动补传到当前 DO 附件区，方便以后回查。

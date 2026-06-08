@@ -49,6 +49,36 @@ function normalizeOcrConfirmationAudit(rawAudit = [], req) {
     .filter(Boolean)
 }
 
+async function loadOcrConfirmationTimeline(entityId, tenantId) {
+  const result = await query(
+    `SELECT id, user_email, user_role, action, description, metadata, created_at
+     FROM audit_logs
+     WHERE tenant_id = $1
+       AND entity_type = 'DELIVERY_ORDER'
+       AND entity_id = $2
+       AND metadata->'lowConfidenceConfirmations' IS NOT NULL
+     ORDER BY created_at DESC, id DESC`,
+    [tenantId, String(entityId)],
+  )
+
+  return result.rows.map((row) => {
+    const summary = row.metadata?.lowConfidenceConfirmations || {}
+    return {
+      audit_id: row.id,
+      action: row.action,
+      description: row.description || '',
+      created_at: row.created_at,
+      user_email: row.user_email || null,
+      user_role: row.user_role || null,
+      document_type: summary.documentType || 'delivery_order',
+      document_no: summary.documentNo || '',
+      confirmation_count: Number(summary.confirmationCount) || 0,
+      confirmed_by: summary.confirmedBy || null,
+      items: Array.isArray(summary.items) ? summary.items : [],
+    }
+  })
+}
+
 /**
  * 列表：支持 ?supplierId=&search=&page=&pageSize=&year=&month=&excludeInvoiced=
  * 响应 { items: [...], pagination }
@@ -163,7 +193,7 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Delivery order not found.' })
     }
 
-    const [items, attachments] = await Promise.all([
+    const [items, attachments, ocrConfirmationTimeline] = await Promise.all([
       query(
         `SELECT i.id, i.product_id, i.item_code, i.description, i.serial_no, i.quantity, i.sort_order,
                 p.name AS product_name, p.product_code AS product_product_code
@@ -180,9 +210,15 @@ router.get('/:id', async (req, res) => {
          ORDER BY created_at DESC`,
         [req.params.id],
       ),
+      loadOcrConfirmationTimeline(req.params.id, tenantId),
     ])
 
-    return res.json({ ...header.rows[0], items: items.rows, attachments: attachments.rows })
+    return res.json({
+      ...header.rows[0],
+      items: items.rows,
+      attachments: attachments.rows,
+      ocr_confirmation_timeline: ocrConfirmationTimeline,
+    })
   } catch (error) {
     return res.status(500).json({ message: 'Failed to load delivery order.', error: error.message })
   }
