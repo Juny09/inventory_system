@@ -153,6 +153,28 @@
           </button>
         </div>
       </div>
+      <div
+        v-if="parsedDraft?.imported_from_scan && scanLowConfidenceItems.length > 0 && (modal === 'do' || modal === 'invoice')"
+        class="mt-3 rounded border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-800"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p class="font-semibold">发现 {{ scanLowConfidenceItems.length }} 条低置信度 Item，建议优先人工复核。</p>
+            <p class="mt-1 text-xs text-rose-700">已按风险排序显示在 OCR 面板和表单里，点击下面任一项可直接跳过去。</p>
+          </div>
+        </div>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <button
+            v-for="item in scanLowConfidenceItems"
+            :key="item.key"
+            type="button"
+            class="rounded-full border border-rose-300 bg-white px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+            @click="setScanReviewFocus(item.key, { triggerScroll: true })"
+          >
+            {{ item.label }} · {{ item.confidence?.label || '低' }}
+          </button>
+        </div>
+      </div>
       <button
         v-if="parsedDraft?.imported_from_scan && !scanReviewExpanded && (modal === 'do' || modal === 'invoice')"
         type="button"
@@ -205,6 +227,28 @@
                   <p class="text-slate-500">系统判断</p>
                   <p class="mt-1 font-semibold text-slate-800">{{ parsedDraft?.detected_type || 'unknown' }}</p>
                 </div>
+              </div>
+            </div>
+
+            <div v-if="scanLowConfidenceItems.length > 0" class="rounded-lg border border-rose-200 bg-rose-50 p-3">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <p class="text-xs font-medium uppercase tracking-wide text-rose-700">优先检查</p>
+                  <p class="mt-1 text-sm font-semibold text-rose-900">有 {{ scanLowConfidenceItems.length }} 条低置信度 Item。</p>
+                  <p class="mt-1 text-xs text-rose-700">这些项目已自动标红，并排在前面方便你先检查。</p>
+                </div>
+              </div>
+              <div class="mt-3 space-y-2">
+                <button
+                  v-for="item in scanLowConfidenceItems"
+                  :key="`risk-${item.key}`"
+                  type="button"
+                  class="flex w-full items-center justify-between rounded-lg border border-rose-300 bg-white px-3 py-2 text-left text-xs text-rose-800 hover:bg-rose-100"
+                  @click="setScanReviewFocus(item.key, { triggerScroll: true })"
+                >
+                  <span class="font-semibold">{{ item.label }} · {{ item.value }}</span>
+                  <span class="rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-800">{{ item.confidence?.label || '低' }}</span>
+                </button>
               </div>
             </div>
 
@@ -860,6 +904,10 @@ function confidenceBadgeClass(level) {
   return 'bg-rose-100 text-rose-800'
 }
 
+function isLowConfidenceLevel(level) {
+  return level === 'low'
+}
+
 // 中文注释：把 OCR/解析结果转换成现有表单能直接吃的结构，做到“上传后直接弹出并自动带值”。
 function buildParsedDraft(preview, documentType, sourceFile) {
   const normalizedType = documentType === 'delivery_order' ? 'delivery_order' : 'invoice'
@@ -915,7 +963,18 @@ const showScanReviewPanel = computed(() => {
 })
 
 const scanReviewHighlights = computed(() => buildReviewHighlights(parsedDraft.value))
-const scanItemFocusOptions = computed(() => scanReviewHighlights.value.filter((item) => String(item.key || '').startsWith('item-')))
+const scanItemFocusOptions = computed(() => {
+  return scanReviewHighlights.value
+    .filter((item) => String(item.key || '').startsWith('item-'))
+    .sort((a, b) => {
+      const aScore = Number(a.confidence?.percent ?? 999)
+      const bScore = Number(b.confidence?.percent ?? 999)
+      return aScore - bScore
+    })
+})
+const scanLowConfidenceItems = computed(() => {
+  return scanItemFocusOptions.value.filter((item) => isLowConfidenceLevel(item.confidence?.level))
+})
 const scanActiveReviewHighlights = computed(() => {
   if (scanReviewFocusKey.value === 'all') {
     return scanReviewHighlights.value

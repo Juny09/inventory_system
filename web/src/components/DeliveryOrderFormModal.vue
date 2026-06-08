@@ -14,6 +14,20 @@
           已从文档自动带入资料，请检查内容后再保存。
           <span v-if="props.initialData?.source_file_name" class="ml-1 font-medium">{{ props.initialData.source_file_name }}</span>
         </div>
+        <div v-if="lowConfidenceItems.length > 0" class="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          <p class="font-semibold">发现 {{ lowConfidenceItems.length }} 条低置信度 Item，建议先检查这些红色行。</p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button
+              v-for="item in lowConfidenceItems"
+              :key="`low-risk-${item.index}`"
+              type="button"
+              class="rounded-full border border-rose-300 bg-white px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+              @click="jumpToLowConfidenceItem(item.index)"
+            >
+              Item {{ item.index + 1 }} · {{ item.ocr_confidence_label || '低' }}
+            </button>
+          </div>
+        </div>
         <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
           <div>
             <label class="block text-xs font-medium text-slate-600">Supplier Company <span class="text-red-500">*</span></label>
@@ -71,7 +85,11 @@
                   :ref="(el) => setItemRowRef(el, idx)"
                   :class="[
                     'border-t border-slate-200 align-top transition-colors',
-                    activeScanItemIndex === idx ? 'bg-amber-50 ring-2 ring-inset ring-amber-300' : '',
+                    activeScanItemIndex === idx
+                      ? 'bg-amber-50 ring-2 ring-inset ring-amber-300'
+                      : isLowConfidenceRow(row)
+                        ? 'bg-rose-50'
+                        : '',
                   ]"
                   @click="handleItemRowClick(idx)"
                 >
@@ -133,7 +151,7 @@
 </template>
 
 <script setup>
-import { reactive, ref, watch, onMounted, nextTick } from 'vue'
+import { reactive, ref, computed, watch, onMounted, nextTick } from 'vue'
 import api from '../services/api'
 import ProductSelector from './ProductSelector.vue'
 import AttachmentSection from './AttachmentSection.vue'
@@ -195,6 +213,10 @@ function confidenceBadgeClass(level) {
   return 'bg-rose-100 text-rose-800'
 }
 
+function isLowConfidenceRow(row) {
+  return row?.ocr_confidence_level === 'low'
+}
+
 function setItemRowRef(element, index) {
   if (!element) return
   itemRowRefs.value[index] = element
@@ -211,6 +233,13 @@ function handleItemRowClick(index) {
   activeScanItemIndex.value = index
   emit('scan-item-selected', { itemIndex: index })
 }
+
+const lowConfidenceItems = computed(() => {
+  return form.items
+    .map((item, index) => ({ ...item, index }))
+    .filter((item) => isLowConfidenceRow(item))
+    .sort((a, b) => Number(a.ocr_confidence_percent || 0) - Number(b.ocr_confidence_percent || 0))
+})
 
 // 中文注释：当用户从 OCR 高亮框点进来时，自动把对应的 item 行滚动到视口并加亮一下。
 async function focusScanItemRow(index) {
@@ -232,6 +261,12 @@ async function focusScanItemRow(index) {
       activeScanItemIndex.value = null
     }
   }, 2200)
+}
+
+// 中文注释：顶部风险提示点击后，直接滚动并同步右侧 OCR 面板到对应的低置信度 item。
+async function jumpToLowConfidenceItem(index) {
+  handleItemRowClick(index)
+  await focusScanItemRow(index)
 }
 
 // 中文注释：把识别结果预填到 DO 表单，用户打开弹窗后只需要检查再保存。
