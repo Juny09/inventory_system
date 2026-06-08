@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import AppLayout from '../layouts/AppLayout.vue'
 import PaginationBar from '../components/PaginationBar.vue'
 import api from '../services/api'
@@ -30,13 +30,39 @@ const pagination = ref({
   totalPages: 1,
 })
 const expandedIds = ref([])
+const rawExpandedIds = ref([])
 
 function tr(en, cn) {
   return localeStore.locale === 'en' ? en : cn
 }
 
-const actionOptions = ['all', 'LOGIN', 'STOCK_COUNT_CREATE', 'STOCK_COUNT_SAVE', 'STOCK_COUNT_COMPLETE', 'STOCK_COUNT_APPLY', 'ALERT_UPDATE', 'ALERT_BULK_UPDATE']
-const entityTypeOptions = ['all', 'AUTH', 'USERS', 'CATEGORIES', 'WAREHOUSES', 'PRODUCTS', 'INVENTORY', 'STOCK_COUNT', 'ALERT']
+const actionOptions = [
+  'all',
+  'LOGIN',
+  'STOCK_COUNT_CREATE',
+  'STOCK_COUNT_SAVE',
+  'STOCK_COUNT_COMPLETE',
+  'STOCK_COUNT_APPLY',
+  'ALERT_UPDATE',
+  'ALERT_BULK_UPDATE',
+  'DELIVERY_ORDER_CREATE',
+  'DELIVERY_ORDER_UPDATE',
+  'SUPPLIER_INVOICE_CREATE',
+  'SUPPLIER_INVOICE_UPDATE',
+]
+const entityTypeOptions = [
+  'all',
+  'AUTH',
+  'USERS',
+  'CATEGORIES',
+  'WAREHOUSES',
+  'PRODUCTS',
+  'INVENTORY',
+  'STOCK_COUNT',
+  'ALERT',
+  'DELIVERY_ORDER',
+  'SUPPLIER_INVOICE',
+]
 const auditColumns = [
   { key: 'created_at', label: tr('Time', '时间') },
   { key: 'user_email', label: tr('User', '用户') },
@@ -46,6 +72,72 @@ const auditColumns = [
   { key: 'path', label: tr('Path', '路径') },
   { key: 'description', label: tr('Description', '说明') },
 ]
+
+function formatDateTime(value) {
+  if (!value) {
+    return '-'
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return String(value)
+  }
+
+  return date.toLocaleString()
+}
+
+// 中文注释：把审计 metadata 里的 OCR 人工确认记录提取出来，页面就能直接渲染可读卡片而不是只看原始 JSON。
+function getConfirmationSummary(log) {
+  return log?.metadata?.lowConfidenceConfirmations || null
+}
+
+function hasConfirmationSummary(log) {
+  return Boolean(getConfirmationSummary(log))
+}
+
+function getDocumentTypeLabel(documentType) {
+  if (documentType === 'delivery_order') return tr('Delivery Order', '送货单')
+  if (documentType === 'supplier_invoice') return tr('Supplier Invoice', '供应商发票')
+  return documentType || '-'
+}
+
+function getConfidenceBadgeClass(level) {
+  if (level === 'high') return 'bg-emerald-100 text-emerald-800'
+  if (level === 'medium') return 'bg-amber-100 text-amber-800'
+  return 'bg-rose-100 text-rose-800'
+}
+
+function getConfidenceLabel(item) {
+  const level = item?.ocrConfidenceLevel || 'low'
+  const percent = Number(item?.ocrConfidencePercent) || 0
+  const prefix = level === 'high' ? tr('High', '高') : level === 'medium' ? tr('Medium', '中') : tr('Low', '低')
+  return `${prefix} ${percent}%`
+}
+
+function toggleRawExpanded(id) {
+  if (rawExpandedIds.value.includes(id)) {
+    rawExpandedIds.value = rawExpandedIds.value.filter((item) => item !== id)
+    return
+  }
+
+  rawExpandedIds.value = [...rawExpandedIds.value, id]
+}
+
+const confirmationLogs = computed(() => logs.value.filter((log) => hasConfirmationSummary(log)))
+const confirmationStats = computed(() => {
+  const totalLogs = confirmationLogs.value.length
+  const totalItems = confirmationLogs.value.reduce((sum, log) => {
+    const items = getConfirmationSummary(log)?.items || []
+    return sum + items.length
+  }, 0)
+  const latestTime = confirmationLogs.value[0]?.created_at || ''
+
+  return {
+    totalLogs,
+    totalItems,
+    latestTime,
+  }
+})
 
 function getPresetStorageKey() {
   return `inventory_audit_presets_${authStore.user?.id || 'guest'}`
@@ -307,6 +399,24 @@ onMounted(() => {
           </div>
         </div>
 
+        <div class="mb-4 grid gap-3 md:grid-cols-3">
+          <div class="rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
+            <p class="text-xs font-medium uppercase tracking-wide text-indigo-500">{{ tr('OCR confirmation logs', 'OCR 确认日志') }}</p>
+            <p class="mt-2 text-2xl font-semibold text-indigo-900">{{ confirmationStats.totalLogs }}</p>
+            <p class="mt-1 text-sm text-indigo-700">{{ tr('Current filtered results containing OCR manual confirmation traces.', '当前筛选结果中包含 OCR 人工确认痕迹的日志数。') }}</p>
+          </div>
+          <div class="rounded-2xl border border-rose-100 bg-rose-50 p-4">
+            <p class="text-xs font-medium uppercase tracking-wide text-rose-500">{{ tr('Confirmed items', '已确认条目') }}</p>
+            <p class="mt-2 text-2xl font-semibold text-rose-900">{{ confirmationStats.totalItems }}</p>
+            <p class="mt-1 text-sm text-rose-700">{{ tr('Low-confidence OCR items that were manually reviewed.', '已人工复核过的低置信度 OCR Item 总数。') }}</p>
+          </div>
+          <div class="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+            <p class="text-xs font-medium uppercase tracking-wide text-emerald-500">{{ tr('Latest confirmation', '最近确认时间') }}</p>
+            <p class="mt-2 text-lg font-semibold text-emerald-900">{{ formatDateTime(confirmationStats.latestTime) }}</p>
+            <p class="mt-1 text-sm text-emerald-700">{{ tr('Shows the latest audit time in the current filtered results.', '显示当前筛选结果里最近一次审计记录时间。') }}</p>
+          </div>
+        </div>
+
         <div class="mb-4 grid gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4 xl:grid-cols-[1fr_220px_160px_160px]">
           <input
             v-model="presetName"
@@ -428,9 +538,20 @@ onMounted(() => {
                 </p>
                 <p class="mt-1 break-all text-sm text-slate-500">{{ log.path }}</p>
                 <p v-if="log.description" class="mt-2 text-sm text-slate-600">{{ log.description }}</p>
+                <div v-if="hasConfirmationSummary(log)" class="mt-3 flex flex-wrap gap-2">
+                  <span class="rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700">
+                    {{ tr('OCR Manual Confirmation', 'OCR 人工确认') }}
+                  </span>
+                  <span class="rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold text-indigo-700">
+                    {{ getDocumentTypeLabel(getConfirmationSummary(log)?.documentType) }}
+                  </span>
+                  <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                    {{ tr('Items', '条目') }} {{ getConfirmationSummary(log)?.confirmationCount || 0 }}
+                  </span>
+                </div>
               </div>
               <div class="text-right">
-                <span class="text-xs text-slate-400">{{ new Date(log.created_at).toLocaleString() }}</span>
+                <span class="text-xs text-slate-400">{{ formatDateTime(log.created_at) }}</span>
                 <button
                   type="button"
                   class="mt-3 block rounded-2xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
@@ -442,9 +563,82 @@ onMounted(() => {
             </div>
             <div
               v-if="expandedIds.includes(log.id)"
-              class="mt-4 rounded-2xl bg-slate-950 p-4 text-xs leading-6 text-slate-100"
+              class="mt-4 space-y-4"
             >
-              <pre class="whitespace-pre-wrap break-all">{{ JSON.stringify(log.metadata, null, 2) }}</pre>
+              <div v-if="hasConfirmationSummary(log)" class="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p class="text-xs font-medium uppercase tracking-wide text-rose-600">{{ tr('Manual Confirmation Summary', '人工确认摘要') }}</p>
+                    <h3 class="mt-2 text-lg font-semibold text-rose-900">
+                      {{ getDocumentTypeLabel(getConfirmationSummary(log)?.documentType) }}
+                      <span v-if="getConfirmationSummary(log)?.documentNo">#{{ getConfirmationSummary(log)?.documentNo }}</span>
+                    </h3>
+                    <p class="mt-1 text-sm text-rose-700">
+                      {{ tr('Confirmed by', '确认人') }} {{ getConfirmationSummary(log)?.confirmedBy?.email || log.user_email || 'System' }}
+                      · {{ tr('Total items', '确认条数') }} {{ getConfirmationSummary(log)?.confirmationCount || 0 }}
+                    </p>
+                  </div>
+                  <div class="text-sm text-rose-700">
+                    <p>{{ tr('Audit time', '审计时间') }}: {{ formatDateTime(log.created_at) }}</p>
+                  </div>
+                </div>
+
+                <div class="mt-4 space-y-3">
+                  <div
+                    v-for="item in getConfirmationSummary(log)?.items || []"
+                    :key="`${log.id}-${item.itemIndex}-${item.sortOrder}`"
+                    class="rounded-2xl border border-white bg-white p-3 shadow-sm"
+                  >
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div class="flex flex-wrap items-center gap-2">
+                          <span class="text-sm font-semibold text-slate-900">{{ item.itemLabel || `Item ${Number(item.itemIndex) + 1}` }}</span>
+                          <span
+                            class="rounded-full px-2 py-0.5 text-xs font-semibold"
+                            :class="getConfidenceBadgeClass(item.ocrConfidenceLevel)"
+                          >
+                            {{ getConfidenceLabel(item) }}
+                          </span>
+                          <span v-if="item.itemCode" class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                            {{ item.itemCode }}
+                          </span>
+                        </div>
+                        <p class="mt-2 text-sm text-slate-700">{{ item.description || tr('No description', '无描述') }}</p>
+                      </div>
+                      <div class="text-right text-xs text-slate-500">
+                        <p>{{ tr('Confirmed at', '确认时间') }}: {{ formatDateTime(item.manualConfirmedAt) }}</p>
+                        <p>{{ tr('Confirmed by', '确认人') }}: {{ item.confirmedBy?.email || getConfirmationSummary(log)?.confirmedBy?.email || '-' }}</p>
+                      </div>
+                    </div>
+                    <div class="mt-3 flex flex-wrap gap-2 text-xs">
+                      <span class="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">
+                        {{ tr('Qty', '数量') }} {{ item.quantity ?? 0 }}
+                      </span>
+                      <span v-if="item.unitPrice" class="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">
+                        {{ tr('Unit Price', '单价') }} {{ Number(item.unitPrice).toFixed(2) }}
+                      </span>
+                      <span v-if="item.amount" class="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">
+                        {{ tr('Amount', '金额') }} {{ Number(item.amount).toFixed(2) }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="rounded-2xl bg-slate-950 p-4 text-xs leading-6 text-slate-100">
+                <div class="mb-3 flex items-center justify-between gap-3">
+                  <p class="font-semibold text-slate-100">{{ tr('Raw metadata', '原始 metadata') }}</p>
+                  <button
+                    type="button"
+                    class="rounded-xl border border-slate-700 px-3 py-1 text-xs font-semibold text-slate-200"
+                    @click="toggleRawExpanded(log.id)"
+                  >
+                    {{ rawExpandedIds.includes(log.id) ? tr('Hide raw JSON', '收起原始 JSON') : tr('Show raw JSON', '显示原始 JSON') }}
+                  </button>
+                </div>
+                <pre v-if="rawExpandedIds.includes(log.id)" class="whitespace-pre-wrap break-all">{{ JSON.stringify(log.metadata, null, 2) }}</pre>
+                <p v-else class="text-slate-400">{{ tr('Raw JSON is hidden by default. Expand only when deeper troubleshooting is needed.', '原始 JSON 默认折叠，仅在需要深度排查时再展开。') }}</p>
+              </div>
             </div>
           </article>
         </div>
