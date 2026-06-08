@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppLayout from '../layouts/AppLayout.vue'
 import PaginationBar from '../components/PaginationBar.vue'
@@ -13,6 +13,7 @@ const route = useRoute()
 const inventory = ref([])
 const variants = ref([])
 const warehouses = ref([])
+const warehouseLocations = ref([])
 const categories = ref([])
 const suppliers = ref([])
 const transactions = ref([])
@@ -47,6 +48,13 @@ const transactionPagination = ref({
 const stockInForm = reactive({
   variantId: '',
   warehouseId: '',
+  locationId: '',
+  locationCode: '',
+  locationName: '',
+  zone: '',
+  shelf: '',
+  bin: '',
+  level: '',
   supplierId: '',
   quantity: 1,
   unit: '',
@@ -59,6 +67,7 @@ const stockInForm = reactive({
 const stockOutForm = reactive({
   variantId: '',
   warehouseId: '',
+  locationId: '',
   unit: '',
   quantity: 1,
   referenceNo: '',
@@ -68,7 +77,9 @@ const stockOutForm = reactive({
 const transferForm = reactive({
   variantId: '',
   sourceWarehouseId: '',
+  sourceLocationId: '',
   destinationWarehouseId: '',
+  destinationLocationId: '',
   unit: '',
   quantity: 1,
   referenceNo: '',
@@ -97,7 +108,7 @@ function closeModal() {
 }
 
 async function loadSelectors() {
-  const [variantResponse, warehouseResponse, categoryResponse, supplierResponse] = await Promise.all([
+  const [variantResponse, warehouseResponse, locationResponse, categoryResponse, supplierResponse] = await Promise.all([
     api.get('/product-variants', {
       params: {
         all: true,
@@ -105,6 +116,12 @@ async function loadSelectors() {
       },
     }),
     api.get('/warehouses', {
+      params: {
+        all: true,
+        activeOnly: true,
+      },
+    }),
+    api.get('/warehouse-locations', {
       params: {
         all: true,
         activeOnly: true,
@@ -126,6 +143,7 @@ async function loadSelectors() {
 
   variants.value = variantResponse.data.items
   warehouses.value = warehouseResponse.data.items
+  warehouseLocations.value = locationResponse.data.items
   categories.value = categoryResponse.data.items
   suppliers.value = supplierResponse.data.items
   selectorsLoaded.value = true
@@ -174,6 +192,13 @@ function resetForms() {
   Object.assign(stockInForm, {
     variantId: '',
     warehouseId: '',
+    locationId: '',
+    locationCode: '',
+    locationName: '',
+    zone: '',
+    shelf: '',
+    bin: '',
+    level: '',
     supplierId: '',
     quantity: 1,
     unit: '',
@@ -185,6 +210,7 @@ function resetForms() {
   Object.assign(stockOutForm, {
     variantId: '',
     warehouseId: '',
+    locationId: '',
     unit: '',
     quantity: 1,
     referenceNo: '',
@@ -193,7 +219,9 @@ function resetForms() {
   Object.assign(transferForm, {
     variantId: '',
     sourceWarehouseId: '',
+    sourceLocationId: '',
     destinationWarehouseId: '',
+    destinationLocationId: '',
     quantity: 1,
     referenceNo: '',
     notes: '',
@@ -214,11 +242,54 @@ function findVariantById(variantId) {
   return variants.value.find((item) => Number(item.id) === targetId) || null
 }
 
+function findLocationById(locationId) {
+  const targetId = Number(locationId)
+  if (!targetId) return null
+  return warehouseLocations.value.find((item) => Number(item.id) === targetId) || null
+}
+
+function filterLocationsByWarehouseId(warehouseId) {
+  const targetWarehouseId = Number(warehouseId)
+  if (!targetWarehouseId) return []
+  return warehouseLocations.value.filter((item) => Number(item.warehouse_id) === targetWarehouseId)
+}
+
+function formatLocationOption(location) {
+  const parts = [
+    location?.location_code,
+    location?.location_name,
+    location?.shelf ? `Shelf ${location.shelf}` : '',
+    location?.bin ? `Bin ${location.bin}` : '',
+  ].filter(Boolean)
+  return parts.join(' · ')
+}
+
+const stockInWarehouseLocations = computed(() => filterLocationsByWarehouseId(stockInForm.warehouseId))
+const stockOutWarehouseLocations = computed(() => filterLocationsByWarehouseId(stockOutForm.warehouseId))
+const transferSourceLocations = computed(() => filterLocationsByWarehouseId(transferForm.sourceWarehouseId))
+const transferDestinationLocations = computed(() => filterLocationsByWarehouseId(transferForm.destinationWarehouseId))
+
+function applyStockInLocationDetails(locationId) {
+  const location = findLocationById(locationId)
+  if (!location) return
+
+  Object.assign(stockInForm, {
+    locationId: String(location.id),
+    locationCode: location.location_code || '',
+    locationName: location.location_name || '',
+    zone: location.zone || '',
+    shelf: location.shelf || '',
+    bin: location.bin || '',
+    level: location.level || '',
+  })
+}
+
 function buildScannerPrefillKey() {
   return [
     route.query.action || '',
     route.query.variantId || '',
     route.query.warehouseId || '',
+    route.query.locationId || '',
     route.query.scannedCode || '',
     route.query.prefillToken || '',
   ].join('|')
@@ -246,6 +317,13 @@ function applyScannerPrefill() {
   }
 
   const warehouseId = String(route.query.warehouseId || '')
+  const locationId = String(route.query.locationId || '')
+  const locationCode = String(route.query.locationCode || '')
+  const locationName = String(route.query.locationName || '')
+  const zone = String(route.query.zone || '')
+  const shelf = String(route.query.shelf || '')
+  const bin = String(route.query.bin || '')
+  const level = String(route.query.level || '')
   const scannedCode = String(route.query.scannedCode || '')
 
   if (scannedCode) {
@@ -257,6 +335,13 @@ function applyScannerPrefill() {
     Object.assign(stockInForm, {
       variantId: String(variant.id),
       warehouseId,
+      locationId,
+      locationCode,
+      locationName,
+      zone,
+      shelf,
+      bin,
+      level,
       supplierId: '',
       quantity: 1,
       unit: variant.unit || '',
@@ -271,6 +356,7 @@ function applyScannerPrefill() {
     Object.assign(stockOutForm, {
       variantId: String(variant.id),
       warehouseId,
+      locationId,
       unit: variant.unit || '',
       quantity: 1,
       referenceNo: '',
@@ -330,6 +416,48 @@ function getUnitStep(unit) {
   return '1'
 }
 
+function resetStockInLocationIfWarehouseChanged() {
+  const matchedLocation = findLocationById(stockInForm.locationId)
+  if (matchedLocation && Number(matchedLocation.warehouse_id) === Number(stockInForm.warehouseId)) {
+    return
+  }
+
+  Object.assign(stockInForm, {
+    locationId: '',
+    locationCode: '',
+    locationName: '',
+    zone: '',
+    shelf: '',
+    bin: '',
+    level: '',
+  })
+}
+
+function resetStockOutLocationIfWarehouseChanged() {
+  const matchedLocation = findLocationById(stockOutForm.locationId)
+  if (matchedLocation && Number(matchedLocation.warehouse_id) === Number(stockOutForm.warehouseId)) {
+    return
+  }
+  stockOutForm.locationId = ''
+}
+
+function resetTransferLocationIfWarehouseChanged(type) {
+  if (type === 'source') {
+    const matchedLocation = findLocationById(transferForm.sourceLocationId)
+    if (matchedLocation && Number(matchedLocation.warehouse_id) === Number(transferForm.sourceWarehouseId)) {
+      return
+    }
+    transferForm.sourceLocationId = ''
+    return
+  }
+
+  const matchedLocation = findLocationById(transferForm.destinationLocationId)
+  if (matchedLocation && Number(matchedLocation.warehouse_id) === Number(transferForm.destinationWarehouseId)) {
+    return
+  }
+  transferForm.destinationLocationId = ''
+}
+
 onMounted(async () => {
   if (!authStore.user) {
     await authStore.fetchMe()
@@ -345,6 +473,13 @@ watch(
     route.query.action,
     route.query.variantId,
     route.query.warehouseId,
+    route.query.locationId,
+    route.query.locationCode,
+    route.query.locationName,
+    route.query.zone,
+    route.query.shelf,
+    route.query.bin,
+    route.query.level,
     route.query.scannedCode,
     route.query.prefillToken,
   ],
@@ -352,6 +487,15 @@ watch(
     applyScannerPrefill()
   },
 )
+
+watch(() => stockInForm.warehouseId, resetStockInLocationIfWarehouseChanged)
+watch(() => stockOutForm.warehouseId, resetStockOutLocationIfWarehouseChanged)
+watch(() => transferForm.sourceWarehouseId, () => resetTransferLocationIfWarehouseChanged('source'))
+watch(() => transferForm.destinationWarehouseId, () => resetTransferLocationIfWarehouseChanged('destination'))
+watch(() => stockInForm.locationId, (value) => {
+  if (!value) return
+  applyStockInLocationDetails(value)
+})
 </script>
 
 <template>
@@ -517,6 +661,9 @@ watch(
                 </span>
               </div>
               <p class="mt-3 text-sm text-slate-500">Warehouse: {{ item.warehouse_name }}</p>
+              <p class="mt-1 text-sm text-slate-500">
+                Location: {{ item.location_code || '—' }}<span v-if="item.shelf || item.bin"> · Shelf {{ item.shelf || '—' }} / Bin {{ item.bin || '—' }}</span>
+              </p>
               <p class="mt-1 text-sm text-slate-500">On hand: {{ item.on_hand_quantity }}</p>
               <p class="mt-1 text-sm text-slate-500">Allocated: {{ item.order_allocated_quantity }}</p>
               <p class="mt-1 text-sm text-slate-500">Reorder: {{ item.reorder_level }}</p>
@@ -528,6 +675,7 @@ watch(
                 <tr>
                   <th class="px-4 py-4">{{ localeStore.t('table.product') }}</th>
                   <th class="px-4 py-4">{{ localeStore.t('table.warehouse') }}</th>
+                  <th class="px-4 py-4">{{ localeStore.locale === 'en' ? 'Location' : '仓位' }}</th>
                   <th class="px-4 py-4">{{ localeStore.t('table.onHand') }}</th>
                   <th class="px-4 py-4">{{ localeStore.t('table.allocated') }}</th>
                   <th class="px-4 py-4">{{ localeStore.t('table.available') }}</th>
@@ -543,6 +691,12 @@ watch(
                     </p>
                   </td>
                   <td class="px-4 py-4">{{ item.warehouse_name }}</td>
+                  <td class="px-4 py-4">
+                    <p class="font-medium text-slate-900">{{ item.location_code || '—' }}</p>
+                    <p class="text-xs text-slate-500">
+                      Shelf {{ item.shelf || '—' }} / Bin {{ item.bin || '—' }}
+                    </p>
+                  </td>
                   <td class="px-4 py-4">
                     <span
                       class="rounded-full px-3 py-1 text-xs font-semibold"
@@ -595,6 +749,17 @@ watch(
                 →
                 {{ transaction.destination_warehouse_name || 'Customer' }}
               </p>
+              <p class="mt-1 text-xs text-slate-400">
+                {{ transaction.source_location_code || '—' }}
+                <span v-if="transaction.source_shelf || transaction.source_bin">
+                  · Shelf {{ transaction.source_shelf || '—' }} / Bin {{ transaction.source_bin || '—' }}
+                </span>
+                →
+                {{ transaction.destination_location_code || '—' }}
+                <span v-if="transaction.destination_shelf || transaction.destination_bin">
+                  · Shelf {{ transaction.destination_shelf || '—' }} / Bin {{ transaction.destination_bin || '—' }}
+                </span>
+              </p>
             </div>
           </div>
           <PaginationBar :pagination="transactionPagination" @change="(page) => loadInventoryPage(inventoryPagination.page, page)" />
@@ -634,6 +799,22 @@ watch(
                   {{ warehouse.name }}
                 </option>
               </select>
+              <select v-model="stockInForm.locationId" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">{{ localeStore.locale === 'en' ? 'Select existing location (optional)' : '选择现有仓位（可选）' }}</option>
+                <option v-for="location in stockInWarehouseLocations" :key="location.id" :value="location.id">
+                  {{ formatLocationOption(location) }}
+                </option>
+              </select>
+              <input v-model="stockInForm.locationCode" type="text" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Location code (optional)' : '仓位编码（可选）'" />
+              <input v-model="stockInForm.locationName" type="text" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Location name (optional)' : '仓位名称（可选）'" />
+              <div class="grid gap-3 sm:grid-cols-2">
+                <input v-model="stockInForm.zone" type="text" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Zone (optional)' : 'Zone 分区（可选）'" />
+                <input v-model="stockInForm.level" type="text" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Level (optional)' : '层级（可选）'" />
+              </div>
+              <div class="grid gap-3 sm:grid-cols-2">
+                <input v-model="stockInForm.shelf" type="text" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Shelf (optional)' : 'Shelf 货架（可选）'" />
+                <input v-model="stockInForm.bin" type="text" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Bin (optional)' : 'Bin 格位（可选）'" />
+              </div>
               <select v-model="stockInForm.unit" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
                 <option value="">{{ localeStore.locale === 'en' ? 'Select unit (optional)' : '选择单位（可选）' }}</option>
                 <option value="pcs">pcs</option>
@@ -689,6 +870,12 @@ watch(
                   {{ warehouse.name }}
                 </option>
               </select>
+              <select v-model="stockOutForm.locationId" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">{{ localeStore.locale === 'en' ? 'Select location (recommended)' : '选择仓位（建议填写）' }}</option>
+                <option v-for="location in stockOutWarehouseLocations" :key="location.id" :value="location.id">
+                  {{ formatLocationOption(location) }}
+                </option>
+              </select>
               <select v-model="stockOutForm.unit" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
                 <option value="">{{ localeStore.locale === 'en' ? 'Select unit (optional)' : '选择单位（可选）' }}</option>
                 <option value="pcs">pcs</option>
@@ -736,6 +923,12 @@ watch(
                   {{ warehouse.name }}
                 </option>
               </select>
+              <select v-model="transferForm.sourceLocationId" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">{{ localeStore.locale === 'en' ? 'Source location (optional)' : '源仓位（可选）' }}</option>
+                <option v-for="location in transferSourceLocations" :key="location.id" :value="location.id">
+                  {{ formatLocationOption(location) }}
+                </option>
+              </select>
               <select v-model="transferForm.unit" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
                 <option value="">{{ localeStore.locale === 'en' ? 'Select unit (optional)' : '选择单位（可选）' }}</option>
                 <option value="pcs">pcs</option>
@@ -749,6 +942,12 @@ watch(
                 <option value="">{{ localeStore.locale === 'en' ? 'Destination warehouse' : '目标仓库' }}</option>
                 <option v-for="warehouse in warehouses" :key="warehouse.id" :value="warehouse.id">
                   {{ warehouse.name }}
+                </option>
+              </select>
+              <select v-model="transferForm.destinationLocationId" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
+                <option value="">{{ localeStore.locale === 'en' ? 'Destination location (optional)' : '目标仓位（可选）' }}</option>
+                <option v-for="location in transferDestinationLocations" :key="location.id" :value="location.id">
+                  {{ formatLocationOption(location) }}
                 </option>
               </select>
               <input v-model="transferForm.quantity" :step="getUnitStep(transferForm.unit)" type="number" min="1" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500" :placeholder="localeStore.locale === 'en' ? 'Quantity' : '数量'" />

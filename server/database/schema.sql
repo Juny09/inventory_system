@@ -56,6 +56,23 @@ CREATE TABLE IF NOT EXISTS warehouses (
 );
 ALTER TABLE IF EXISTS warehouses ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1 REFERENCES tenants(id) ON DELETE CASCADE;
 
+CREATE TABLE IF NOT EXISTS warehouse_locations (
+  id SERIAL PRIMARY KEY,
+  tenant_id INTEGER NOT NULL DEFAULT 1 REFERENCES tenants(id) ON DELETE CASCADE,
+  warehouse_id INTEGER NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
+  location_code VARCHAR(60) NOT NULL,
+  location_name VARCHAR(120),
+  zone VARCHAR(80),
+  shelf VARCHAR(80),
+  bin VARCHAR(80),
+  level VARCHAR(80),
+  notes TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (tenant_id, warehouse_id, location_code)
+);
+
 CREATE TABLE IF NOT EXISTS products (
   id SERIAL PRIMARY KEY,
   name VARCHAR(180) NOT NULL,
@@ -237,6 +254,7 @@ CREATE TABLE IF NOT EXISTS stock_levels (
 ALTER TABLE stock_levels ADD COLUMN IF NOT EXISTS allocated_quantity INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE IF EXISTS stock_levels ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1 REFERENCES tenants(id) ON DELETE CASCADE;
 ALTER TABLE IF EXISTS stock_levels ADD COLUMN IF NOT EXISTS variant_id INTEGER REFERENCES product_variants(id) ON DELETE CASCADE;
+ALTER TABLE IF EXISTS stock_levels ADD COLUMN IF NOT EXISTS location_id INTEGER REFERENCES warehouse_locations(id) ON DELETE SET NULL;
 
 UPDATE stock_levels
 SET tenant_id = 1
@@ -251,8 +269,11 @@ WHERE sl.variant_id IS NULL
   AND pv.variant_label = 'DEFAULT';
 
 ALTER TABLE stock_levels DROP CONSTRAINT IF EXISTS stock_levels_product_id_warehouse_id_key;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_levels_tenant_variant_warehouse ON stock_levels(tenant_id, variant_id, warehouse_id);
+DROP INDEX IF EXISTS idx_stock_levels_tenant_variant_warehouse;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_levels_tenant_variant_warehouse_null_location ON stock_levels(tenant_id, variant_id, warehouse_id) WHERE location_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_levels_tenant_variant_warehouse_location ON stock_levels(tenant_id, variant_id, warehouse_id, location_id) WHERE location_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_stock_levels_variant_id ON stock_levels(variant_id);
+CREATE INDEX IF NOT EXISTS idx_stock_levels_location_id ON stock_levels(location_id);
 
 CREATE TABLE IF NOT EXISTS marketplace_sync_logs (
   id SERIAL PRIMARY KEY,
@@ -490,6 +511,8 @@ ALTER TABLE stock_movements
 
 ALTER TABLE stock_movements
   ADD COLUMN IF NOT EXISTS purchase_reason TEXT;
+ALTER TABLE IF EXISTS stock_movements ADD COLUMN IF NOT EXISTS source_location_id INTEGER REFERENCES warehouse_locations(id) ON DELETE SET NULL;
+ALTER TABLE IF EXISTS stock_movements ADD COLUMN IF NOT EXISTS destination_location_id INTEGER REFERENCES warehouse_locations(id) ON DELETE SET NULL;
 
 -- 变体维度：为历史流水回填默认变体
 ALTER TABLE IF EXISTS stock_movements ADD COLUMN IF NOT EXISTS variant_id INTEGER REFERENCES product_variants(id) ON DELETE CASCADE;
@@ -502,6 +525,8 @@ WHERE sm.variant_id IS NULL
   AND pv.product_id = sm.product_id
   AND pv.variant_label = 'DEFAULT';
 CREATE INDEX IF NOT EXISTS idx_stock_movements_variant_id ON stock_movements(variant_id);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_source_location_id ON stock_movements(source_location_id);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_destination_location_id ON stock_movements(destination_location_id);
 
 -- 盘点明细：改为变体维度
 ALTER TABLE IF EXISTS stock_count_items ADD COLUMN IF NOT EXISTS variant_id INTEGER REFERENCES product_variants(id) ON DELETE CASCADE;
@@ -776,6 +801,7 @@ CREATE INDEX IF NOT EXISTS idx_bank_statements_statement_month ON bank_statement
 CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_categories_tenant_id ON categories(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_warehouses_tenant_id ON warehouses(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_warehouse_locations_tenant_warehouse ON warehouse_locations(tenant_id, warehouse_id);
 CREATE INDEX IF NOT EXISTS idx_products_tenant_id ON products(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_suppliers_tenant_id ON suppliers(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_stock_levels_tenant_id ON stock_levels(tenant_id);

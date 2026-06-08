@@ -45,6 +45,129 @@ async function resolveVariant(client, tenantId, productId, variantId) {
   throw new Error('variantId (or productId) is required.')
 }
 
+async function resolveLocation(
+  client,
+  tenantId,
+  warehouseId,
+  {
+    locationId = null,
+    locationCode = '',
+    locationName = '',
+    zone = '',
+    shelf = '',
+    bin = '',
+    level = '',
+  } = {},
+  allowCreate = false,
+) {
+  if (!warehouseId) {
+    return null
+  }
+
+  const normalizedLocationCode = String(locationCode || '').trim().toUpperCase()
+  const normalizedLocationName = String(locationName || '').trim()
+  const normalizedZone = String(zone || '').trim()
+  const normalizedShelf = String(shelf || '').trim()
+  const normalizedBin = String(bin || '').trim()
+  const normalizedLevel = String(level || '').trim()
+
+  if (locationId) {
+    const locationResult = await client.query(
+      `
+        SELECT id, warehouse_id, location_code, location_name, zone, shelf, bin, level
+        FROM warehouse_locations
+        WHERE id = $1 AND tenant_id = $2 AND warehouse_id = $3
+      `,
+      [locationId, tenantId, warehouseId],
+    )
+    if (!locationResult.rows[0]) {
+      throw new Error('Location not found in current warehouse.')
+    }
+    return locationResult.rows[0]
+  }
+
+  if (!normalizedLocationCode) {
+    return null
+  }
+
+  const existingResult = await client.query(
+    `
+      SELECT id, warehouse_id, location_code, location_name, zone, shelf, bin, level
+      FROM warehouse_locations
+      WHERE tenant_id = $1 AND warehouse_id = $2 AND location_code = $3
+      LIMIT 1
+    `,
+    [tenantId, warehouseId, normalizedLocationCode],
+  )
+
+  if (existingResult.rows[0]) {
+    const existing = existingResult.rows[0]
+    if (allowCreate) {
+      const updatedResult = await client.query(
+        `
+          UPDATE warehouse_locations
+          SET
+            location_name = COALESCE(NULLIF($4, ''), location_name),
+            zone = COALESCE(NULLIF($5, ''), zone),
+            shelf = COALESCE(NULLIF($6, ''), shelf),
+            bin = COALESCE(NULLIF($7, ''), bin),
+            level = COALESCE(NULLIF($8, ''), level),
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = $1 AND tenant_id = $2 AND warehouse_id = $3
+          RETURNING id, warehouse_id, location_code, location_name, zone, shelf, bin, level
+        `,
+        [
+          existing.id,
+          tenantId,
+          warehouseId,
+          normalizedLocationName,
+          normalizedZone,
+          normalizedShelf,
+          normalizedBin,
+          normalizedLevel,
+        ],
+      )
+      return updatedResult.rows[0]
+    }
+
+    return existing
+  }
+
+  if (!allowCreate) {
+    throw new Error('Location not found in current warehouse.')
+  }
+
+  const insertResult = await client.query(
+    `
+      INSERT INTO warehouse_locations (
+        tenant_id,
+        warehouse_id,
+        location_code,
+        location_name,
+        zone,
+        shelf,
+        bin,
+        level,
+        is_active
+      )
+      VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), TRUE)
+      RETURNING id, warehouse_id, location_code, location_name, zone, shelf, bin, level
+    `,
+    [
+      tenantId,
+      warehouseId,
+      normalizedLocationCode,
+      normalizedLocationName,
+      normalizedZone,
+      normalizedShelf,
+      normalizedBin,
+      normalizedLevel,
+    ],
+  )
+
+  return insertResult.rows[0]
+}
+
 // 库存总览支持分页、搜索和高级筛选，适合库存量大时提升列表性能
 router.get('/', async (req, res) => {
   const { search = '', categoryId = '', warehouseId = '', lowStockOnly = 'false', all = 'false' } = req.query
@@ -77,11 +200,19 @@ router.get('/', async (req, res) => {
             products.cost_price,
             categories.name AS category_name,
             warehouses.name AS warehouse_name,
-            warehouses.code AS warehouse_code
+            warehouses.code AS warehouse_code,
+            warehouse_locations.id AS location_id,
+            warehouse_locations.location_code,
+            warehouse_locations.location_name,
+            warehouse_locations.zone,
+            warehouse_locations.shelf,
+            warehouse_locations.bin,
+            warehouse_locations.level
           FROM stock_levels
           INNER JOIN products ON products.id = stock_levels.product_id AND products.tenant_id = stock_levels.tenant_id
           LEFT JOIN product_variants ON product_variants.id = stock_levels.variant_id AND product_variants.tenant_id = stock_levels.tenant_id
           INNER JOIN warehouses ON warehouses.id = stock_levels.warehouse_id AND warehouses.tenant_id = stock_levels.tenant_id
+          LEFT JOIN warehouse_locations ON warehouse_locations.id = stock_levels.location_id AND warehouse_locations.tenant_id = stock_levels.tenant_id
           LEFT JOIN categories ON categories.id = products.category_id AND categories.tenant_id = products.tenant_id
           WHERE stock_levels.tenant_id = $5
             AND (
@@ -93,6 +224,10 @@ router.get('/', async (req, res) => {
               OR categories.name ILIKE $1
               OR warehouses.name ILIKE $1
               OR warehouses.code ILIKE $1
+              OR warehouse_locations.location_code ILIKE $1
+              OR warehouse_locations.location_name ILIKE $1
+              OR warehouse_locations.shelf ILIKE $1
+              OR warehouse_locations.bin ILIKE $1
             )
             AND ($2::int IS NULL OR products.category_id = $2::int)
             AND ($3::int IS NULL OR stock_levels.warehouse_id = $3::int)
@@ -132,11 +267,19 @@ router.get('/', async (req, res) => {
             products.cost_price,
             categories.name AS category_name,
             warehouses.name AS warehouse_name,
-            warehouses.code AS warehouse_code
+            warehouses.code AS warehouse_code,
+            warehouse_locations.id AS location_id,
+            warehouse_locations.location_code,
+            warehouse_locations.location_name,
+            warehouse_locations.zone,
+            warehouse_locations.shelf,
+            warehouse_locations.bin,
+            warehouse_locations.level
           FROM stock_levels
           INNER JOIN products ON products.id = stock_levels.product_id AND products.tenant_id = stock_levels.tenant_id
           LEFT JOIN product_variants ON product_variants.id = stock_levels.variant_id AND product_variants.tenant_id = stock_levels.tenant_id
           INNER JOIN warehouses ON warehouses.id = stock_levels.warehouse_id AND warehouses.tenant_id = stock_levels.tenant_id
+          LEFT JOIN warehouse_locations ON warehouse_locations.id = stock_levels.location_id AND warehouse_locations.tenant_id = stock_levels.tenant_id
           LEFT JOIN categories ON categories.id = products.category_id AND categories.tenant_id = products.tenant_id
           WHERE stock_levels.tenant_id = $7
             AND (
@@ -148,6 +291,10 @@ router.get('/', async (req, res) => {
               OR categories.name ILIKE $1
               OR warehouses.name ILIKE $1
               OR warehouses.code ILIKE $1
+              OR warehouse_locations.location_code ILIKE $1
+              OR warehouse_locations.location_name ILIKE $1
+              OR warehouse_locations.shelf ILIKE $1
+              OR warehouse_locations.bin ILIKE $1
             )
             AND ($2::int IS NULL OR products.category_id = $2::int)
             AND ($3::int IS NULL OR stock_levels.warehouse_id = $3::int)
@@ -164,6 +311,7 @@ router.get('/', async (req, res) => {
           INNER JOIN products ON products.id = stock_levels.product_id AND products.tenant_id = stock_levels.tenant_id
           LEFT JOIN product_variants ON product_variants.id = stock_levels.variant_id AND product_variants.tenant_id = stock_levels.tenant_id
           INNER JOIN warehouses ON warehouses.id = stock_levels.warehouse_id AND warehouses.tenant_id = stock_levels.tenant_id
+          LEFT JOIN warehouse_locations ON warehouse_locations.id = stock_levels.location_id AND warehouse_locations.tenant_id = stock_levels.tenant_id
           LEFT JOIN categories ON categories.id = products.category_id AND categories.tenant_id = products.tenant_id
           WHERE stock_levels.tenant_id = $5
             AND (
@@ -175,6 +323,10 @@ router.get('/', async (req, res) => {
               OR categories.name ILIKE $1
               OR warehouses.name ILIKE $1
               OR warehouses.code ILIKE $1
+              OR warehouse_locations.location_code ILIKE $1
+              OR warehouse_locations.location_name ILIKE $1
+              OR warehouse_locations.shelf ILIKE $1
+              OR warehouse_locations.bin ILIKE $1
             )
             AND ($2::int IS NULL OR products.category_id = $2::int)
             AND ($3::int IS NULL OR stock_levels.warehouse_id = $3::int)
@@ -220,12 +372,20 @@ router.get('/transactions', async (req, res) => {
             COALESCE(product_variants.variant_label, 'DEFAULT') AS variant_label,
             source_warehouse.name AS source_warehouse_name,
             destination_warehouse.name AS destination_warehouse_name,
+            source_location.location_code AS source_location_code,
+            source_location.shelf AS source_shelf,
+            source_location.bin AS source_bin,
+            destination_location.location_code AS destination_location_code,
+            destination_location.shelf AS destination_shelf,
+            destination_location.bin AS destination_bin,
             users.full_name AS created_by_name
           FROM stock_movements
           INNER JOIN products ON products.id = stock_movements.product_id AND products.tenant_id = stock_movements.tenant_id
           LEFT JOIN product_variants ON product_variants.id = stock_movements.variant_id AND product_variants.tenant_id = stock_movements.tenant_id
           LEFT JOIN warehouses AS source_warehouse ON source_warehouse.id = stock_movements.source_warehouse_id
           LEFT JOIN warehouses AS destination_warehouse ON destination_warehouse.id = stock_movements.destination_warehouse_id
+          LEFT JOIN warehouse_locations AS source_location ON source_location.id = stock_movements.source_location_id
+          LEFT JOIN warehouse_locations AS destination_location ON destination_location.id = stock_movements.destination_location_id
           LEFT JOIN users ON users.id = stock_movements.created_by
           WHERE stock_movements.tenant_id = $5
             AND (
@@ -237,6 +397,8 @@ router.get('/transactions', async (req, res) => {
               OR stock_movements.movement_type ILIKE $1
               OR source_warehouse.name ILIKE $1
               OR destination_warehouse.name ILIKE $1
+              OR source_location.location_code ILIKE $1
+              OR destination_location.location_code ILIKE $1
               OR users.full_name ILIKE $1
             )
             AND ($2 = 'all' OR stock_movements.movement_type = $2)
@@ -253,6 +415,8 @@ router.get('/transactions', async (req, res) => {
           LEFT JOIN product_variants ON product_variants.id = stock_movements.variant_id AND product_variants.tenant_id = stock_movements.tenant_id
           LEFT JOIN warehouses AS source_warehouse ON source_warehouse.id = stock_movements.source_warehouse_id
           LEFT JOIN warehouses AS destination_warehouse ON destination_warehouse.id = stock_movements.destination_warehouse_id
+          LEFT JOIN warehouse_locations AS source_location ON source_location.id = stock_movements.source_location_id
+          LEFT JOIN warehouse_locations AS destination_location ON destination_location.id = stock_movements.destination_location_id
           LEFT JOIN users ON users.id = stock_movements.created_by
           WHERE stock_movements.tenant_id = $3
             AND (
@@ -264,6 +428,8 @@ router.get('/transactions', async (req, res) => {
               OR stock_movements.movement_type ILIKE $1
               OR source_warehouse.name ILIKE $1
               OR destination_warehouse.name ILIKE $1
+              OR source_location.location_code ILIKE $1
+              OR destination_location.location_code ILIKE $1
               OR users.full_name ILIKE $1
             )
             AND ($2 = 'all' OR stock_movements.movement_type = $2)
@@ -385,9 +551,126 @@ async function syncProductPricingFromUnitCost(client, { tenantId, productId, uni
   )
 }
 
+async function loadWarehouseStockRows(client, variantId, warehouseId, tenantId) {
+  const result = await client.query(
+    `
+      SELECT
+        id,
+        location_id,
+        quantity,
+        allocated_quantity
+      FROM stock_levels
+      WHERE variant_id = $1
+        AND warehouse_id = $2
+        AND tenant_id = $3
+      ORDER BY quantity DESC, allocated_quantity DESC, id ASC
+    `,
+    [variantId, warehouseId, tenantId],
+  )
+
+  return result.rows.map((row) => ({
+    id: Number(row.id),
+    locationId: row.location_id ? Number(row.location_id) : null,
+    quantity: Number(row.quantity || 0),
+    allocatedQuantity: Number(row.allocated_quantity || 0),
+  }))
+}
+
+async function applyWarehouseAllocation(client, variantId, warehouseId, tenantId, allocationQty, mode) {
+  const rows = await loadWarehouseStockRows(client, variantId, warehouseId, tenantId)
+
+  if (rows.length === 0) {
+    throw new Error('No stock row found for this warehouse.')
+  }
+
+  const totalOnHand = rows.reduce((sum, row) => sum + row.quantity, 0)
+  const totalAllocated = rows.reduce((sum, row) => sum + row.allocatedQuantity, 0)
+
+  if (mode === 'reserve' && totalAllocated + allocationQty > totalOnHand) {
+    throw new Error('Allocated quantity cannot exceed on hand quantity.')
+  }
+
+  if (mode === 'release' && totalAllocated - allocationQty < 0) {
+    throw new Error('Allocated quantity cannot be negative.')
+  }
+
+  const workingRows = rows.map((row) => ({ ...row }))
+  let remaining = allocationQty
+
+  if (mode === 'reserve') {
+    // 中文注释：预留时优先占用可用数量最多的仓位，避免把同一批预留拆得太碎。
+    workingRows.sort((left, right) => {
+      const leftAvailable = left.quantity - left.allocatedQuantity
+      const rightAvailable = right.quantity - right.allocatedQuantity
+      return rightAvailable - leftAvailable
+    })
+
+    for (const row of workingRows) {
+      if (remaining <= 0) break
+      const available = row.quantity - row.allocatedQuantity
+      if (available <= 0) continue
+      const reserved = Math.min(available, remaining)
+      row.allocatedQuantity += reserved
+      remaining -= reserved
+    }
+  } else {
+    // 中文注释：释放时优先从已预留最多的仓位回退，逻辑更容易追踪。
+    workingRows.sort((left, right) => right.allocatedQuantity - left.allocatedQuantity)
+
+    for (const row of workingRows) {
+      if (remaining <= 0) break
+      if (row.allocatedQuantity <= 0) continue
+      const released = Math.min(row.allocatedQuantity, remaining)
+      row.allocatedQuantity -= released
+      remaining -= released
+    }
+  }
+
+  if (remaining > 0) {
+    throw new Error(mode === 'reserve' ? 'Allocated quantity cannot exceed on hand quantity.' : 'Allocated quantity cannot be negative.')
+  }
+
+  await Promise.all(
+    workingRows.map((row) =>
+      client.query(
+        `
+          UPDATE stock_levels
+          SET allocated_quantity = $2, updated_at = CURRENT_TIMESTAMP
+          WHERE id = $1 AND tenant_id = $3
+        `,
+        [row.id, row.allocatedQuantity, tenantId],
+      )),
+  )
+
+  return {
+    totalOnHand,
+    totalAllocated: workingRows.reduce((sum, row) => sum + row.allocatedQuantity, 0),
+  }
+}
+
 async function createMovement(req, res, movementType) {
-  const { variantId, productId, warehouseId, sourceWarehouseId, destinationWarehouseId, quantity, referenceNo, notes, supplierId, unitCost, purchaseReason } =
-    req.body
+  const {
+    variantId,
+    productId,
+    warehouseId,
+    sourceWarehouseId,
+    destinationWarehouseId,
+    quantity,
+    referenceNo,
+    notes,
+    supplierId,
+    unitCost,
+    purchaseReason,
+    locationId,
+    locationCode,
+    locationName,
+    zone,
+    shelf,
+    bin,
+    level,
+    sourceLocationId,
+    destinationLocationId,
+  } = req.body
   const movementQty = Number(quantity)
   const tenantId = getTenantId(req)
 
@@ -410,9 +693,29 @@ async function createMovement(req, res, movementType) {
       }
       const wh = await client.query('SELECT id FROM warehouses WHERE id = $1 AND tenant_id = $2', [warehouseId, tenantId])
       if (!wh.rows[0]) throw new Error('Warehouse not found in current company.')
+      const destinationLocation = await resolveLocation(
+        client,
+        tenantId,
+        warehouseId,
+        { locationId, locationCode, locationName, zone, shelf, bin, level },
+        true,
+      )
 
-      await ensureStockRow(client, resolvedVariantId, resolvedProductId, warehouseId, tenantId)
-      const currentStock = await getStockQuantity(client, resolvedVariantId, warehouseId, tenantId)
+      await ensureStockRow(
+        client,
+        resolvedVariantId,
+        resolvedProductId,
+        warehouseId,
+        tenantId,
+        destinationLocation?.id || null,
+      )
+      const currentStock = await getStockQuantity(
+        client,
+        resolvedVariantId,
+        warehouseId,
+        tenantId,
+        destinationLocation?.id || null,
+      )
       await updateStock(
         client,
         resolvedVariantId,
@@ -420,6 +723,7 @@ async function createMovement(req, res, movementType) {
         currentStock.onHandQuantity + movementQty,
         currentStock.allocatedQuantity,
         tenantId,
+        destinationLocation?.id || null,
       )
 
       const result = await client.query(
@@ -430,6 +734,7 @@ async function createMovement(req, res, movementType) {
             variant_id,
             product_id,
             destination_warehouse_id,
+            destination_location_id,
             quantity,
             reference_no,
             notes,
@@ -438,7 +743,7 @@ async function createMovement(req, res, movementType) {
             purchase_reason,
             created_by
           )
-          VALUES ($1, 'IN', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          VALUES ($1, 'IN', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
           RETURNING *
         `,
         [
@@ -446,6 +751,7 @@ async function createMovement(req, res, movementType) {
           resolvedVariantId,
           resolvedProductId,
           warehouseId,
+          destinationLocation?.id || null,
           movementQty,
           referenceNo || null,
           notes || null,
@@ -474,9 +780,29 @@ async function createMovement(req, res, movementType) {
       }
       const wh = await client.query('SELECT id FROM warehouses WHERE id = $1 AND tenant_id = $2', [warehouseId, tenantId])
       if (!wh.rows[0]) throw new Error('Warehouse not found in current company.')
+      const resolvedSourceLocation = await resolveLocation(
+        client,
+        tenantId,
+        warehouseId,
+        { locationId, locationCode },
+        false,
+      )
 
-      await ensureStockRow(client, resolvedVariantId, resolvedProductId, warehouseId, tenantId)
-      const currentStock = await getStockQuantity(client, resolvedVariantId, warehouseId, tenantId)
+      await ensureStockRow(
+        client,
+        resolvedVariantId,
+        resolvedProductId,
+        warehouseId,
+        tenantId,
+        resolvedSourceLocation?.id || null,
+      )
+      const currentStock = await getStockQuantity(
+        client,
+        resolvedVariantId,
+        warehouseId,
+        tenantId,
+        resolvedSourceLocation?.id || null,
+      )
       const currentAvailable = currentStock.onHandQuantity - currentStock.allocatedQuantity
 
       if (currentAvailable < movementQty) {
@@ -490,6 +816,7 @@ async function createMovement(req, res, movementType) {
         currentStock.onHandQuantity - movementQty,
         currentStock.allocatedQuantity,
         tenantId,
+        resolvedSourceLocation?.id || null,
       )
 
       const result = await client.query(
@@ -500,15 +827,26 @@ async function createMovement(req, res, movementType) {
             variant_id,
             product_id,
             source_warehouse_id,
+            source_location_id,
             quantity,
             reference_no,
             notes,
             created_by
           )
-          VALUES ($1, 'OUT', $2, $3, $4, $5, $6, $7, $8)
+          VALUES ($1, 'OUT', $2, $3, $4, $5, $6, $7, $8, $9)
           RETURNING *
         `,
-        [tenantId, resolvedVariantId, resolvedProductId, warehouseId, movementQty, referenceNo || null, notes || null, req.user.id],
+        [
+          tenantId,
+          resolvedVariantId,
+          resolvedProductId,
+          warehouseId,
+          resolvedSourceLocation?.id || null,
+          movementQty,
+          referenceNo || null,
+          notes || null,
+          req.user.id,
+        ],
       )
 
       await client.query('COMMIT')
@@ -528,18 +866,58 @@ async function createMovement(req, res, movementType) {
       [[sourceWarehouseId, destinationWarehouseId], tenantId],
     )
     if (whCheck.rows.length !== 2) throw new Error('Warehouse not found in current company.')
+    const resolvedSourceLocation = await resolveLocation(
+      client,
+      tenantId,
+      sourceWarehouseId,
+      { locationId: sourceLocationId },
+      false,
+    )
+    const resolvedDestinationLocation = await resolveLocation(
+      client,
+      tenantId,
+      destinationWarehouseId,
+      { locationId: destinationLocationId },
+      false,
+    )
 
-    await ensureStockRow(client, resolvedVariantId, resolvedProductId, sourceWarehouseId, tenantId)
-    await ensureStockRow(client, resolvedVariantId, resolvedProductId, destinationWarehouseId, tenantId)
+    await ensureStockRow(
+      client,
+      resolvedVariantId,
+      resolvedProductId,
+      sourceWarehouseId,
+      tenantId,
+      resolvedSourceLocation?.id || null,
+    )
+    await ensureStockRow(
+      client,
+      resolvedVariantId,
+      resolvedProductId,
+      destinationWarehouseId,
+      tenantId,
+      resolvedDestinationLocation?.id || null,
+    )
 
-    const sourceStock = await getStockQuantity(client, resolvedVariantId, sourceWarehouseId, tenantId)
+    const sourceStock = await getStockQuantity(
+      client,
+      resolvedVariantId,
+      sourceWarehouseId,
+      tenantId,
+      resolvedSourceLocation?.id || null,
+    )
     const sourceAvailable = sourceStock.onHandQuantity - sourceStock.allocatedQuantity
 
     if (sourceAvailable < movementQty) {
       throw new Error('Not enough stock for transfer.')
     }
 
-    const destinationStock = await getStockQuantity(client, resolvedVariantId, destinationWarehouseId, tenantId)
+    const destinationStock = await getStockQuantity(
+      client,
+      resolvedVariantId,
+      destinationWarehouseId,
+      tenantId,
+      resolvedDestinationLocation?.id || null,
+    )
 
     await updateStock(
       client,
@@ -548,6 +926,7 @@ async function createMovement(req, res, movementType) {
       sourceStock.onHandQuantity - movementQty,
       sourceStock.allocatedQuantity,
       tenantId,
+      resolvedSourceLocation?.id || null,
     )
     await updateStock(
       client,
@@ -556,6 +935,7 @@ async function createMovement(req, res, movementType) {
       destinationStock.onHandQuantity + movementQty,
       destinationStock.allocatedQuantity,
       tenantId,
+      resolvedDestinationLocation?.id || null,
     )
 
     const result = await client.query(
@@ -567,12 +947,14 @@ async function createMovement(req, res, movementType) {
           product_id,
           source_warehouse_id,
           destination_warehouse_id,
+          source_location_id,
+          destination_location_id,
           quantity,
           reference_no,
           notes,
           created_by
         )
-        VALUES ($1, 'TRANSFER', $2, $3, $4, $5, $6, $7, $8, $9)
+        VALUES ($1, 'TRANSFER', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         RETURNING *
       `,
       [
@@ -581,6 +963,8 @@ async function createMovement(req, res, movementType) {
         resolvedProductId,
         sourceWarehouseId,
         destinationWarehouseId,
+        resolvedSourceLocation?.id || null,
+        resolvedDestinationLocation?.id || null,
         movementQty,
         referenceNo || null,
         notes || null,
@@ -637,21 +1021,14 @@ router.post('/allocate', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (req
 
     await ensureStockRow(client, resolvedVariantId, resolvedProductId, warehouseId, tenantId)
 
-    const currentStock = await getStockQuantity(client, resolvedVariantId, warehouseId, tenantId)
-    const nextAllocated =
-      normalizedMode === 'reserve'
-        ? currentStock.allocatedQuantity + allocationQty
-        : currentStock.allocatedQuantity - allocationQty
-
-    if (nextAllocated < 0) {
-      throw new Error('Allocated quantity cannot be negative.')
-    }
-
-    if (nextAllocated > currentStock.onHandQuantity) {
-      throw new Error('Allocated quantity cannot exceed on hand quantity.')
-    }
-
-    await updateStock(client, resolvedVariantId, warehouseId, currentStock.onHandQuantity, nextAllocated, tenantId)
+    const allocationResult = await applyWarehouseAllocation(
+      client,
+      resolvedVariantId,
+      warehouseId,
+      tenantId,
+      allocationQty,
+      normalizedMode,
+    )
 
     const result = await client.query(
       `
@@ -685,9 +1062,9 @@ router.post('/allocate', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (req
     return res.status(201).json({
       ...result.rows[0],
       mode: normalizedMode,
-      on_hand_quantity: currentStock.onHandQuantity,
-      order_allocated_quantity: nextAllocated,
-      warehouse_available_quantity: currentStock.onHandQuantity - nextAllocated,
+      on_hand_quantity: allocationResult.totalOnHand,
+      order_allocated_quantity: allocationResult.totalAllocated,
+      warehouse_available_quantity: allocationResult.totalOnHand - allocationResult.totalAllocated,
     })
   } catch (error) {
     await client.query('ROLLBACK')

@@ -930,6 +930,228 @@ router.delete('/warehouses/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req,
   }
 })
 
+router.get('/warehouse-locations', async (req, res) => {
+  const { search = '', warehouseId = '', activeOnly = 'false', all = 'false' } = req.query
+  const searchPattern = getSearchPattern(search)
+  const onlyActive = activeOnly === 'true'
+  const loadAll = all === 'true'
+  const { page, pageSize, offset } = getPaginationParams(req.query)
+  const tenantId = getTenantId(req)
+
+  try {
+    const whereClause = `
+      warehouse_locations.tenant_id = $4
+      AND ($1 = '%%'
+        OR warehouse_locations.location_code ILIKE $1
+        OR warehouse_locations.location_name ILIKE $1
+        OR warehouse_locations.zone ILIKE $1
+        OR warehouse_locations.shelf ILIKE $1
+        OR warehouse_locations.bin ILIKE $1
+        OR warehouses.name ILIKE $1
+        OR warehouses.code ILIKE $1)
+      AND ($2::int IS NULL OR warehouse_locations.warehouse_id = $2::int)
+      AND ($3 = FALSE OR warehouse_locations.is_active = TRUE)
+    `
+
+    if (loadAll) {
+      const result = await query(
+        `
+          SELECT
+            warehouse_locations.id,
+            warehouse_locations.warehouse_id,
+            warehouse_locations.location_code,
+            warehouse_locations.location_name,
+            warehouse_locations.zone,
+            warehouse_locations.shelf,
+            warehouse_locations.bin,
+            warehouse_locations.level,
+            warehouse_locations.notes,
+            warehouse_locations.is_active,
+            warehouse_locations.created_at,
+            warehouses.name AS warehouse_name,
+            warehouses.code AS warehouse_code
+          FROM warehouse_locations
+          INNER JOIN warehouses
+            ON warehouses.id = warehouse_locations.warehouse_id
+           AND warehouses.tenant_id = warehouse_locations.tenant_id
+          WHERE ${whereClause}
+          ORDER BY warehouses.name ASC, warehouse_locations.location_code ASC
+        `,
+        [searchPattern, warehouseId || null, onlyActive, tenantId],
+      )
+
+      return res.json({
+        items: result.rows,
+        pagination: buildPagination(result.rows.length, 1, result.rows.length || 1),
+      })
+    }
+
+    const [itemsResult, totalResult] = await Promise.all([
+      query(
+        `
+          SELECT
+            warehouse_locations.id,
+            warehouse_locations.warehouse_id,
+            warehouse_locations.location_code,
+            warehouse_locations.location_name,
+            warehouse_locations.zone,
+            warehouse_locations.shelf,
+            warehouse_locations.bin,
+            warehouse_locations.level,
+            warehouse_locations.notes,
+            warehouse_locations.is_active,
+            warehouse_locations.created_at,
+            warehouses.name AS warehouse_name,
+            warehouses.code AS warehouse_code
+          FROM warehouse_locations
+          INNER JOIN warehouses
+            ON warehouses.id = warehouse_locations.warehouse_id
+           AND warehouses.tenant_id = warehouse_locations.tenant_id
+          WHERE ${whereClause}
+          ORDER BY warehouses.name ASC, warehouse_locations.location_code ASC
+          LIMIT $5 OFFSET $6
+        `,
+        [searchPattern, warehouseId || null, onlyActive, tenantId, pageSize, offset],
+      ),
+      query(
+        `
+          SELECT COUNT(*)::int AS total
+          FROM warehouse_locations
+          INNER JOIN warehouses
+            ON warehouses.id = warehouse_locations.warehouse_id
+           AND warehouses.tenant_id = warehouse_locations.tenant_id
+          WHERE ${whereClause}
+        `,
+        [searchPattern, warehouseId || null, onlyActive, tenantId],
+      ),
+    ])
+
+    return res.json({
+      items: itemsResult.rows,
+      pagination: buildPagination(totalResult.rows[0].total, page, pageSize),
+    })
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to fetch warehouse locations.', error: error.message })
+  }
+})
+
+router.post('/warehouse-locations', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  const { warehouseId, locationCode, locationName, zone, shelf, bin, level, notes, isActive } = req.body
+
+  if (!warehouseId || !locationCode) {
+    return res.status(400).json({ message: 'warehouseId and locationCode are required.' })
+  }
+
+  try {
+    const tenantId = getTenantId(req)
+    const warehouseResult = await query('SELECT id FROM warehouses WHERE id = $1 AND tenant_id = $2', [warehouseId, tenantId])
+    if (!warehouseResult.rows[0]) {
+      return res.status(400).json({ message: 'Warehouse not found.' })
+    }
+
+    const result = await query(
+      `
+        INSERT INTO warehouse_locations (
+          tenant_id,
+          warehouse_id,
+          location_code,
+          location_name,
+          zone,
+          shelf,
+          bin,
+          level,
+          notes,
+          is_active
+        )
+        VALUES ($1, $2, UPPER($3), $4, $5, $6, $7, $8, $9, $10)
+        RETURNING *
+      `,
+      [
+        tenantId,
+        warehouseId,
+        locationCode,
+        locationName || null,
+        zone || null,
+        shelf || null,
+        bin || null,
+        level || null,
+        notes || null,
+        isActive ?? true,
+      ],
+    )
+
+    return res.status(201).json(result.rows[0])
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to create warehouse location.', error: error.message })
+  }
+})
+
+router.put('/warehouse-locations/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  const { warehouseId, locationCode, locationName, zone, shelf, bin, level, notes, isActive } = req.body
+
+  if (!warehouseId || !locationCode) {
+    return res.status(400).json({ message: 'warehouseId and locationCode are required.' })
+  }
+
+  try {
+    const tenantId = getTenantId(req)
+    const warehouseResult = await query('SELECT id FROM warehouses WHERE id = $1 AND tenant_id = $2', [warehouseId, tenantId])
+    if (!warehouseResult.rows[0]) {
+      return res.status(400).json({ message: 'Warehouse not found.' })
+    }
+
+    const result = await query(
+      `
+        UPDATE warehouse_locations
+        SET
+          warehouse_id = $2,
+          location_code = UPPER($3),
+          location_name = $4,
+          zone = $5,
+          shelf = $6,
+          bin = $7,
+          level = $8,
+          notes = $9,
+          is_active = $10,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND tenant_id = $11
+        RETURNING *
+      `,
+      [
+        req.params.id,
+        warehouseId,
+        locationCode,
+        locationName || null,
+        zone || null,
+        shelf || null,
+        bin || null,
+        level || null,
+        notes || null,
+        isActive ?? true,
+        tenantId,
+      ],
+    )
+
+    if (!result.rows[0]) {
+      return res.status(404).json({ message: 'Warehouse location not found.' })
+    }
+
+    return res.json(result.rows[0])
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to update warehouse location.', error: error.message })
+  }
+})
+
+router.delete('/warehouse-locations/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  try {
+    const tenantId = getTenantId(req)
+    await query('DELETE FROM warehouse_locations WHERE id = $1 AND tenant_id = $2', [req.params.id, tenantId])
+    return res.status(204).send()
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to delete warehouse location.', error: error.message })
+  }
+})
+
 // 商品接口支持搜索、分页和高级筛选，减少前端一次性加载量
 router.get('/products', async (req, res) => {
   const {
@@ -1322,9 +1544,17 @@ router.get('/products/:id', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (
             stock_levels.updated_at,
             warehouses.id AS warehouse_id,
             warehouses.name AS warehouse_name,
-            warehouses.code AS warehouse_code
+            warehouses.code AS warehouse_code,
+            warehouse_locations.id AS location_id,
+            warehouse_locations.location_code,
+            warehouse_locations.location_name,
+            warehouse_locations.zone,
+            warehouse_locations.shelf,
+            warehouse_locations.bin,
+            warehouse_locations.level
           FROM stock_levels
           INNER JOIN warehouses ON warehouses.id = stock_levels.warehouse_id AND warehouses.tenant_id = stock_levels.tenant_id
+          LEFT JOIN warehouse_locations ON warehouse_locations.id = stock_levels.location_id AND warehouse_locations.tenant_id = stock_levels.tenant_id
           WHERE stock_levels.product_id = $1 AND stock_levels.tenant_id = $2
           ORDER BY warehouses.name ASC
         `,
@@ -1335,16 +1565,29 @@ router.get('/products/:id', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (
           SELECT
             stock_movements.id,
             stock_movements.movement_type,
+            stock_movements.variant_id,
             stock_movements.quantity,
             stock_movements.reference_no,
             stock_movements.notes,
             stock_movements.created_at,
             source_warehouse.name AS source_warehouse_name,
             destination_warehouse.name AS destination_warehouse_name,
+            source_location.location_code AS source_location_code,
+            source_location.shelf AS source_shelf,
+            source_location.bin AS source_bin,
+            destination_location.location_code AS destination_location_code,
+            destination_location.shelf AS destination_shelf,
+            destination_location.bin AS destination_bin,
+            COALESCE(product_variants.sku, products.sku) AS sku,
+            COALESCE(product_variants.variant_label, 'DEFAULT') AS variant_label,
             users.full_name AS created_by_name
           FROM stock_movements
+          INNER JOIN products ON products.id = stock_movements.product_id AND products.tenant_id = stock_movements.tenant_id
+          LEFT JOIN product_variants ON product_variants.id = stock_movements.variant_id AND product_variants.tenant_id = stock_movements.tenant_id
           LEFT JOIN warehouses AS source_warehouse ON source_warehouse.id = stock_movements.source_warehouse_id
           LEFT JOIN warehouses AS destination_warehouse ON destination_warehouse.id = stock_movements.destination_warehouse_id
+          LEFT JOIN warehouse_locations AS source_location ON source_location.id = stock_movements.source_location_id
+          LEFT JOIN warehouse_locations AS destination_location ON destination_location.id = stock_movements.destination_location_id
           LEFT JOIN users ON users.id = stock_movements.created_by
           WHERE stock_movements.product_id = $1 AND stock_movements.tenant_id = $2
           ORDER BY stock_movements.created_at DESC

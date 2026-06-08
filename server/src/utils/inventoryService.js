@@ -1,24 +1,50 @@
 // 统一封装库存增减逻辑，避免多个接口重复写事务代码
 // 所有库存操作均按 tenant_id 隔离
-async function ensureStockRow(client, variantId, productId, warehouseId, tenantId) {
+async function ensureStockRow(client, variantId, productId, warehouseId, tenantId, locationId = null) {
+  if (locationId) {
+    await client.query(
+      `
+        INSERT INTO stock_levels (tenant_id, variant_id, product_id, warehouse_id, location_id, quantity, allocated_quantity)
+        VALUES ($1, $2, $3, $4, $5, 0, 0)
+        ON CONFLICT (tenant_id, variant_id, warehouse_id, location_id) WHERE location_id IS NOT NULL
+        DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+      `,
+      [tenantId, variantId, productId, warehouseId, locationId],
+    )
+    return
+  }
+
   await client.query(
     `
-      INSERT INTO stock_levels (tenant_id, variant_id, product_id, warehouse_id, quantity, allocated_quantity)
-      VALUES ($1, $2, $3, $4, 0, 0)
-      ON CONFLICT (tenant_id, variant_id, warehouse_id) DO NOTHING
+      INSERT INTO stock_levels (tenant_id, variant_id, product_id, warehouse_id, location_id, quantity, allocated_quantity)
+      VALUES ($1, $2, $3, $4, NULL, 0, 0)
+      ON CONFLICT (tenant_id, variant_id, warehouse_id) WHERE location_id IS NULL
+      DO UPDATE SET updated_at = CURRENT_TIMESTAMP
     `,
     [tenantId, variantId, productId, warehouseId],
   )
 }
 
-async function getStockQuantity(client, variantId, warehouseId, tenantId) {
+async function getStockQuantity(client, variantId, warehouseId, tenantId, locationId) {
+  const hasSpecificLocation = locationId !== undefined
   const result = await client.query(
     `
-      SELECT quantity, allocated_quantity
+      SELECT
+        COALESCE(SUM(quantity), 0) AS quantity,
+        COALESCE(SUM(allocated_quantity), 0) AS allocated_quantity
       FROM stock_levels
-      WHERE variant_id = $1 AND warehouse_id = $2 AND tenant_id = $3
+      WHERE variant_id = $1
+        AND warehouse_id = $2
+        AND tenant_id = $3
+        AND (
+          $4::boolean = FALSE
+          OR (
+            ($5::int IS NULL AND location_id IS NULL)
+            OR location_id = $5::int
+          )
+        )
     `,
-    [variantId, warehouseId, tenantId],
+    [variantId, warehouseId, tenantId, hasSpecificLocation, locationId ?? null],
   )
 
   return {
@@ -27,14 +53,23 @@ async function getStockQuantity(client, variantId, warehouseId, tenantId) {
   }
 }
 
-async function updateStock(client, variantId, warehouseId, nextQuantity, nextAllocatedQuantity, tenantId) {
+async function updateStock(client, variantId, warehouseId, nextQuantity, nextAllocatedQuantity, tenantId, locationId = null) {
   await client.query(
     `
       UPDATE stock_levels
-      SET quantity = $3, allocated_quantity = $4, updated_at = CURRENT_TIMESTAMP
-      WHERE variant_id = $1 AND warehouse_id = $2 AND tenant_id = $5
+      SET
+        quantity = $3,
+        allocated_quantity = $4,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE variant_id = $1
+        AND warehouse_id = $2
+        AND tenant_id = $5
+        AND (
+          ($6::int IS NULL AND location_id IS NULL)
+          OR location_id = $6::int
+        )
     `,
-    [variantId, warehouseId, nextQuantity, nextAllocatedQuantity, tenantId],
+    [variantId, warehouseId, nextQuantity, nextAllocatedQuantity, tenantId, locationId],
   )
 }
 

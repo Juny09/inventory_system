@@ -20,7 +20,9 @@ const matchedVariant = ref(null)
 const productDetail = ref(null)
 const continuousMode = ref(true)
 const recentScans = ref([])
+const scanStats = ref([])
 const scanBusy = ref(false)
+const lastScanStatKey = ref('')
 
 const primaryProduct = computed(() => productDetail.value?.product || matchedProducts.value[0] || null)
 const inventorySummary = computed(() => productDetail.value?.summary || {
@@ -45,6 +47,12 @@ const latestStockInMovement = computed(() => {
 })
 const latestStockOutMovement = computed(() => {
   return recentMovements.value.find((movement) => String(movement?.movement_type || '').toUpperCase() === 'OUT') || null
+})
+const totalScannedCount = computed(() => scanStats.value.reduce((sum, item) => sum + Number(item.quantity || 0), 0))
+const uniqueScannedCount = computed(() => scanStats.value.length)
+const currentScannedCount = computed(() => {
+  const matched = scanStats.value.find((item) => item.key === lastScanStatKey.value)
+  return Number(matched?.quantity || 0)
 })
 
 function normalizeCode(value) {
@@ -152,18 +160,7 @@ async function loadProductSnapshot(productId) {
 }
 
 function pickPreferredWarehouseId(action) {
-  const stockLevels = inventoryStockLevels.value
-  if (stockLevels.length === 0) return ''
-  if (stockLevels.length === 1) return String(stockLevels[0].warehouse_id || '')
-
-  if (action === 'stockOut') {
-    const bestWarehouse = [...stockLevels]
-      .filter((item) => Number(item.warehouse_available_quantity) > 0)
-      .sort((left, right) => Number(right.warehouse_available_quantity) - Number(left.warehouse_available_quantity))[0]
-    return String(bestWarehouse?.warehouse_id || '')
-  }
-
-  return ''
+  return String(pickPreferredStockLevel(action)?.warehouse_id || '')
 }
 
 function formatWarehouseLocation(stock) {
@@ -181,6 +178,71 @@ function formatShelfBin(stock) {
   return 'Shelf / Bin 未设置'
 }
 
+function formatLocationLabel(locationCode, shelf, bin) {
+  const parts = [locationCode]
+  if (shelf || bin) {
+    parts.push(`Shelf ${shelf || '—'} / Bin ${bin || '—'}`)
+  }
+  return parts.filter(Boolean).join(' · ') || '未设置仓位'
+}
+
+function formatMovementWarehouse(movement) {
+  const movementType = String(movement?.movement_type || '').toUpperCase()
+  if (movementType === 'IN') {
+    return movement?.destination_warehouse_name || movement?.source_warehouse_name || '未设置仓库'
+  }
+  if (movementType === 'OUT') {
+    return movement?.source_warehouse_name || movement?.destination_warehouse_name || '未设置仓库'
+  }
+  return [movement?.source_warehouse_name, movement?.destination_warehouse_name].filter(Boolean).join(' -> ') || '未设置仓库'
+}
+
+function formatMovementLocation(movement) {
+  const movementType = String(movement?.movement_type || '').toUpperCase()
+  if (movementType === 'IN') {
+    return formatLocationLabel(
+      movement?.destination_location_code,
+      movement?.destination_shelf,
+      movement?.destination_bin,
+    )
+  }
+  if (movementType === 'OUT') {
+    return formatLocationLabel(
+      movement?.source_location_code,
+      movement?.source_shelf,
+      movement?.source_bin,
+    )
+  }
+  const source = formatLocationLabel(
+    movement?.source_location_code,
+    movement?.source_shelf,
+    movement?.source_bin,
+  )
+  const destination = formatLocationLabel(
+    movement?.destination_location_code,
+    movement?.destination_shelf,
+    movement?.destination_bin,
+  )
+  return `${source} -> ${destination}`
+}
+
+function pickPreferredStockLevel(action) {
+  const stockLevels = inventoryStockLevels.value
+  if (stockLevels.length === 0) return null
+
+  if (stockLevels.length === 1) {
+    return stockLevels[0]
+  }
+
+  if (action === 'stockOut') {
+    return [...stockLevels]
+      .filter((item) => Number(item.warehouse_available_quantity) > 0)
+      .sort((left, right) => Number(right.warehouse_available_quantity) - Number(left.warehouse_available_quantity))[0] || null
+  }
+
+  return stockLevels[0]
+}
+
 function pushRecentScan(code) {
   recentScans.value = [
     {
@@ -191,6 +253,39 @@ function pushRecentScan(code) {
     },
     ...recentScans.value,
   ].slice(0, 6)
+}
+
+function recordScanStatistic(code) {
+  const preferredStockLevel = pickPreferredStockLevel('stockOut') || inventoryStockLevels.value[0] || null
+  const statKey = matchedVariant.value?.id
+    ? `variant:${matchedVariant.value.id}`
+    : primaryProduct.value?.id
+      ? `product:${primaryProduct.value.id}`
+      : `code:${normalizeCompareValue(code)}`
+  const statIndex = scanStats.value.findIndex((item) => item.key === statKey)
+  const nextItem = {
+    key: statKey,
+    code,
+    productName: primaryProduct.value?.name || '未匹配货品',
+    sku: matchedVariant.value?.sku || primaryProduct.value?.sku || '',
+    quantity: Number(scanStats.value[statIndex]?.quantity || 0) + 1,
+    lastScannedAt: new Date().toISOString(),
+    warehouseName: preferredStockLevel?.warehouse_name || '',
+    locationText: preferredStockLevel
+      ? formatLocationLabel(preferredStockLevel.location_code, preferredStockLevel.shelf, preferredStockLevel.bin)
+      : '未设置仓位',
+  }
+
+  if (statIndex >= 0) {
+    scanStats.value.splice(statIndex, 1, nextItem)
+  } else {
+    scanStats.value.unshift(nextItem)
+  }
+
+  scanStats.value = [...scanStats.value]
+    .sort((left, right) => new Date(right.lastScannedAt).getTime() - new Date(left.lastScannedAt).getTime())
+    .slice(0, 12)
+  lastScanStatKey.value = statKey
 }
 
 async function searchProductsByCode(rawValue) {
@@ -292,6 +387,7 @@ async function handleDetected(code) {
   try {
     await searchProductsByCode(normalized)
     pushRecentScan(normalized)
+    recordScanStatistic(normalized)
   } catch (error) {
     matchedProducts.value = []
     matchedVariant.value = null
@@ -329,6 +425,13 @@ function goToInventoryAction(action) {
       productId: String(primaryProduct.value.id),
       variantId: String(resolvedVariantId.value),
       warehouseId: warehouseId || undefined,
+      locationId: String(pickPreferredStockLevel(action)?.location_id || '') || undefined,
+      locationCode: pickPreferredStockLevel(action)?.location_code || undefined,
+      locationName: pickPreferredStockLevel(action)?.location_name || undefined,
+      zone: pickPreferredStockLevel(action)?.zone || undefined,
+      shelf: pickPreferredStockLevel(action)?.shelf || undefined,
+      bin: pickPreferredStockLevel(action)?.bin || undefined,
+      level: pickPreferredStockLevel(action)?.level || undefined,
       scannedCode: lastScannedCode.value || undefined,
       prefillToken: String(Date.now()),
     },
@@ -552,14 +655,116 @@ function goToInventoryAction(action) {
                       <p class="mt-1 text-xs font-semibold text-slate-900">{{ formatWarehouseLocation(stock) }}</p>
                     </div>
                     <div class="rounded-xl bg-white px-3 py-2">
-                      <p class="text-[11px] uppercase tracking-[0.15em] text-slate-400">Shelf / Bin</p>
-                      <p class="mt-1 text-xs font-semibold text-slate-900">{{ formatShelfBin(stock) }}</p>
+                      <p class="text-[11px] uppercase tracking-[0.15em] text-slate-400">Location</p>
+                      <p class="mt-1 text-xs font-semibold text-slate-900">
+                        {{ stock.location_code || '未设置 location code' }}
+                      </p>
+                      <p class="mt-1 text-[11px] text-slate-500">{{ formatShelfBin(stock) }}</p>
                     </div>
                   </div>
                 </div>
                 <p v-if="inventoryStockLevels.length === 0" class="text-sm text-slate-500">
                   这件货目前还没有库存记录，你仍然可以直接带去做入库。
                 </p>
+              </div>
+            </div>
+
+            <div v-if="scanStats.length > 0" class="rounded-3xl border border-slate-200 bg-white p-4">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Scan Counter</p>
+                  <h3 class="mt-1 text-lg font-semibold text-slate-900">已扫数量统计</h3>
+                </div>
+                <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                  {{ continuousMode ? '连续模式统计中' : '单次模式也会累计' }}
+                </span>
+              </div>
+
+              <div class="mt-4 grid gap-3 grid-cols-3">
+                <div class="rounded-2xl bg-slate-50 px-4 py-3">
+                  <p class="text-[11px] uppercase tracking-[0.15em] text-slate-400">Total</p>
+                  <p class="mt-1 text-lg font-semibold text-slate-900">{{ totalScannedCount }}</p>
+                </div>
+                <div class="rounded-2xl bg-slate-50 px-4 py-3">
+                  <p class="text-[11px] uppercase tracking-[0.15em] text-slate-400">Unique Items</p>
+                  <p class="mt-1 text-lg font-semibold text-slate-900">{{ uniqueScannedCount }}</p>
+                </div>
+                <div class="rounded-2xl bg-slate-50 px-4 py-3">
+                  <p class="text-[11px] uppercase tracking-[0.15em] text-slate-400">Current Item</p>
+                  <p class="mt-1 text-lg font-semibold text-slate-900">{{ currentScannedCount }}</p>
+                </div>
+              </div>
+
+              <div class="mt-4 space-y-2">
+                <div
+                  v-for="item in scanStats"
+                  :key="item.key"
+                  class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+                >
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                      <p class="text-sm font-semibold text-slate-900">{{ item.productName }}</p>
+                      <p class="mt-1 text-xs text-slate-500">
+                        {{ item.sku || item.code }}
+                        <span v-if="item.warehouseName" class="ml-1">· {{ item.warehouseName }}</span>
+                      </p>
+                      <p class="mt-1 text-[11px] text-slate-500">{{ item.locationText }}</p>
+                    </div>
+                    <div class="shrink-0 text-right">
+                      <p class="text-lg font-semibold text-emerald-700">{{ item.quantity }}</p>
+                      <p class="text-[11px] text-slate-500">{{ formatDateTime(item.lastScannedAt) }}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="recentMovements.length > 0" class="rounded-3xl border border-slate-200 bg-white p-4">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Inventory Movements</p>
+                  <h3 class="mt-1 text-lg font-semibold text-slate-900">最近库存流水明细</h3>
+                </div>
+                <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                  {{ recentMovements.length }} 条
+                </span>
+              </div>
+
+              <div class="mt-4 space-y-3">
+                <div
+                  v-for="movement in recentMovements"
+                  :key="movement.id"
+                  class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+                >
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-2">
+                      <span
+                        class="rounded-full px-3 py-1 text-xs font-semibold"
+                        :class="
+                          movement.movement_type === 'IN'
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : movement.movement_type === 'OUT'
+                              ? 'bg-rose-100 text-rose-700'
+                              : 'bg-brand-100 text-brand-700'
+                        "
+                      >
+                        {{ movement.movement_type }}
+                      </span>
+                      <p class="text-sm font-semibold text-slate-900">
+                        Qty {{ movement.quantity }}
+                        <span v-if="movement.variant_label" class="ml-1">· {{ movement.variant_label }}</span>
+                      </p>
+                    </div>
+                    <span class="text-[11px] text-slate-500">{{ formatDateTime(movement.created_at) }}</span>
+                  </div>
+                  <p class="mt-2 text-sm text-slate-700">{{ formatMovementWarehouse(movement) }}</p>
+                  <p class="mt-1 text-xs text-slate-500">{{ formatMovementLocation(movement) }}</p>
+                  <p class="mt-1 text-xs text-slate-500">
+                    {{ movement.reference_no || '无单号' }}
+                    <span v-if="movement.created_by_name" class="ml-1">· {{ movement.created_by_name }}</span>
+                  </p>
+                  <p v-if="movement.notes" class="mt-1 text-xs text-slate-500">{{ movement.notes }}</p>
+                </div>
               </div>
             </div>
 
