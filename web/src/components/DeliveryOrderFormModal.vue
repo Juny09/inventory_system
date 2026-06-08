@@ -241,9 +241,19 @@
                       @select="(p) => onProductSelect(row, p)"
                     />
                   </td>
-                  <td class="px-2 py-2"><input v-model="row.item_code" data-trace-field="item_code" class="w-full rounded border border-slate-300 px-2 py-1 text-sm" /></td>
                   <td class="px-2 py-2">
-                    <input v-model="row.description" data-trace-field="description" class="w-full rounded border border-slate-300 px-2 py-1 text-sm" />
+                    <input
+                      v-model="row.item_code"
+                      data-trace-field="item_code"
+                      :class="getTraceFieldInputClass(idx, 'item_code', 'w-full rounded border border-slate-300 px-2 py-1 text-sm')"
+                    />
+                  </td>
+                  <td class="px-2 py-2">
+                    <input
+                      v-model="row.description"
+                      data-trace-field="description"
+                      :class="getTraceFieldInputClass(idx, 'description', 'w-full rounded border border-slate-300 px-2 py-1 text-sm')"
+                    />
                     <div v-if="row.ocr_confidence_label" class="mt-1">
                       <span
                         class="inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold"
@@ -266,7 +276,15 @@
                     </div>
                   </td>
                   <td class="px-2 py-2"><input v-model="row.serial_no" class="w-full rounded border border-slate-300 px-2 py-1 text-sm" /></td>
-                  <td class="w-24 px-2 py-2"><input v-model.number="row.quantity" data-trace-field="quantity" type="number" step="0.001" class="w-full rounded border border-slate-300 px-2 py-1 text-sm" /></td>
+                  <td class="w-24 px-2 py-2">
+                    <input
+                      v-model.number="row.quantity"
+                      data-trace-field="quantity"
+                      type="number"
+                      step="0.001"
+                      :class="getTraceFieldInputClass(idx, 'quantity', 'w-full rounded border border-slate-300 px-2 py-1 text-sm')"
+                    />
+                  </td>
                   <td class="px-2 py-2 text-right">
                     <button type="button" class="text-red-500 hover:text-red-700" @click="form.items.splice(idx, 1)">×</button>
                   </td>
@@ -338,6 +356,7 @@ const itemRowRefs = ref([])
 const activeScanItemIndex = ref(null)
 const ocrConfirmationTimeline = ref([])
 const activeTimelineTrace = ref(null)
+const flashFieldTarget = ref(null)
 
 async function loadWarehouses() {
   try {
@@ -493,6 +512,35 @@ function clearActiveTraceMode() {
   emit('scan-trace-cleared')
 }
 
+function buildFlashFieldKey(index, fieldKey) {
+  return `${index}-${fieldKey}`
+}
+
+function isTraceFieldFlashing(index, fieldKey) {
+  return flashFieldTarget.value?.key === buildFlashFieldKey(index, fieldKey)
+}
+
+function getTraceFieldInputClass(index, fieldKey, baseClass) {
+  return [
+    baseClass,
+    isTraceFieldFlashing(index, fieldKey)
+      ? 'border-amber-400 bg-amber-100 ring-2 ring-amber-300 animate-pulse'
+      : '',
+  ]
+}
+
+function triggerTraceFieldFlash(index, fieldKey) {
+  flashFieldTarget.value = {
+    key: buildFlashFieldKey(index, fieldKey),
+  }
+  window.clearTimeout(triggerTraceFieldFlash._timer)
+  triggerTraceFieldFlash._timer = window.setTimeout(() => {
+    if (flashFieldTarget.value?.key === buildFlashFieldKey(index, fieldKey)) {
+      flashFieldTarget.value = null
+    }
+  }, 1800)
+}
+
 function normalizeCompareText(value) {
   return String(value ?? '').trim()
 }
@@ -537,6 +585,7 @@ async function focusTraceField(index, fieldKey) {
   const rowElement = itemRowRefs.value[index]
   const target = rowElement?.querySelector(`[data-trace-field="${fieldKey}"]`)
   if (!target || typeof target.focus !== 'function') return
+  triggerTraceFieldFlash(index, fieldKey)
   target.focus({ preventScroll: true })
   if (typeof target.select === 'function') {
     target.select()
