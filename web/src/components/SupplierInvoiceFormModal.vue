@@ -372,6 +372,18 @@
         </div>
       </form>
     </div>
+    <div
+      v-if="traceFieldHint"
+      class="pointer-events-none fixed z-[130]"
+      :style="{ left: `${traceFieldHint.left}px`, top: `${traceFieldHint.top}px` }"
+    >
+      <div class="-translate-x-1/2 -translate-y-full transform">
+        <div class="rounded-lg border border-amber-300 bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white shadow-lg">
+          {{ traceFieldHint.text }}
+        </div>
+        <div class="mx-auto h-3 w-3 -translate-y-[1px] rotate-45 border-b border-r border-amber-300 bg-amber-500"></div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -420,6 +432,7 @@ const activeScanItemIndex = ref(null)
 const ocrConfirmationTimeline = ref([])
 const activeTimelineTrace = ref(null)
 const flashFieldTarget = ref(null)
+const traceFieldHint = ref(null)
 
 async function loadWarehouses() {
   try {
@@ -576,6 +589,7 @@ function isActiveTimelineTrace(entry, item) {
 
 function clearActiveTraceMode() {
   activeTimelineTrace.value = null
+  traceFieldHint.value = null
   emit('scan-trace-cleared')
 }
 
@@ -605,6 +619,22 @@ function triggerTraceFieldFlash(index, fieldKey) {
     if (flashFieldTarget.value?.key === buildFlashFieldKey(index, fieldKey)) {
       flashFieldTarget.value = null
     }
+  }, 1800)
+}
+
+function showTraceFieldHint(target, label) {
+  if (!target || typeof target.getBoundingClientRect !== 'function') return
+  const rect = target.getBoundingClientRect()
+  const left = Math.min(Math.max(rect.left + rect.width / 2, 96), window.innerWidth - 96)
+  const top = Math.max(rect.top - 10, 56)
+  traceFieldHint.value = {
+    left,
+    top,
+    text: label ? `这里有变更：${label}` : '这里有变更',
+  }
+  window.clearTimeout(showTraceFieldHint._timer)
+  showTraceFieldHint._timer = window.setTimeout(() => {
+    traceFieldHint.value = null
   }, 1800)
 }
 
@@ -652,7 +682,7 @@ function buildTraceField(key, label, historicalValue, currentValue, type = 'text
 }
 
 // 中文注释：点击历史对比里的“已变更”字段时，自动跳到对应输入框；Amount 会聚焦金额栏本身。
-async function focusTraceField(index, fieldKey) {
+async function focusTraceField(index, fieldKey, label) {
   if (!Number.isInteger(index) || index < 0 || !fieldKey) return
   await focusScanItemRow(index)
   await nextTick()
@@ -660,6 +690,7 @@ async function focusTraceField(index, fieldKey) {
   const target = rowElement?.querySelector(`[data-trace-field="${fieldKey}"]`)
   if (!target || typeof target.focus !== 'function') return
   triggerTraceFieldFlash(index, fieldKey)
+  showTraceFieldHint(target, label)
   target.focus({ preventScroll: true })
   if (fieldKey !== 'amount' && typeof target.select === 'function') {
     target.select()
@@ -668,7 +699,7 @@ async function focusTraceField(index, fieldKey) {
 
 async function handleTraceFieldClick(field) {
   if (!field?.changed || !activeTimelineTrace.value) return
-  await focusTraceField(Number(activeTimelineTrace.value.itemIndex), field.key)
+  await focusTraceField(Number(activeTimelineTrace.value.itemIndex), field.key, field.label)
 }
 
 const traceComparison = computed(() => {
