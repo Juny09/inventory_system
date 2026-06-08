@@ -15,7 +15,8 @@
           <span v-if="props.initialData?.source_file_name" class="ml-1 font-medium">{{ props.initialData.source_file_name }}</span>
         </div>
         <div v-if="lowConfidenceItems.length > 0" class="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-          <p class="font-semibold">发现 {{ lowConfidenceItems.length }} 条低置信度 Item，建议先检查这些红色行。</p>
+          <p class="font-semibold">发现 {{ lowConfidenceItems.length }} 条低置信度 Item，保存前必须先完成人工确认。</p>
+          <p class="mt-1 text-xs text-rose-700">当前还有 {{ pendingLowConfidenceItems.length }} 条未确认，未确认时系统会禁止保存。</p>
           <div class="mt-3 flex flex-wrap gap-2">
             <button
               v-for="item in lowConfidenceItems"
@@ -24,7 +25,15 @@
               class="rounded-full border border-rose-300 bg-white px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
               @click="jumpToLowConfidenceItem(item.index)"
             >
-              Item {{ item.index + 1 }} · {{ item.ocr_confidence_label || '低' }}
+              Item {{ item.index + 1 }} · {{ item.ocr_confidence_label || '低' }} · {{ item.manual_confirmation_done ? '已确认' : '待确认' }}
+            </button>
+            <button
+              v-if="pendingLowConfidenceItems.length > 0"
+              type="button"
+              class="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+              @click="confirmAllLowConfidenceItems"
+            >
+              全部确认低置信度 Item
             </button>
           </div>
         </div>
@@ -136,6 +145,15 @@
                       >
                         OCR {{ row.ocr_confidence_label }}
                       </span>
+                      <button
+                        v-if="requiresManualConfirmation(row)"
+                        type="button"
+                        class="ml-2 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold"
+                        :class="row.manual_confirmation_done ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-rose-300 bg-white text-rose-700 hover:bg-rose-100'"
+                        @click.stop="toggleManualConfirmation(row)"
+                      >
+                        {{ row.manual_confirmation_done ? '已人工确认' : '点击确认无误' }}
+                      </button>
                     </div>
                   </td>
                   <td class="px-2 py-2"><input v-model="row.serial_no" class="w-full rounded border border-slate-300 px-2 py-1 text-sm" /></td>
@@ -177,7 +195,7 @@
           <p v-if="errorMessage" class="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ errorMessage }}</p>
           <div class="flex justify-end gap-2">
             <button type="button" class="rounded border border-slate-300 px-3 py-1.5 text-sm" @click="$emit('close')">Cancel</button>
-            <button type="submit" :disabled="submitting" class="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60">
+            <button type="submit" :disabled="submitting || pendingLowConfidenceItems.length > 0" class="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60">
               {{ submitting ? 'Saving...' : 'Save' }}
             </button>
           </div>
@@ -251,6 +269,8 @@ function blankRow() {
     ocr_confidence_percent: 0,
     ocr_confidence_level: '',
     ocr_confidence_label: '',
+    manual_confirmation_required: false,
+    manual_confirmation_done: true,
   }
 }
 
@@ -262,6 +282,10 @@ function confidenceBadgeClass(level) {
 
 function isLowConfidenceRow(row) {
   return row?.ocr_confidence_level === 'low'
+}
+
+function requiresManualConfirmation(row) {
+  return Boolean(row?.manual_confirmation_required)
 }
 
 function setItemRowRef(element, index) {
@@ -287,6 +311,24 @@ const lowConfidenceItems = computed(() => {
     .filter((item) => isLowConfidenceRow(item))
     .sort((a, b) => Number(a.ocr_confidence_percent || 0) - Number(b.ocr_confidence_percent || 0))
 })
+
+const pendingLowConfidenceItems = computed(() => {
+  return lowConfidenceItems.value.filter((item) => requiresManualConfirmation(item) && !item.manual_confirmation_done)
+})
+
+// 中文注释：低置信度 invoice item 必须手动确认，避免 OCR 误识别后直接入账。
+function toggleManualConfirmation(row) {
+  if (!requiresManualConfirmation(row)) return
+  row.manual_confirmation_done = !row.manual_confirmation_done
+}
+
+function confirmAllLowConfidenceItems() {
+  form.items.forEach((row) => {
+    if (requiresManualConfirmation(row)) {
+      row.manual_confirmation_done = true
+    }
+  })
+}
 
 // 中文注释：点击 OCR 图片黄框后，自动滚动到对应的 invoice item 行，并短暂高亮方便肉眼定位。
 async function focusScanItemRow(index) {
@@ -340,6 +382,8 @@ async function applyInitialData(initialData) {
         ocr_confidence_percent: Number(item.ocr_confidence_percent) || 0,
         ocr_confidence_level: item.ocr_confidence_level || '',
         ocr_confidence_label: item.ocr_confidence_label || '',
+        manual_confirmation_required: item.ocr_confidence_level === 'low',
+        manual_confirmation_done: item.ocr_confidence_level !== 'low',
       }))
     : [blankRow()]
   attachments.value = []
@@ -420,6 +464,8 @@ async function onDoChange() {
       quantity: Number(it.quantity) || 0,
       unit_price: 0,
       discount: 0,
+      manual_confirmation_required: false,
+      manual_confirmation_done: true,
     }))
     // 自动填充 invoice_no = do_no（仅当当前为空时）
     if (!form.invoice_no && data?.do_no) {
@@ -463,6 +509,8 @@ async function loadExisting(id) {
     quantity: Number(it.quantity) || 0,
     unit_price: Number(it.unit_price) || 0,
     discount: Number(it.discount) || 0,
+    manual_confirmation_required: false,
+    manual_confirmation_done: true,
   }))
   form.priceIncludesDiscount = Boolean(data.price_includes_discount)
   attachments.value = data.attachments || []
@@ -490,6 +538,11 @@ async function submit() {
   submitting.value = true
   errorMessage.value = ''
   try {
+    if (pendingLowConfidenceItems.value.length > 0) {
+      errorMessage.value = '还有低置信度 Item 未人工确认，请先检查并确认后再保存。'
+      submitting.value = false
+      return
+    }
     const invalidPriceRow = form.items.find((it) => it.product_id && Number(it.unit_price || 0) <= 0)
     if (invalidPriceRow) {
       errorMessage.value = localeStore.locale === 'en' ? 'Unit price must be greater than 0.' : '单价必须大于 0（否则成本不会更新）。'
