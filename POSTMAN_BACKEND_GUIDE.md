@@ -299,3 +299,102 @@
 
 ## 14. Health Check
 - GET `/health`
+
+## 15. Supplier Stats（供应商统计）
+
+### GET /supplier-stats
+- 默认统计自然上月（可用 `startDate/endDate` 自定义范围）
+- 参数：
+  - `startDate=YYYY-MM-DD`（可选）
+  - `endDate=YYYY-MM-DD`（可选）
+  - `topN=5`（可选，1-50）
+- 返回：
+  - `globalInvoiceTotal`：范围内全局发票总金额
+  - `totalsBySupplier[]`：按供应商聚合的发票总金额与发票数量
+  - `topSuppliersByPurchaseCount[]`：按采购单（DO）数量排名的 TOP 供应商（含订单量与范围内采购金额）
+
+示例：
+`GET {{base_url}}/supplier-stats?startDate=2026-04-01&endDate=2026-04-30&topN=10`
+
+## 16. Company Costs（公司月度成本）
+
+### GET /company-costs
+- 参数（可选）：
+  - `year=2026`
+  - `month=4`
+- 返回：`{ items: [...] }`
+
+### POST /company-costs
+- 同月份同类目不允许重复（会返回 409）
+```json
+{
+  "periodYear": 2026,
+  "periodMonth": 4,
+  "categoryLabel": "rental",
+  "amount": 2500,
+  "occurredDate": "2026-04-01",
+  "notes": "Office rent"
+}
+```
+
+### PUT /company-costs/:id
+- Body 与 POST 相同结构
+
+### DELETE /company-costs/:id
+
+### GET /company-costs/summary
+- 用于成本仪表盘统计（按月总额 + 按类目拆分）
+- 参数（必填）：
+  - `startYear` `startMonth`
+  - `endYear` `endMonth`
+
+## 17. Customers & Monthly Bills（月结客户账单）
+
+### Customers
+- GET `/customers?search=&status=all|active|inactive&page=1&pageSize=10`
+- POST `/customers`
+```json
+{
+  "name": "ABC Trading",
+  "companyName": "ABC Trading Sdn Bhd",
+  "contactName": "Alice",
+  "phone": "012-3456789",
+  "email": "alice@abc.com",
+  "address": "Kuala Lumpur",
+  "notes": "Monthly settlement customer",
+  "isActive": true
+}
+```
+- GET `/customers/:id`
+- PUT `/customers/:id`
+- DELETE `/customers/:id`
+- POST `/customers/:id/attachments` (multipart/form-data, field: `file`)
+- DELETE `/customers/:id/attachments/:attachmentId`
+
+### Customer Bills
+- GET `/customer-bills?customerId=&year=&month=&status=all|pending|paid|overdue&page=1&pageSize=10`
+- POST `/customer-bills`
+```json
+{
+  "customerId": 1,
+  "periodYear": 2026,
+  "periodMonth": 4,
+  "dueDate": "2026-05-10",
+  "status": "PENDING",
+  "currency": "MYR",
+  "notes": "April statement",
+  "items": [
+    { "description": "Service fee", "quantity": 1, "unitPrice": 200 },
+    { "description": "Delivery", "quantity": 2, "unitPrice": 20 }
+  ]
+}
+```
+- GET `/customer-bills/:id`（含 items + attachments）
+- PUT `/customer-bills/:id`（更新账单与明细行）
+- PATCH `/customer-bills/:id/status`
+```json
+{ "status": "PAID" }
+```
+- DELETE `/customer-bills/:id`
+- POST `/customer-bills/:id/attachments` (multipart/form-data, field: `file`)
+- DELETE `/customer-bills/:id/attachments/:attachmentId`

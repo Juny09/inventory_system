@@ -57,10 +57,16 @@ function displayCost(value) {
 
 function resolvedSellingPrice() {
   const selling = Number(product.value?.selling_price || 0)
-  if (selling > 0) return selling
+  const cost = Number(product.value?.cost_price || 0)
   const suggested = Number(product.value?.active_suggested_price ?? product.value?.suggested_price ?? 0)
-  if (suggested > 0) return suggested
-  return 0
+
+  if (selling <= 0) {
+    return suggested > 0 ? suggested : 0
+  }
+  if (suggested > selling && selling === cost) {
+    return suggested
+  }
+  return selling
 }
 
 async function loadDetail() {

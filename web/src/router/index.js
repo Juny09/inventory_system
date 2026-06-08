@@ -15,6 +15,9 @@ const SupplierPaymentsPage = () => import('../pages/SupplierPaymentsPage.vue')
 const SettingsPage = () => import('../pages/SettingsPage.vue')
 const InventoryPage = () => import('../pages/InventoryPage.vue')
 const ReportsPage = () => import('../pages/ReportsPage.vue')
+const SupplierStatsPage = () => import('../pages/SupplierStatsPage.vue')
+const CompanyCostsPage = () => import('../pages/CompanyCostsPage.vue')
+const CustomerBillingPage = () => import('../pages/CustomerBillingPage.vue')
 const AlertsPage = () => import('../pages/AlertsPage.vue')
 const StockCountsPage = () => import('../pages/StockCountsPage.vue')
 const AuditLogsPage = () => import('../pages/AuditLogsPage.vue')
@@ -143,6 +146,24 @@ const routes = [
     path: '/reports',
     name: 'reports',
     component: ReportsPage,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER'] },
+  },
+  {
+    path: '/supplier-stats',
+    name: 'supplier-stats',
+    component: SupplierStatsPage,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER'] },
+  },
+  {
+    path: '/company-costs',
+    name: 'company-costs',
+    component: CompanyCostsPage,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER'] },
+  },
+  {
+    path: '/customer-billing',
+    name: 'customer-billing',
+    component: CustomerBillingPage,
     meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER'] },
   },
   {

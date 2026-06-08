@@ -9,7 +9,7 @@ import { useCostAccessStore } from '../stores/costAccess'
 import { useCurrencyStore } from '../stores/currency'
 import { useToastStore } from '../stores/toast'
 import { useLocaleStore } from '../stores/locale'
-import { encodeCostToCode } from '../utils/costCode'
+import { decodeCodeToCost, encodeCostToCode } from '../utils/costCode'
 import { formatMoney } from '../utils/money'
 import {
   buildDefaultPricingRules,
@@ -41,6 +41,7 @@ const scannerOpen = ref(false)
 const searchKeyword = ref('')
 const costPasscode = ref('')
 const costCalculatorInput = ref('')
+const costCalculatorCodeInput = ref('')
 const selectedProductIds = ref([])
 const pricingChannel = ref(localStorage.getItem('inventory_pricing_channel') || 'retail')
 const filters = reactive({
@@ -99,6 +100,19 @@ function getSuggestedPrice(product) {
   return product.active_suggested_price ?? product.suggested_price ?? product.selling_price
 }
 
+function getSellingPrice(product) {
+  const selling = Number(product?.selling_price || 0)
+  const cost = Number(product?.cost_price || 0)
+  const suggested = Number(getSuggestedPrice(product) || 0)
+  if (selling <= 0) {
+    return suggested
+  }
+  if (suggested > selling && selling === cost) {
+    return suggested
+  }
+  return selling
+}
+
 function displayCost(value) {
   return value !== null && value !== undefined && costAccessStore.isUnlocked ? formatCurrency(value) : '******'
 }
@@ -122,6 +136,12 @@ function displayCostCodeFromProduct(product) {
 
 function calculatedCostCode() {
   return encodeCostToCode(costCalculatorInput.value) || '—'
+}
+
+function calculatedCostAmount() {
+  const amount = decodeCodeToCost(costCalculatorCodeInput.value)
+  if (amount === null) return '—'
+  return String(amount)
 }
 
 function getProductImage(product) {
@@ -737,20 +757,38 @@ watch(
             <div>
               <p class="text-xs font-semibold text-slate-900">{{ localeStore.locale === 'en' ? 'C-code calculator' : '成本编码计算器' }}</p>
               <p class="mt-1 text-xs text-slate-500">
-                {{ localeStore.locale === 'en' ? 'Convert amount (块) to code like EHSTX / IHRTX.' : '把金额（块）转换为 EHSTX / IHRTX 这类编码。' }}
+                {{
+                  localeStore.locale === 'en'
+                    ? 'Convert amount (块) to code like EHSTX / IHRTX, and convert code back to amount.'
+                    : '把金额（块）转换为 EHSTX / IHRTX 这类编码，也支持把编码反查回金额。'
+                }}
               </p>
             </div>
-            <div class="flex flex-wrap items-center gap-3">
-              <input
-                v-model="costCalculatorInput"
-                type="number"
-                min="0"
-                step="1"
-                :placeholder="localeStore.locale === 'en' ? 'Enter amount' : '输入金额'"
-                class="w-40 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500"
-              />
-              <div class="rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
-                {{ calculatedCostCode() }}
+            <div class="grid w-full gap-2 sm:w-auto sm:min-w-[360px] sm:grid-cols-2">
+              <div class="flex items-center gap-3">
+                <input
+                  v-model="costCalculatorInput"
+                  type="number"
+                  min="0"
+                  step="1"
+                  :placeholder="localeStore.locale === 'en' ? 'Enter amount' : '输入金额'"
+                  class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500"
+                />
+                <div class="whitespace-nowrap rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+                  {{ calculatedCostCode() }}
+                </div>
+              </div>
+
+              <div class="flex items-center gap-3">
+                <input
+                  v-model="costCalculatorCodeInput"
+                  type="text"
+                  :placeholder="localeStore.locale === 'en' ? 'Enter code' : '输入编码'"
+                  class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm uppercase outline-none focus:border-brand-500"
+                />
+                <div class="whitespace-nowrap rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+                  {{ calculatedCostAmount() }}
+                </div>
               </div>
             </div>
           </div>
@@ -947,7 +985,7 @@ watch(
               <p class="mt-1 text-sm text-slate-500">Cost {{ displayCost(product.cost_price) }}</p>
               <p class="mt-1 text-sm text-slate-500">C-code {{ displayCostCodeFromProduct(product) }}</p>
               <p class="mt-1 text-sm text-slate-500">
-                Suggested {{ formatCurrency(getSuggestedPrice(product)) }} · Selling {{ formatCurrency(product.selling_price) }}
+                Suggested {{ formatCurrency(getSuggestedPrice(product)) }} · Selling {{ formatCurrency(getSellingPrice(product)) }}
               </p>
               <div class="mt-4 flex flex-wrap gap-2">
                 <RouterLink
@@ -999,7 +1037,10 @@ watch(
                     {{ localeStore.t('table.description') }}
                     <span v-if="sortField === 'description'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
                   </th>
-                  <th class="px-3 py-3">{{ localeStore.t('table.pricing') }}</th>
+                  <th class="px-3 py-3 cursor-pointer" @click="sortBy('pricing')">
+                    {{ localeStore.t('table.pricing') }}
+                    <span v-if="sortField === 'pricing'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
+                  </th>
                   <th class="px-3 py-3 cursor-pointer" @click="sortBy('is_active')">
                     {{ localeStore.t('table.status') }}
                     <span v-if="sortField === 'is_active'" class="ml-1">{{ sortOrder === 'asc' ? '↑' : '↓' }}</span>
@@ -1043,7 +1084,7 @@ watch(
                     <p>Cost: {{ displayCost(product.cost_price) }}</p>
                     <p>C-code: {{ displayCostCodeFromProduct(product) }}</p>
                     <p>Suggested: {{ formatCurrency(getSuggestedPrice(product)) }}</p>
-                    <p>Selling: {{ formatCurrency(product.selling_price) }}</p>
+                    <p>Selling: {{ formatCurrency(getSellingPrice(product)) }}</p>
                   </td>
                   <td class="px-3 py-3">
                     <span

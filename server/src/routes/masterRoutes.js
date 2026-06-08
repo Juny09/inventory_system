@@ -484,9 +484,13 @@ async function attachProductRelations(products, options = {}) {
     const activePricingRule = resolveActivePricingRule(pricingRules, options.pricingChannel)
     const resolvedCost = Number(product.cost_price || 0)
     const resolvedMarkup = Number(activePricingRule?.markup_percentage ?? product.markup_percentage ?? 0)
+    const fallbackMarkup = resolvedCost > 0 && resolvedMarkup <= 0 ? 30 : resolvedMarkup
     const storedActiveSuggested = Number(activePricingRule?.suggested_price || 0)
-    const computedActiveSuggested = Number((resolvedCost * (1 + resolvedMarkup / 100)).toFixed(2)) || 0
-    const resolvedActiveSuggested = storedActiveSuggested > 0 ? storedActiveSuggested : computedActiveSuggested
+    const computedActiveSuggested = Number((resolvedCost * (1 + fallbackMarkup / 100)).toFixed(2)) || 0
+    const resolvedActiveSuggested =
+      storedActiveSuggested > 0 && !(storedActiveSuggested === resolvedCost && fallbackMarkup > 0)
+        ? storedActiveSuggested
+        : computedActiveSuggested
 
     return {
       ...maskProductCosts(product, options.allowCostAccess),
@@ -951,11 +955,17 @@ router.get('/products', async (req, res) => {
   const sortColumnMap = {
     name: 'products.name',
     sku: 'products.sku',
+    product_code: 'products.product_code',
+    barcode: 'products.barcode',
+    category_name: 'categories.name',
+    brand_name: 'brands.name',
+    is_active: 'products.is_active',
     created_at: 'products.created_at',
     updated_at: 'products.updated_at',
     cost_price: 'products.cost_price',
     selling_price: 'products.selling_price',
     suggested_price: 'products.suggested_price',
+    pricing: `COALESCE(active_rule.suggested_price, products.suggested_price, products.selling_price, 0)`,
   }
   const sortColumn = sortColumnMap[sortKey] || 'products.created_at'
   const orderClause = `ORDER BY ${sortColumn} ${safeOrder}, products.id DESC`
@@ -971,6 +981,21 @@ router.get('/products', async (req, res) => {
           FROM products
           LEFT JOIN categories ON categories.id = products.category_id AND categories.tenant_id = products.tenant_id
           LEFT JOIN brands ON brands.id = products.brand_id AND brands.tenant_id = products.tenant_id
+          LEFT JOIN LATERAL (
+            SELECT pr.suggested_price, pr.markup_percentage
+            FROM product_pricing_rules pr
+            WHERE pr.tenant_id = products.tenant_id AND pr.product_id = products.id
+            ORDER BY
+              CASE
+                WHEN $6 <> '' AND (LOWER(pr.channel_key) = LOWER($6) OR LOWER(pr.rule_name) = LOWER($6)) THEN 0
+                WHEN pr.is_default THEN 1
+                ELSE 2
+              END,
+              pr.sort_order ASC,
+              pr.created_at ASC,
+              pr.id ASC
+            LIMIT 1
+          ) active_rule ON TRUE
           WHERE products.tenant_id = $5
             AND (
               $1 = '%%'
@@ -994,7 +1019,7 @@ router.get('/products', async (req, res) => {
             )
           ${orderClause}
         `,
-        [searchPattern, categoryId || null, resolvedStatus, hasBarcode, tenantId],
+        [searchPattern, categoryId || null, resolvedStatus, hasBarcode, tenantId, pricingChannel],
       )
 
       const items = await attachProductRelations(result.rows, { allowCostAccess, pricingChannel, tenantId })
@@ -1015,6 +1040,21 @@ router.get('/products', async (req, res) => {
           FROM products
           LEFT JOIN categories ON categories.id = products.category_id AND categories.tenant_id = products.tenant_id
           LEFT JOIN brands ON brands.id = products.brand_id AND brands.tenant_id = products.tenant_id
+          LEFT JOIN LATERAL (
+            SELECT pr.suggested_price, pr.markup_percentage
+            FROM product_pricing_rules pr
+            WHERE pr.tenant_id = products.tenant_id AND pr.product_id = products.id
+            ORDER BY
+              CASE
+                WHEN $8 <> '' AND (LOWER(pr.channel_key) = LOWER($8) OR LOWER(pr.rule_name) = LOWER($8)) THEN 0
+                WHEN pr.is_default THEN 1
+                ELSE 2
+              END,
+              pr.sort_order ASC,
+              pr.created_at ASC,
+              pr.id ASC
+            LIMIT 1
+          ) active_rule ON TRUE
           WHERE products.tenant_id = $7
             AND (
               $1 = '%%'
@@ -1039,7 +1079,7 @@ router.get('/products', async (req, res) => {
           ${orderClause}
           LIMIT $5 OFFSET $6
         `,
-        [searchPattern, categoryId || null, resolvedStatus, hasBarcode, pageSize, offset, tenantId],
+        [searchPattern, categoryId || null, resolvedStatus, hasBarcode, pageSize, offset, tenantId, pricingChannel],
       ),
       query(
         `

@@ -297,17 +297,35 @@ async function syncProductPricingFromUnitCost(client, { tenantId, productId, uni
   }
 
   const oldCost = Number(row.cost_price || 0)
+  const currentMarkup = Number(row.markup_percentage || 0)
+  const resolvedMarkup = currentMarkup > 0 ? currentMarkup : 30
   const costChanged = nextCost !== oldCost
 
-  if (costChanged) {
-    await client.query(
-      `UPDATE products
-       SET cost_price = $3,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1 AND tenant_id = $2`,
-      [productId, tenantId, Number(nextCost.toFixed(2))],
-    )
+  await client.query(
+    `
+      UPDATE products
+      SET
+        cost_price = CASE WHEN $3 = TRUE THEN $4 ELSE cost_price END,
+        markup_percentage = CASE WHEN COALESCE(markup_percentage, 0) = 0 THEN $5 ELSE markup_percentage END,
+        suggested_price = CASE
+          WHEN COALESCE(suggested_price, 0) = 0
+            OR (COALESCE(markup_percentage, 0) = 0 AND COALESCE(suggested_price, 0) = ROUND($4::numeric, 2))
+            THEN ROUND($4 * (1 + $5 / 100.0), 2)
+          ELSE suggested_price
+        END,
+        selling_price = CASE
+          WHEN COALESCE(selling_price, 0) = 0
+            OR (COALESCE(markup_percentage, 0) = 0 AND COALESCE(selling_price, 0) = ROUND($4::numeric, 2))
+            THEN ROUND($4 * (1 + $5 / 100.0), 2)
+          ELSE selling_price
+        END,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1 AND tenant_id = $2
+    `,
+    [productId, tenantId, costChanged, Number(nextCost.toFixed(2)), resolvedMarkup],
+  )
 
+  if (costChanged) {
     const percentChange = oldCost > 0 ? ((nextCost - oldCost) / oldCost) * 100 : nextCost === 0 ? 0 : 100
     await client.query(
       `
@@ -351,29 +369,19 @@ async function syncProductPricingFromUnitCost(client, { tenantId, productId, uni
   await client.query(
     `
       UPDATE product_pricing_rules
-      SET suggested_price = ROUND($3 * (1 + COALESCE(markup_percentage, 0) / 100.0), 2)
+      SET
+        markup_percentage = CASE WHEN COALESCE(markup_percentage, 0) = 0 THEN $3 ELSE markup_percentage END,
+        suggested_price = CASE
+          WHEN COALESCE(suggested_price, 0) = 0
+            OR (COALESCE(markup_percentage, 0) = 0 AND COALESCE(suggested_price, 0) = ROUND($4::numeric, 2))
+            THEN ROUND($4 * (1 + $3 / 100.0), 2)
+          ELSE suggested_price
+        END
       WHERE tenant_id = $2
         AND product_id = $1
-        AND COALESCE(suggested_price, 0) = 0
+        AND (is_default = TRUE OR channel_key = 'retail')
     `,
-    [productId, tenantId, nextCost],
-  )
-
-  await client.query(
-    `
-      UPDATE products
-      SET
-        suggested_price = CASE
-          WHEN COALESCE(suggested_price, 0) = 0 THEN ROUND($3 * (1 + COALESCE(markup_percentage, 0) / 100.0), 2)
-          ELSE suggested_price
-        END,
-        selling_price = CASE
-          WHEN COALESCE(selling_price, 0) = 0 THEN ROUND($3 * (1 + COALESCE(markup_percentage, 0) / 100.0), 2)
-          ELSE selling_price
-        END
-      WHERE id = $1 AND tenant_id = $2
-    `,
-    [productId, tenantId, nextCost],
+    [productId, tenantId, resolvedMarkup, nextCost],
   )
 }
 

@@ -317,6 +317,13 @@ async function submit() {
   submitting.value = true
   errorMessage.value = ''
   try {
+    const invalidPriceRow = form.items.find((it) => it.product_id && Number(it.unit_price || 0) <= 0)
+    if (invalidPriceRow) {
+      errorMessage.value = localeStore.locale === 'en' ? 'Unit price must be greater than 0.' : '单价必须大于 0（否则成本不会更新）。'
+      submitting.value = false
+      return
+    }
+
     const payload = {
       supplier_id: Number(form.supplier_id),
       do_id: form.do_id ? Number(form.do_id) : null,
