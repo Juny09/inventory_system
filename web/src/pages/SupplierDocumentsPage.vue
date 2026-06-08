@@ -209,15 +209,60 @@
             </div>
 
             <div v-if="scanReviewHighlights.length > 0" class="rounded-lg border border-slate-200 p-3">
-              <p class="text-xs font-medium uppercase tracking-wide text-slate-500">重点核对字段</p>
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <p class="text-xs font-medium uppercase tracking-wide text-slate-500">重点核对字段</p>
+                  <p class="mt-1 text-xs text-slate-500">点击某个 Item 后，只保留这个商品对应的 OCR 高亮。</p>
+                </div>
+                <button
+                  type="button"
+                  class="rounded border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+                  @click="setScanReviewFocus('all')"
+                >
+                  显示全部
+                </button>
+              </div>
               <div class="mt-3 flex flex-wrap gap-2">
-                <span
+                <button
+                  type="button"
+                  class="rounded-full border px-3 py-1 text-xs font-medium transition"
+                  :class="scanReviewFocusKey === 'all'
+                    ? 'border-indigo-600 bg-indigo-600 text-white'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'"
+                  @click="setScanReviewFocus('all')"
+                >
+                  全部字段
+                </button>
+                <button
                   v-for="highlight in scanReviewHighlights"
                   :key="highlight.key"
-                  class="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800"
+                  type="button"
+                  class="rounded-full border px-3 py-1 text-xs font-medium transition"
+                  :class="scanReviewFocusKey === highlight.key
+                    ? 'border-amber-500 bg-amber-500 text-white'
+                    : 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'"
+                  @click="setScanReviewFocus(highlight.key)"
                 >
                   {{ highlight.label }}: {{ highlight.value }}
-                </span>
+                </button>
+              </div>
+              <div v-if="scanItemFocusOptions.length > 0" class="mt-4">
+                <p class="text-xs font-medium uppercase tracking-wide text-slate-500">按 Item 聚焦</p>
+                <div class="mt-2 space-y-2">
+                  <button
+                    v-for="itemOption in scanItemFocusOptions"
+                    :key="itemOption.key"
+                    type="button"
+                    class="w-full rounded-lg border px-3 py-2 text-left text-xs transition"
+                    :class="scanReviewFocusKey === itemOption.key
+                      ? 'border-indigo-600 bg-indigo-50 text-indigo-800'
+                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'"
+                    @click="setScanReviewFocus(itemOption.key)"
+                  >
+                    <span class="font-semibold">{{ itemOption.label }}</span>
+                    <span class="ml-2">{{ itemOption.value }}</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -239,7 +284,7 @@
               <div class="flex items-start justify-between gap-3">
                 <div>
                   <p class="text-xs font-medium uppercase tracking-wide text-slate-500">OCR 高亮图</p>
-                  <p class="mt-1 text-xs text-slate-500">黄色框是 OCR 识别到并和关键字段匹配的文字区域。</p>
+                  <p class="mt-1 text-xs text-slate-500">当前只显示：{{ scanFocusLabel }} 对应的 OCR 文字区域。</p>
                 </div>
                 <span class="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-800">
                   {{ scanImageHighlightBoxes.length }} 处高亮
@@ -258,7 +303,12 @@
             </div>
 
             <div class="rounded-lg border border-slate-200 p-3">
-              <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Raw Text</p>
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Raw Text</p>
+                  <p class="mt-1 text-xs text-slate-500">当前高亮范围：{{ scanFocusLabel }}</p>
+                </div>
+              </div>
               <pre class="mt-3 max-h-[420px] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 text-xs leading-6 text-slate-700" v-html="highlightedRawText"></pre>
             </div>
           </div>
@@ -502,6 +552,7 @@ const scanLoading = ref(false)
 const scanErrorMessage = ref('')
 const scanFileInputRef = ref(null)
 const scanReviewExpanded = ref(false)
+const scanReviewFocusKey = ref('all')
 
 const counts = ref({ do: 0, invoice: 0, returns: 0 })
 
@@ -760,7 +811,21 @@ const showScanReviewPanel = computed(() => {
 })
 
 const scanReviewHighlights = computed(() => buildReviewHighlights(parsedDraft.value))
-const scanHighlightTokens = computed(() => uniqueValues(scanReviewHighlights.value.flatMap((item) => item.tokens || [])))
+const scanItemFocusOptions = computed(() => scanReviewHighlights.value.filter((item) => String(item.key || '').startsWith('item-')))
+const scanActiveReviewHighlights = computed(() => {
+  if (scanReviewFocusKey.value === 'all') {
+    return scanReviewHighlights.value
+  }
+  const matched = scanReviewHighlights.value.find((item) => item.key === scanReviewFocusKey.value)
+  return matched ? [matched] : scanReviewHighlights.value
+})
+const scanFocusLabel = computed(() => {
+  if (scanReviewFocusKey.value === 'all') {
+    return '全部字段'
+  }
+  return scanActiveReviewHighlights.value[0]?.value || '全部字段'
+})
+const scanHighlightTokens = computed(() => uniqueValues(scanActiveReviewHighlights.value.flatMap((item) => item.tokens || [])))
 const highlightedRawText = computed(() => highlightText(parsedDraft.value?.raw_text || '', scanHighlightTokens.value))
 const scanOriginalPreviewUrl = computed(() => resolveAssetUrl(parsedDraft.value?.file_url || ''))
 const scanOcrPreviewUrl = computed(() => resolveAssetUrl(parsedDraft.value?.ocr_preview_url || ''))
@@ -795,6 +860,10 @@ const scanImageHighlightBoxes = computed(() => {
       },
     }))
 })
+
+function setScanReviewFocus(key = 'all') {
+  scanReviewFocusKey.value = key || 'all'
+}
 
 function formatDate(v) {
   if (!v) return '—'
@@ -891,6 +960,7 @@ async function handleScanFileChange(event) {
 
     parsedDraft.value = buildParsedDraft(data, documentType, selectedFile)
     scanReviewExpanded.value = true
+    scanReviewFocusKey.value = 'all'
     editingId.value = null
     activeTab.value = toModalTab(documentType)
     modal.value = activeTab.value
@@ -969,12 +1039,14 @@ function openCreate() {
   editingId.value = null
   parsedDraft.value = null
   scanReviewExpanded.value = false
+  scanReviewFocusKey.value = 'all'
   modal.value = activeTab.value
 }
 function openEdit(id) {
   editingId.value = id
   parsedDraft.value = null
   scanReviewExpanded.value = false
+  scanReviewFocusKey.value = 'all'
   modal.value = activeTab.value
 }
 function closeModal() {
@@ -982,6 +1054,7 @@ function closeModal() {
   editingId.value = null
   parsedDraft.value = null
   scanReviewExpanded.value = false
+  scanReviewFocusKey.value = 'all'
 }
 async function onSaved(payload) {
   const attachmentWarning = payload?.attachmentWarning || ''
