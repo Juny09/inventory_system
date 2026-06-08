@@ -90,17 +90,37 @@
             Reset
           </button>
         </div>
-        <button
-          type="button"
-          class="rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
-          @click="openCreate"
-        >
-          + New {{ currentTabLabelSingular }}
-        </button>
+        <div class="flex flex-wrap items-center gap-2">
+          <input
+            ref="scanFileInputRef"
+            type="file"
+            accept=".pdf,image/jpeg,image/png,image/webp"
+            class="hidden"
+            @change="handleScanFileChange"
+          />
+          <button
+            type="button"
+            class="rounded border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="scanLoading"
+            @click="triggerScanUpload"
+          >
+            {{ scanLoading ? 'Recognizing...' : 'Scan DO / Invoice' }}
+          </button>
+          <button
+            type="button"
+            class="rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+            @click="openCreate"
+          >
+            + New {{ currentTabLabelSingular }}
+          </button>
+        </div>
       </div>
 
       <p v-if="errorMessage" class="mt-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
         {{ errorMessage }}
+      </p>
+      <p v-if="scanErrorMessage" class="mt-4 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+        {{ scanErrorMessage }}
       </p>
 
       <!-- Top Pagination -->
@@ -264,6 +284,7 @@
       v-if="modal === 'do'"
       :id="editingId"
       :suppliers="suppliers"
+      :initial-data="parsedDraft"
       @close="closeModal"
       @saved="onSaved"
     />
@@ -271,6 +292,7 @@
       v-if="modal === 'invoice'"
       :id="editingId"
       :suppliers="suppliers"
+      :initial-data="parsedDraft"
       @close="closeModal"
       @saved="onSaved"
     />
@@ -333,6 +355,10 @@ const pagination = ref({ total: 0, page: 1, pageSize: 15, totalPages: 1 })
 const suppliers = ref([])
 const modal = ref(null) // 'po' | 'invoice' | 'returns' | null
 const editingId = ref(null)
+const parsedDraft = ref(null)
+const scanLoading = ref(false)
+const scanErrorMessage = ref('')
+const scanFileInputRef = ref(null)
 
 const counts = ref({ do: 0, invoice: 0, returns: 0 })
 
@@ -357,6 +383,63 @@ const MONTH_NAMES = [
 ]
 function monthName(m) {
   return MONTH_NAMES[m] || m
+}
+
+function toInputDate(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return String(value).slice(0, 10)
+  }
+  return date.toLocaleDateString('en-CA')
+}
+
+function formatMatchedProductLabel(product) {
+  if (!product) return ''
+  const code = product.product_code || product.sku || ''
+  const name = product.name || ''
+  return [code, name].filter(Boolean).join(' · ')
+}
+
+// 中文注释：把 OCR/解析结果转换成现有表单能直接吃的结构，做到“上传后直接弹出并自动带值”。
+function buildParsedDraft(preview, documentType) {
+  const normalizedType = documentType === 'delivery_order' ? 'delivery_order' : 'invoice'
+  const items = Array.isArray(preview?.items)
+    ? preview.items.map((item) => {
+        const matchedProduct = item?.matchedProducts?.[0] || null
+        return {
+          product_id: matchedProduct?.id || null,
+          product_label: formatMatchedProductLabel(matchedProduct),
+          item_code: matchedProduct?.product_code || matchedProduct?.sku || '',
+          description: item?.extractedDescription || matchedProduct?.name || '',
+          serial_no: '',
+          quantity: Number(item?.extractedQuantity) || 1,
+          unit_price: 0,
+          discount: 0,
+        }
+      })
+    : []
+
+  return {
+    imported_from_scan: true,
+    source_file_name: preview?.fileName || '',
+    supplier_id: preview?.matchedSupplier?.id ? String(preview.matchedSupplier.id) : '',
+    warehouse_id: preview?.defaultWarehouse?.id ? String(preview.defaultWarehouse.id) : '',
+    document_no: preview?.documentNumber || '',
+    document_date: toInputDate(preview?.date) || new Date().toLocaleDateString('en-CA'),
+    notes: preview?.fileName ? `Imported from document scan: ${preview.fileName}` : '',
+    items,
+    type: normalizedType,
+  }
+}
+
+function resolveDocumentType(parsedType) {
+  if (parsedType === 'delivery_order' || parsedType === 'invoice') {
+    return parsedType
+  }
+  if (activeTab.value === 'do') return 'delivery_order'
+  if (activeTab.value === 'invoice') return 'invoice'
+  return ''
 }
 
 function formatDate(v) {
@@ -409,6 +492,53 @@ function resetFilters() {
   monthFilter.value = 0
   docTypeFilter.value = ''
   loadList(1)
+}
+
+function triggerScanUpload() {
+  scanErrorMessage.value = ''
+  scanFileInputRef.value?.click()
+}
+
+// 中文注释：上传文档后直接调用现有解析接口，成功就打开对应 DO / Invoice 弹窗。
+async function handleScanFileChange(event) {
+  const selectedFile = event.target?.files?.[0]
+  if (!selectedFile) return
+
+  scanLoading.value = true
+  scanErrorMessage.value = ''
+
+  try {
+    const formData = new FormData()
+    formData.append('file', selectedFile)
+    const { data } = await api.post('/documents/parse', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+
+    const documentType = resolveDocumentType(data?.documentType)
+    if (!documentType) {
+      scanErrorMessage.value = 'Cannot determine whether this file is a DO or Invoice. Please switch to DO/Invoice tab and try again.'
+      return
+    }
+
+    parsedDraft.value = buildParsedDraft(data, documentType)
+    editingId.value = null
+    activeTab.value = documentType === 'delivery_order' ? 'do' : 'invoice'
+    modal.value = activeTab.value
+
+    toastStore.pushToast({
+      tone: 'success',
+      message: documentType === 'delivery_order'
+        ? 'DO recognized. Please review and click Save.'
+        : 'Invoice recognized. Please review and click Save.',
+    })
+  } catch (error) {
+    scanErrorMessage.value = error.response?.data?.message || error.message || 'Failed to parse document.'
+  } finally {
+    scanLoading.value = false
+    if (event.target) {
+      event.target.value = ''
+    }
+  }
 }
 
 async function loadSuppliers() {
@@ -467,15 +597,18 @@ async function loadCounts() {
 
 function openCreate() {
   editingId.value = null
+  parsedDraft.value = null
   modal.value = activeTab.value
 }
 function openEdit(id) {
   editingId.value = id
+  parsedDraft.value = null
   modal.value = activeTab.value
 }
 function closeModal() {
   modal.value = null
   editingId.value = null
+  parsedDraft.value = null
 }
 async function onSaved() {
   closeModal()

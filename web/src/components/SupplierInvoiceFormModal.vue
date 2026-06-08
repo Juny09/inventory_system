@@ -10,6 +10,10 @@
 
       <form class="flex min-h-0 flex-1 flex-col" @submit.prevent="submit">
         <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-3">
+        <div v-if="props.initialData?.imported_from_scan" class="rounded-lg border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-700">
+          已从文档自动带入资料，请检查数量、单价和供应商后再保存。
+          <span v-if="props.initialData?.source_file_name" class="ml-1 font-medium">{{ props.initialData.source_file_name }}</span>
+        </div>
         <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
           <div>
             <label class="block text-xs font-medium text-slate-600">Supplier Company <span class="text-red-500">*</span></label>
@@ -152,12 +156,15 @@ import api from '../services/api'
 import ProductSelector from './ProductSelector.vue'
 import AttachmentSection from './AttachmentSection.vue'
 import SupplierSearchSelect from './SupplierSearchSelect.vue'
+import { useLocaleStore } from '../stores/locale'
 
 const props = defineProps({
   id: { type: [Number, String, null], default: null },
   suppliers: { type: Array, default: () => [] },
+  initialData: { type: Object, default: null },
 })
 const emit = defineEmits(['close', 'saved'])
+const localeStore = useLocaleStore()
 
 const form = reactive({
   id: null,
@@ -191,6 +198,35 @@ async function loadWarehouses() {
 
 function blankRow() {
   return { product_id: null, product_label: '', item_code: '', description: '', serial_no: '', quantity: 1, unit_price: 0, discount: 0 }
+}
+
+// 中文注释：把识别结果预填到 Invoice 表单，保留单价为空让用户最后确认金额。
+async function applyInitialData(initialData) {
+  form.id = null
+  form.supplier_id = initialData?.supplier_id || ''
+  form.do_id = ''
+  form.invoice_no = initialData?.document_no || ''
+  form.invoice_date = initialData?.document_date || new Date().toLocaleDateString('en-CA')
+  form.notes = initialData?.notes || ''
+  form.post_to_inventory = Boolean(initialData?.warehouse_id)
+  form.warehouse_id = initialData?.warehouse_id || ''
+  form.priceIncludesDiscount = false
+  form.items = Array.isArray(initialData?.items) && initialData.items.length > 0
+    ? initialData.items.map((item) => ({
+        product_id: item.product_id || null,
+        product_label: item.product_label || '',
+        item_code: item.item_code || '',
+        description: item.description || '',
+        serial_no: item.serial_no || '',
+        quantity: Number(item.quantity) || 1,
+        unit_price: Number(item.unit_price) || 0,
+        discount: Number(item.discount) || 0,
+      }))
+    : [blankRow()]
+  attachments.value = []
+  if (form.supplier_id) {
+    await loadDOsForSupplier(form.supplier_id)
+  }
 }
 
 function rowAmount(row) {
@@ -364,6 +400,10 @@ onMounted(() => {
   loadWarehouses()
   if (props.id) {
     loadExisting(props.id)
+  } else if (props.initialData) {
+    applyInitialData(props.initialData)
+  } else {
+    form.items = [blankRow()]
   }
 })
 </script>
