@@ -378,8 +378,11 @@
       :style="{ left: `${traceFieldHint.left}px`, top: `${traceFieldHint.top}px` }"
     >
       <div class="-translate-x-1/2 -translate-y-full transform">
-        <div class="rounded-lg border border-amber-300 bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white shadow-lg">
-          {{ traceFieldHint.text }}
+        <div class="max-w-[260px] rounded-lg border border-amber-300 bg-amber-500 px-3 py-2 text-xs text-white shadow-lg">
+          <p class="font-semibold">{{ traceFieldHint.title }}</p>
+          <p class="mt-1 break-words text-[11px] text-amber-50">
+            {{ traceFieldHint.historical }} -> {{ traceFieldHint.current }}
+          </p>
         </div>
         <div class="mx-auto h-3 w-3 -translate-y-[1px] rotate-45 border-b border-r border-amber-300 bg-amber-500"></div>
       </div>
@@ -622,7 +625,7 @@ function triggerTraceFieldFlash(index, fieldKey) {
   }, 1800)
 }
 
-function showTraceFieldHint(target, label) {
+function showTraceFieldHint(target, field) {
   if (!target || typeof target.getBoundingClientRect !== 'function') return
   const rect = target.getBoundingClientRect()
   const left = Math.min(Math.max(rect.left + rect.width / 2, 96), window.innerWidth - 96)
@@ -630,7 +633,9 @@ function showTraceFieldHint(target, label) {
   traceFieldHint.value = {
     left,
     top,
-    text: label ? `这里有变更：${label}` : '这里有变更',
+    title: field?.label ? `这里有变更：${field.label}` : '这里有变更',
+    historical: field?.historicalDisplay || '—',
+    current: field?.currentDisplay || '—',
   }
   window.clearTimeout(showTraceFieldHint._timer)
   showTraceFieldHint._timer = window.setTimeout(() => {
@@ -682,7 +687,8 @@ function buildTraceField(key, label, historicalValue, currentValue, type = 'text
 }
 
 // 中文注释：点击历史对比里的“已变更”字段时，自动跳到对应输入框；Amount 会聚焦金额栏本身。
-async function focusTraceField(index, fieldKey, label) {
+async function focusTraceField(index, field) {
+  const fieldKey = field?.key
   if (!Number.isInteger(index) || index < 0 || !fieldKey) return
   await focusScanItemRow(index)
   await nextTick()
@@ -690,7 +696,7 @@ async function focusTraceField(index, fieldKey, label) {
   const target = rowElement?.querySelector(`[data-trace-field="${fieldKey}"]`)
   if (!target || typeof target.focus !== 'function') return
   triggerTraceFieldFlash(index, fieldKey)
-  showTraceFieldHint(target, label)
+  showTraceFieldHint(target, field)
   target.focus({ preventScroll: true })
   if (fieldKey !== 'amount' && typeof target.select === 'function') {
     target.select()
@@ -699,7 +705,7 @@ async function focusTraceField(index, fieldKey, label) {
 
 async function handleTraceFieldClick(field) {
   if (!field?.changed || !activeTimelineTrace.value) return
-  await focusTraceField(Number(activeTimelineTrace.value.itemIndex), field.key, field.label)
+  await focusTraceField(Number(activeTimelineTrace.value.itemIndex), field)
 }
 
 const traceComparison = computed(() => {
