@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import AppLayout from '../layouts/AppLayout.vue'
 import api from '../services/api'
+import { useAuthStore } from '../stores/auth'
 import { useCostAccessStore } from '../stores/costAccess'
 import { useCurrencyStore } from '../stores/currency'
 import { useLocaleStore } from '../stores/locale'
@@ -15,6 +16,7 @@ import {
 } from '../utils/productHelpers'
 
 const route = useRoute()
+const authStore = useAuthStore()
 const costAccessStore = useCostAccessStore()
 const currencyStore = useCurrencyStore()
 const localeStore = useLocaleStore()
@@ -42,6 +44,7 @@ const costPasscode = ref('')
 const pricingChannel = ref(localStorage.getItem('inventory_pricing_channel') || 'retail')
 
 const markupSummary = computed(() => Number(product.value?.markup_percentage || 0))
+const canManageProduct = computed(() => ['ADMIN', 'MANAGER'].includes(authStore.user?.role || ''))
 
 function tr(en, cn) {
   return localeStore.locale === 'en' ? en : cn
@@ -305,7 +308,7 @@ watch(pricingChannel, (value) => {
                       <option value="vip">VIP</option>
                     </select>
                     <button
-                      v-if="costAccessStore.isUnlocked"
+                      v-if="costAccessStore.isUnlocked && canManageProduct"
                       type="button"
                       class="w-full rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 sm:w-auto"
                       @click="lockCost"
@@ -313,7 +316,7 @@ watch(pricingChannel, (value) => {
                       {{ tr('Hide Cost', '隐藏成本') }}
                     </button>
                   </div>
-                  <div v-if="!costAccessStore.isUnlocked" class="mt-4 flex flex-wrap items-center gap-3 rounded-2xl bg-slate-50 p-4">
+                  <div v-if="!costAccessStore.isUnlocked && canManageProduct" class="mt-4 flex flex-wrap items-center gap-3 rounded-2xl bg-slate-50 p-4">
                     <input
                       v-model="costPasscode"
                       type="password"
@@ -405,13 +408,14 @@ watch(pricingChannel, (value) => {
                   </div>
                   <p v-else class="mt-4 text-sm text-slate-500">{{ tr('No supplier assigned.', '未指定供应商。') }}</p>
                   <RouterLink
+                    v-if="canManageProduct"
                     class="mt-4 inline-flex rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
                     :to="{ name: 'product-form', query: { id: String(product.id) } }"
                   >
                     {{ tr('Edit supplier', '编辑供应商') }}
                   </RouterLink>
                 </div>
-                <div class="rounded-3xl border border-slate-200 p-4">
+                <div v-if="canManageProduct" class="rounded-3xl border border-slate-200 p-4">
                   <h3 class="text-lg font-semibold text-slate-900">{{ tr('Cost history', '成本历史') }}</h3>
                   <p class="mt-1 text-sm text-slate-500">{{ tr('Latest 5 cost changes.', '最近 5 次成本变动记录。') }}</p>
                   <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200">

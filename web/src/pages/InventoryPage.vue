@@ -1,5 +1,6 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import AppLayout from '../layouts/AppLayout.vue'
 import PaginationBar from '../components/PaginationBar.vue'
 import api from '../services/api'
@@ -8,6 +9,7 @@ import { useLocaleStore } from '../stores/locale'
 
 const authStore = useAuthStore()
 const localeStore = useLocaleStore()
+const route = useRoute()
 const inventory = ref([])
 const variants = ref([])
 const warehouses = ref([])
@@ -16,6 +18,9 @@ const suppliers = ref([])
 const transactions = ref([])
 const errorMessage = ref('')
 const loading = ref(false)
+const scannerPrefillMessage = ref('')
+const scannerPrefillHandledKey = ref('')
+const selectorsLoaded = ref(false)
 const inventorySearch = ref('')
 const transactionSearch = ref('')
 const inventoryFilters = reactive({
@@ -123,6 +128,7 @@ async function loadSelectors() {
   warehouses.value = warehouseResponse.data.items
   categories.value = categoryResponse.data.items
   suppliers.value = supplierResponse.data.items
+  selectorsLoaded.value = true
 }
 
 async function loadInventoryPage(
@@ -168,13 +174,18 @@ function resetForms() {
   Object.assign(stockInForm, {
     variantId: '',
     warehouseId: '',
+    supplierId: '',
     quantity: 1,
+    unit: '',
+    unitCost: '',
     referenceNo: '',
+    purchaseReason: '',
     notes: '',
   })
   Object.assign(stockOutForm, {
     variantId: '',
     warehouseId: '',
+    unit: '',
     quantity: 1,
     referenceNo: '',
     notes: '',
@@ -195,6 +206,83 @@ function resetForms() {
     referenceNo: '',
     notes: '',
   })
+}
+
+function findVariantById(variantId) {
+  const targetId = Number(variantId)
+  if (!targetId) return null
+  return variants.value.find((item) => Number(item.id) === targetId) || null
+}
+
+function buildScannerPrefillKey() {
+  return [
+    route.query.action || '',
+    route.query.variantId || '',
+    route.query.warehouseId || '',
+    route.query.scannedCode || '',
+    route.query.prefillToken || '',
+  ].join('|')
+}
+
+function applyScannerPrefill() {
+  if (!selectorsLoaded.value) return
+
+  const action = String(route.query.action || '')
+  if (action !== 'stockIn' && action !== 'stockOut') {
+    scannerPrefillMessage.value = ''
+    return
+  }
+
+  const prefillKey = buildScannerPrefillKey()
+  if (!prefillKey || prefillKey === scannerPrefillHandledKey.value) return
+
+  const variant = findVariantById(route.query.variantId)
+  if (!variant) {
+    scannerPrefillMessage.value = localeStore.locale === 'en'
+      ? 'Scanned SKU was not found in inventory selector.'
+      : '扫码带入的 SKU 在库存表单里找不到。'
+    scannerPrefillHandledKey.value = prefillKey
+    return
+  }
+
+  const warehouseId = String(route.query.warehouseId || '')
+  const scannedCode = String(route.query.scannedCode || '')
+
+  if (scannedCode) {
+    inventorySearch.value = scannedCode
+    loadInventoryPage(1, transactionPagination.value.page)
+  }
+
+  if (action === 'stockIn') {
+    Object.assign(stockInForm, {
+      variantId: String(variant.id),
+      warehouseId,
+      supplierId: '',
+      quantity: 1,
+      unit: variant.unit || '',
+      unitCost: '',
+      referenceNo: '',
+      purchaseReason: '',
+      notes: scannedCode ? `Scanned from mobile: ${scannedCode}` : '',
+    })
+  }
+
+  if (action === 'stockOut') {
+    Object.assign(stockOutForm, {
+      variantId: String(variant.id),
+      warehouseId,
+      unit: variant.unit || '',
+      quantity: 1,
+      referenceNo: '',
+      notes: scannedCode ? `Scanned from mobile: ${scannedCode}` : '',
+    })
+  }
+
+  openModal(action)
+  scannerPrefillMessage.value = localeStore.locale === 'en'
+    ? `Scanned item ${variant.product_name} · ${variant.sku} has been loaded into the ${action === 'stockIn' ? 'stock in' : 'stock out'} form.`
+    : `已把扫码商品 ${variant.product_name} · ${variant.sku} 带入${action === 'stockIn' ? '入库' : '出库'}表单。`
+  scannerPrefillHandledKey.value = prefillKey
 }
 
 async function submitMovement(endpoint, payload) {
@@ -249,7 +337,21 @@ onMounted(async () => {
 
   await loadSelectors()
   await loadInventoryPage()
+  applyScannerPrefill()
 })
+
+watch(
+  () => [
+    route.query.action,
+    route.query.variantId,
+    route.query.warehouseId,
+    route.query.scannedCode,
+    route.query.prefillToken,
+  ],
+  () => {
+    applyScannerPrefill()
+  },
+)
 </script>
 
 <template>
@@ -374,6 +476,9 @@ onMounted(async () => {
 
       <p v-if="errorMessage" class="mt-6 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">
         {{ errorMessage }}
+      </p>
+      <p v-if="scannerPrefillMessage" class="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+        {{ scannerPrefillMessage }}
       </p>
 
       <div class="mt-8 space-y-6">

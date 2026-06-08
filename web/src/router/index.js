@@ -87,7 +87,7 @@ const routes = [
     path: '/products/:id',
     name: 'product-detail',
     component: ProductDetailPage,
-    meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER'], navKey: 'products' },
+    meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER', 'STAFF'], navKey: 'products' },
   },
   {
     path: '/suppliers',

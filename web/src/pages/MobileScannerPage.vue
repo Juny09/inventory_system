@@ -5,11 +5,9 @@ import AppLayout from '../layouts/AppLayout.vue'
 import BarcodeScanner from '../components/BarcodeScanner.vue'
 import api from '../services/api'
 import { useAuthStore } from '../stores/auth'
-import { useLocaleStore } from '../stores/locale'
 
 const router = useRouter()
 const authStore = useAuthStore()
-const localeStore = useLocaleStore()
 
 const manualCode = ref('')
 const lastScannedCode = ref('')
@@ -18,9 +16,26 @@ const errorMessage = ref('')
 const searchSummary = ref('')
 const searchMode = ref('')
 const matchedProducts = ref([])
+const matchedVariant = ref(null)
+const productDetail = ref(null)
 
-const canOpenProductDetail = computed(() => ['ADMIN', 'MANAGER'].includes(authStore.user?.role || ''))
-const primaryProduct = computed(() => matchedProducts.value[0] || null)
+const primaryProduct = computed(() => productDetail.value?.product || matchedProducts.value[0] || null)
+const inventorySummary = computed(() => productDetail.value?.summary || {
+  totalOnHand: 0,
+  totalAllocated: 0,
+  totalAvailable: 0,
+  warehouseCount: 0,
+})
+const inventoryStockLevels = computed(() => productDetail.value?.stockLevels || [])
+const canOpenProductsPage = computed(() => ['ADMIN', 'MANAGER'].includes(authStore.user?.role || ''))
+const resolvedVariantId = computed(() => {
+  if (matchedVariant.value?.id) {
+    return Number(matchedVariant.value.id)
+  }
+  const variants = Array.isArray(productDetail.value?.variants) ? productDetail.value.variants : []
+  const defaultVariant = variants.find((item) => String(item.variant_label || '').toUpperCase() === 'DEFAULT')
+  return Number(defaultVariant?.id || variants[0]?.id || 0) || null
+})
 
 function normalizeCode(value) {
   return String(value || '').trim()
@@ -75,10 +90,71 @@ function isExactProductMatch(product, candidate) {
   ].some((value) => normalizeCompareValue(value) === target)
 }
 
+function isExactVariantMatch(variant, candidate) {
+  const target = normalizeCompareValue(candidate)
+  if (!target) return false
+
+  return [
+    variant?.barcode,
+    variant?.sku,
+  ].some((value) => normalizeCompareValue(value) === target)
+}
+
+function uniqueProducts(products = []) {
+  const map = new Map()
+  products.forEach((product) => {
+    if (product?.id) {
+      map.set(Number(product.id), product)
+    }
+  })
+  return [...map.values()]
+}
+
+function buildVariantProductFallback(variant) {
+  return {
+    id: Number(variant?.product_id || 0),
+    name: variant?.product_name || '未知货品',
+    sku: variant?.sku || '',
+    product_code: '',
+    barcode: variant?.barcode || '',
+    category_name: variant?.category_name || '',
+    unit: variant?.unit || '',
+    selling_price: 0,
+    is_active: variant?.is_active !== false,
+  }
+}
+
+async function loadProductSnapshot(productId) {
+  if (!productId) {
+    productDetail.value = null
+    return
+  }
+
+  const { data } = await api.get(`/products/${productId}`)
+  productDetail.value = data
+}
+
+function pickPreferredWarehouseId(action) {
+  const stockLevels = inventoryStockLevels.value
+  if (stockLevels.length === 0) return ''
+  if (stockLevels.length === 1) return String(stockLevels[0].warehouse_id || '')
+
+  if (action === 'stockOut') {
+    const bestWarehouse = [...stockLevels]
+      .filter((item) => Number(item.warehouse_available_quantity) > 0)
+      .sort((left, right) => Number(right.warehouse_available_quantity) - Number(left.warehouse_available_quantity))[0]
+    return String(bestWarehouse?.warehouse_id || '')
+  }
+
+  return ''
+}
+
 async function searchProductsByCode(rawValue) {
   const candidates = extractLookupCandidates(rawValue)
   if (candidates.length === 0) {
     matchedProducts.value = []
+    matchedVariant.value = null
+    productDetail.value = null
     searchMode.value = 'empty'
     searchSummary.value = ''
     return
@@ -87,20 +163,50 @@ async function searchProductsByCode(rawValue) {
   let fuzzyItems = []
 
   for (const candidate of candidates) {
-    const { data } = await api.get('/products', {
-      params: {
-        all: true,
-        status: 'all',
-        search: candidate,
-      },
-    })
-    const items = Array.isArray(data?.items) ? data.items : []
-    const exactItems = items.filter((product) => isExactProductMatch(product, candidate))
+    const [productResponse, variantResponse] = await Promise.all([
+      api.get('/products', {
+        params: {
+          all: true,
+          status: 'all',
+          search: candidate,
+        },
+      }),
+      api.get('/product-variants', {
+        params: {
+          all: true,
+          status: 'all',
+          search: candidate,
+        },
+      }),
+    ])
 
-    if (exactItems.length > 0) {
-      matchedProducts.value = exactItems
+    const items = Array.isArray(productResponse.data?.items) ? productResponse.data.items : []
+    const variants = Array.isArray(variantResponse.data?.items) ? variantResponse.data.items : []
+    const exactItems = items.filter((product) => isExactProductMatch(product, candidate))
+    const exactVariants = variants.filter((variant) => isExactVariantMatch(variant, candidate))
+
+    const exactProducts = uniqueProducts([
+      ...exactItems,
+      ...exactVariants.map((variant) => items.find((product) => Number(product.id) === Number(variant.product_id)) || buildVariantProductFallback(variant)),
+    ])
+
+    if (exactProducts.length === 1) {
+      matchedProducts.value = exactProducts
+      matchedVariant.value = exactVariants[0] || null
+      await loadProductSnapshot(exactProducts[0].id)
       searchMode.value = 'exact'
-      searchSummary.value = `已按 ${candidate} 精准匹配到 ${exactItems.length} 个货品。`
+      searchSummary.value = exactVariants.length > 0
+        ? `已按 ${candidate} 精准匹配到 SKU，并同步带出当前库存。`
+        : `已按 ${candidate} 精准匹配到货品，并同步带出当前库存。`
+      return
+    }
+
+    if (exactProducts.length > 1) {
+      matchedProducts.value = exactProducts
+      matchedVariant.value = exactVariants[0] || null
+      productDetail.value = null
+      searchMode.value = 'exact'
+      searchSummary.value = `已按 ${candidate} 找到多条完全匹配结果，请先点开正确货品。`
       return
     }
 
@@ -111,12 +217,16 @@ async function searchProductsByCode(rawValue) {
 
   if (fuzzyItems.length > 0) {
     matchedProducts.value = fuzzyItems
+    matchedVariant.value = null
+    productDetail.value = null
     searchMode.value = 'fuzzy'
     searchSummary.value = '没有完全匹配，先显示最接近的货品给你核对。'
     return
   }
 
   matchedProducts.value = []
+  matchedVariant.value = null
+  productDetail.value = null
   searchMode.value = 'none'
   searchSummary.value = '暂时找不到这个条码/二维码对应的货品。'
 }
@@ -138,6 +248,8 @@ async function handleDetected(code) {
     await searchProductsByCode(normalized)
   } catch (error) {
     matchedProducts.value = []
+    matchedVariant.value = null
+    productDetail.value = null
     searchMode.value = 'error'
     searchSummary.value = ''
     errorMessage.value = error.response?.data?.message || error.message || '扫码后查询货品失败。'
@@ -151,12 +263,29 @@ async function handleManualSearch() {
 }
 
 function openProductDetail(productId) {
-  if (!productId || !canOpenProductDetail.value) return
+  if (!productId) return
   router.push({ name: 'product-detail', params: { id: String(productId) } })
 }
 
 function goToProductsPage() {
   router.push({ name: 'products', query: lastScannedCode.value ? { search: lastScannedCode.value } : undefined })
+}
+
+function goToInventoryAction(action) {
+  if (!primaryProduct.value?.id || !resolvedVariantId.value) return
+
+  const warehouseId = pickPreferredWarehouseId(action)
+  router.push({
+    name: 'inventory',
+    query: {
+      action,
+      productId: String(primaryProduct.value.id),
+      variantId: String(resolvedVariantId.value),
+      warehouseId: warehouseId || undefined,
+      scannedCode: lastScannedCode.value || undefined,
+      prefillToken: String(Date.now()),
+    },
+  })
 }
 </script>
 
@@ -173,6 +302,7 @@ function goToProductsPage() {
             </p>
           </div>
           <button
+            v-if="canOpenProductsPage"
             type="button"
             class="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             @click="goToProductsPage"
@@ -220,10 +350,7 @@ function goToProductsPage() {
               <p v-if="errorMessage" class="mt-3 text-sm text-rose-600">{{ errorMessage }}</p>
             </div>
 
-            <div
-              v-if="primaryProduct"
-              class="rounded-3xl border border-emerald-200 bg-emerald-50 p-4"
-            >
+            <div v-if="primaryProduct" class="rounded-3xl border border-emerald-200 bg-emerald-50 p-4">
               <div class="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p class="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">Product Info</p>
@@ -262,7 +389,6 @@ function goToProductsPage() {
 
               <div class="mt-4 flex flex-wrap gap-2">
                 <button
-                  v-if="canOpenProductDetail"
                   type="button"
                   class="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
                   @click="openProductDetail(primaryProduct.id)"
@@ -271,11 +397,83 @@ function goToProductsPage() {
                 </button>
                 <button
                   type="button"
+                  class="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  :disabled="!resolvedVariantId"
+                  @click="goToInventoryAction('stockIn')"
+                >
+                  直接入库
+                </button>
+                <button
+                  type="button"
+                  class="rounded-2xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  :disabled="!resolvedVariantId"
+                  @click="goToInventoryAction('stockOut')"
+                >
+                  直接出库
+                </button>
+                <button
+                  v-if="canOpenProductsPage"
+                  type="button"
                   class="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-white"
                   @click="goToProductsPage"
                 >
                   在 Products 里查看
                 </button>
+              </div>
+            </div>
+
+            <div v-if="productDetail" class="rounded-3xl border border-slate-200 bg-white p-4">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Current Inventory</p>
+                  <h3 class="mt-1 text-lg font-semibold text-slate-900">当前库存</h3>
+                </div>
+                <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                  {{ inventorySummary.warehouseCount || 0 }} 个仓库
+                </span>
+              </div>
+
+              <div class="mt-4 grid gap-3 grid-cols-2 sm:grid-cols-4">
+                <div class="rounded-2xl bg-slate-50 px-4 py-3">
+                  <p class="text-xs uppercase tracking-[0.2em] text-slate-400">On Hand</p>
+                  <p class="mt-1 font-semibold text-slate-900">{{ inventorySummary.totalOnHand || 0 }}</p>
+                </div>
+                <div class="rounded-2xl bg-slate-50 px-4 py-3">
+                  <p class="text-xs uppercase tracking-[0.2em] text-slate-400">Allocated</p>
+                  <p class="mt-1 font-semibold text-slate-900">{{ inventorySummary.totalAllocated || 0 }}</p>
+                </div>
+                <div class="rounded-2xl bg-slate-50 px-4 py-3">
+                  <p class="text-xs uppercase tracking-[0.2em] text-slate-400">Available</p>
+                  <p class="mt-1 font-semibold text-slate-900">{{ inventorySummary.totalAvailable || 0 }}</p>
+                </div>
+                <div class="rounded-2xl bg-slate-50 px-4 py-3">
+                  <p class="text-xs uppercase tracking-[0.2em] text-slate-400">Matched SKU</p>
+                  <p class="mt-1 font-semibold text-slate-900">{{ matchedVariant?.sku || primaryProduct.sku || '—' }}</p>
+                </div>
+              </div>
+
+              <div class="mt-4 space-y-3">
+                <div
+                  v-for="stock in inventoryStockLevels"
+                  :key="stock.id"
+                  class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+                >
+                  <div class="flex items-center justify-between gap-3">
+                    <div>
+                      <p class="font-semibold text-slate-900">{{ stock.warehouse_name }}</p>
+                      <p class="mt-1 text-xs text-slate-500">{{ stock.warehouse_code }}</p>
+                    </div>
+                    <span class="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700">
+                      可用 {{ stock.warehouse_available_quantity }}
+                    </span>
+                  </div>
+                  <p class="mt-2 text-xs text-slate-500">
+                    On hand {{ stock.on_hand_quantity }} · Allocated {{ stock.order_allocated_quantity }}
+                  </p>
+                </div>
+                <p v-if="inventoryStockLevels.length === 0" class="text-sm text-slate-500">
+                  这件货目前还没有库存记录，你仍然可以直接带去做入库。
+                </p>
               </div>
             </div>
 

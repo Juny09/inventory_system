@@ -1275,7 +1275,7 @@ router.post('/products/cost-access', authorizeRoles('ADMIN', 'MANAGER'), async (
   }
 })
 
-router.get('/products/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
+router.get('/products/:id', authorizeRoles('ADMIN', 'MANAGER', 'STAFF'), async (req, res) => {
   try {
     const allowCostAccess = canViewCost(req)
     const pricingChannel = req.query.pricingChannel || ''
