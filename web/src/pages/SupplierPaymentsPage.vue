@@ -7,6 +7,7 @@ import { useLocaleStore } from '../stores/locale'
 import PaymentScheduleFormModal from '../components/PaymentScheduleFormModal.vue'
 import PaymentScheduleBatchModal from '../components/PaymentScheduleBatchModal.vue'
 import AddPaymentModal from '../components/AddPaymentModal.vue'
+import SupplierPaymentFormModal from '../components/SupplierPaymentFormModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -21,18 +22,10 @@ const loading = ref(false)
 const suppliers = ref([])
 const selectedYear = ref(new Date().getFullYear())
 const months = ref([])
-const showForm = ref(false)
-const formLoading = ref(false)
-const formError = ref('')
-
-const form = ref({
-  supplierId: '',
-  periodMonth: new Date().getMonth() + 1,
-  periodYear: new Date().getFullYear(),
-  paidDate: '',
-  amount: '',
-  notes: '',
-})
+const showPaymentModal = ref(false)
+const paymentModalMode = ref('add')
+const paymentModalId = ref(null)
+const paymentModalData = ref(null)
 
 const MONTH_NAMES_EN = [
   '', 'January', 'February', 'March', 'April', 'May', 'June',
@@ -102,59 +95,65 @@ async function loadSummary() {
 }
 
 function openAddForm(supplierId, month) {
-  form.value = {
-    supplierId: String(supplierId),
+  paymentModalMode.value = 'add'
+  paymentModalId.value = null
+  paymentModalData.value = {
+    supplier_id: supplierId,
+    supplierId: supplierId,
+    period_month: month,
     periodMonth: month,
+    period_year: selectedYear.value,
     periodYear: selectedYear.value,
+    paid_date: new Date().toLocaleDateString('en-CA'),
     paidDate: new Date().toLocaleDateString('en-CA'),
-    amount: '',
-    notes: '',
   }
-  formError.value = ''
-  showForm.value = true
+  showPaymentModal.value = true
 }
 
 function openEmptyForm() {
-  form.value = {
-    supplierId: route.query.supplierId ? String(route.query.supplierId) : '',
+  paymentModalMode.value = 'add'
+  paymentModalId.value = null
+  paymentModalData.value = {
+    supplier_id: route.query.supplierId ? Number(route.query.supplierId) : null,
+    supplierId: route.query.supplierId ? route.query.supplierId : '',
+    period_month: new Date().getMonth() + 1,
     periodMonth: new Date().getMonth() + 1,
+    period_year: selectedYear.value,
     periodYear: selectedYear.value,
+    paid_date: new Date().toLocaleDateString('en-CA'),
     paidDate: new Date().toLocaleDateString('en-CA'),
-    amount: '',
-    notes: '',
   }
-  formError.value = ''
-  showForm.value = true
+  showPaymentModal.value = true
 }
 
-async function submitPayment() {
-  formError.value = ''
-  formLoading.value = true
-  try {
-    await api.post('/supplier-payments', {
-      supplierId: Number(form.value.supplierId),
-      periodMonth: Number(form.value.periodMonth),
-      periodYear: Number(form.value.periodYear),
-      paidDate: form.value.paidDate || null,
-      amount: form.value.amount ? Number(form.value.amount) : null,
-      notes: form.value.notes || null,
-    })
-    showForm.value = false
-    await loadSummary()
-  } catch (error) {
-    formError.value = error.response?.data?.message || tr('Failed to save payment record.', '保存还账记录失败。')
-  } finally {
-    formLoading.value = false
-  }
+function openViewForm(record) {
+  paymentModalMode.value = 'view'
+  paymentModalId.value = record.id
+  paymentModalData.value = record
+  showPaymentModal.value = true
 }
 
-async function deletePayment(id) {
+function openEditForm(record) {
+  paymentModalMode.value = 'edit'
+  paymentModalId.value = record.id
+  paymentModalData.value = record
+  showPaymentModal.value = true
+}
+
+async function confirmDeletePayment(record) {
+  if (!confirm(tr('Are you sure you want to delete this payment record?', '确定要删除这条还账记录吗？'))) {
+    return
+  }
   try {
-    await api.delete(`/supplier-payments/${id}`)
+    await api.delete(`/supplier-payments/${record.id}`)
     await loadSummary()
   } catch (error) {
     errorMessage.value = error.response?.data?.message || tr('Failed to delete payment record.', '删除还账记录失败。')
   }
+}
+
+async function handlePaymentSaved() {
+  await loadSummary()
 }
 
 function back() {
@@ -324,7 +323,6 @@ async function switchTab(tab) {
 
 onMounted(async () => {
   if (route.query.supplierId) {
-    form.value.supplierId = String(route.query.supplierId)
     filterSupplier.value = String(route.query.supplierId)
   }
   await loadSummary()
@@ -402,47 +400,6 @@ onMounted(async () => {
           </select>
         </div>
 
-        <!-- Add / Edit Form Modal (inline) -->
-        <div v-if="showForm" class="mt-4 rounded-3xl border border-brand-200 bg-brand-50 p-5">
-          <h3 class="text-lg font-semibold text-slate-900">{{ tr('Record payment', '记录还账') }}</h3>
-          <p v-if="formError" class="mt-2 text-sm text-rose-600">{{ formError }}</p>
-          <div class="mt-4 grid gap-4 sm:grid-cols-2">
-            <div>
-              <label class="mb-1 block text-xs font-semibold text-slate-600">{{ tr('Supplier', '供应商') }}</label>
-              <select v-model="form.supplierId" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-brand-500">
-                <option value="" disabled>{{ tr('Select supplier', '选择供应商') }}</option>
-                <option v-for="s in supplierList" :key="s.id" :value="String(s.id)">{{ s.name }}</option>
-              </select>
-            </div>
-            <div>
-              <label class="mb-1 block text-xs font-semibold text-slate-600">{{ tr('Month', '月份') }}</label>
-              <select v-model="form.periodMonth" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-brand-500">
-                <option v-for="m in 12" :key="m" :value="m">{{ monthLabel(m) }}</option>
-              </select>
-            </div>
-            <div>
-              <label class="mb-1 block text-xs font-semibold text-slate-600">{{ tr('Paid date', '还款日期') }}</label>
-              <input v-model="form.paidDate" type="date" class="w-full rounded-2xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-brand-500" />
-            </div>
-            <div>
-              <label class="mb-1 block text-xs font-semibold text-slate-600">{{ tr('Amount', '金额') }}</label>
-              <input v-model="form.amount" type="number" step="0.01" min="0" placeholder="0.00" class="w-full rounded-2xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-brand-500" />
-            </div>
-            <div class="sm:col-span-2">
-              <label class="mb-1 block text-xs font-semibold text-slate-600">{{ tr('Notes', '备注') }}</label>
-              <input v-model="form.notes" type="text" :placeholder="tr('Optional notes', '可选备注')" class="w-full rounded-2xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-brand-500" />
-            </div>
-          </div>
-          <div class="mt-4 flex gap-3">
-            <button class="rounded-2xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white" :disabled="formLoading || !form.supplierId" @click="submitPayment">
-              {{ formLoading ? tr('Saving...', '保存中...') : tr('Save', '保存') }}
-            </button>
-            <button class="rounded-2xl border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-700" @click="showForm = false">
-              {{ tr('Cancel', '取消') }}
-            </button>
-          </div>
-        </div>
-
         <!-- Payment Matrix Table -->
         <div v-if="loading" class="mt-6 rounded-3xl border border-slate-200 px-4 py-4 text-sm text-slate-500">
           {{ tr('Loading...', '加载中...') }}
@@ -466,13 +423,29 @@ onMounted(async () => {
                   </td>
                   <td v-for="m in 12" :key="m" class="px-1 py-3 text-center">
                     <template v-if="isMonthPaid(s.payments, m)">
-                      <button
-                        class="inline-flex items-center justify-center rounded-lg bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-200"
-                        :title="tr('Click to delete', '点击删除')"
-                        @click="deletePayment(getPaymentRecord(s.payments, m).id)"
-                      >
-                        ✓
-                      </button>
+                      <div class="relative inline-block flex items-center gap-1">
+                        <button
+                          class="inline-flex items-center justify-center rounded-lg bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-200"
+                          :title="tr('Click to view', '点击查看')"
+                          @click="openViewForm(getPaymentRecord(s.payments, m))"
+                        >
+                          ✓
+                        </button>
+                        <button
+                          @click.stop="openEditForm(getPaymentRecord(s.payments, m))"
+                          class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-slate-50 px-1.5 py-1 text-xs text-slate-600 hover:border-brand-400 hover:text-brand-500"
+                          :title="tr('Edit', '编辑')"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          @click.stop="confirmDeletePayment(getPaymentRecord(s.payments, m))"
+                          class="inline-flex items-center justify-center rounded-lg border border-rose-300 bg-rose-50 px-1.5 py-1 text-xs text-rose-600 hover:border-rose-500 hover:text-rose-700"
+                          :title="tr('Delete', '删除')"
+                        >
+                          🗑️
+                        </button>
+                      </div>
                     </template>
                     <template v-else>
                       <button
@@ -637,6 +610,19 @@ onMounted(async () => {
         </div>
       </div>
     </section>
+
+    <!-- Payment Form Modal -->
+    <SupplierPaymentFormModal
+      v-if="showPaymentModal"
+      :show="showPaymentModal"
+      :mode="paymentModalMode"
+      :id="paymentModalId"
+      :suppliers="supplierOptions"
+      :initial-data="paymentModalData"
+      :default-year="selectedYear"
+      @close="showPaymentModal = false"
+      @saved="handlePaymentSaved"
+    />
 
     <!-- Schedule Form Modal -->
     <PaymentScheduleFormModal

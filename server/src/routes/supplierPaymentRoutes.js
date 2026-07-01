@@ -71,6 +71,26 @@ router.get('/', async (req, res) => {
   }
 })
 
+// GET /api/supplier-payments/:id — get single payment record（租户隔离）
+router.get('/:id', async (req, res) => {
+  const tenantId = getTenantId(req)
+  try {
+    const result = await query(
+      `SELECT spr.*, suppliers.name AS supplier_name, suppliers.company_name AS supplier_branch
+       FROM supplier_payment_records spr
+       INNER JOIN suppliers ON suppliers.id = spr.supplier_id AND suppliers.tenant_id = spr.tenant_id
+       WHERE spr.id = $1 AND spr.tenant_id = $2`,
+      [req.params.id, tenantId],
+    )
+    if (!result.rows[0]) {
+      return res.status(404).json({ message: 'Payment record not found.' })
+    }
+    return res.json(result.rows[0])
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to fetch payment record.', error: error.message })
+  }
+})
+
 // GET /api/supplier-payments/summary — grouped by supplier（租户隔离）
 router.get('/summary', async (req, res) => {
   const tenantId = getTenantId(req)
@@ -93,6 +113,8 @@ router.get('/summary', async (req, res) => {
                 spr.paid_date,
                 spr.amount,
                 spr.notes,
+                spr.cheque_number,
+                spr.payment_slip_number,
                 spr.created_at
               FROM supplier_payment_records spr
               WHERE spr.supplier_id = suppliers.id
@@ -124,7 +146,7 @@ router.get('/summary', async (req, res) => {
 // POST /api/supplier-payments — create a payment record（租户隔离）
 router.post('/', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
   const tenantId = getTenantId(req)
-  const { supplierId, periodMonth, periodYear, paidDate, amount, notes } = req.body
+  const { supplierId, periodMonth, periodYear, paidDate, amount, notes, chequeNumber, paymentSlipNumber } = req.body
 
   if (!supplierId || !periodMonth || !periodYear) {
     return res.status(400).json({ message: 'supplierId, periodMonth and periodYear are required.' })
@@ -141,10 +163,10 @@ router.post('/', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
     }
 
     const result = await query(
-      `INSERT INTO supplier_payment_records (tenant_id, supplier_id, period_month, period_year, paid_date, amount, notes, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO supplier_payment_records (tenant_id, supplier_id, period_month, period_year, paid_date, amount, notes, cheque_number, payment_slip_number, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (tenant_id, supplier_id, period_year, period_month)
-       DO UPDATE SET paid_date = EXCLUDED.paid_date, amount = EXCLUDED.amount, notes = EXCLUDED.notes, created_by = EXCLUDED.created_by
+       DO UPDATE SET paid_date = EXCLUDED.paid_date, amount = EXCLUDED.amount, notes = EXCLUDED.notes, cheque_number = EXCLUDED.cheque_number, payment_slip_number = EXCLUDED.payment_slip_number, created_by = EXCLUDED.created_by
        RETURNING *`,
       [
         tenantId,
@@ -154,9 +176,12 @@ router.post('/', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
         paidDate || null,
         amount ? Number(amount) : null,
         notes || null,
+        chequeNumber || null,
+        paymentSlipNumber || null,
         req.user.id,
       ],
     )
+
 
     req.auditContext = {
       action: 'SUPPLIER_PAYMENT_CREATE',
@@ -168,6 +193,72 @@ router.post('/', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
     return res.status(201).json(result.rows[0])
   } catch (error) {
     return res.status(500).json({ message: 'Failed to create payment record.', error: error.message })
+  }
+})
+
+// PUT /api/supplier-payments/:id — update a payment record（租户隔离）
+router.put('/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  const tenantId = getTenantId(req)
+  const { supplierId, periodMonth, periodYear, paidDate, amount, notes, chequeNumber, paymentSlipNumber } = req.body
+
+  try {
+    // 校验记录存在且属于当前租户
+    const existing = await query(
+      'SELECT id FROM supplier_payment_records WHERE id = $1 AND tenant_id = $2',
+      [req.params.id, tenantId],
+    )
+    if (!existing.rows[0]) {
+      return res.status(404).json({ message: 'Payment record not found.' })
+    }
+
+    // 如果修改了 supplier，校验新 supplier 属于当前租户
+    if (supplierId) {
+      const supplierCheck = await query(
+        'SELECT id FROM suppliers WHERE id = $1 AND tenant_id = $2',
+        [Number(supplierId), tenantId],
+      )
+      if (!supplierCheck.rows[0]) {
+        return res.status(404).json({ message: 'Supplier not found in current company.' })
+      }
+    }
+
+    const result = await query(
+      `UPDATE supplier_payment_records
+       SET supplier_id = COALESCE($1, supplier_id),
+           period_month = COALESCE($2, period_month),
+           period_year = COALESCE($3, period_year),
+           paid_date = $4,
+           amount = $5,
+           notes = $6,
+           cheque_number = $7,
+           payment_slip_number = $8,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $9 AND tenant_id = $10
+       RETURNING *`,
+      [
+        supplierId ? Number(supplierId) : null,
+        periodMonth ? Number(periodMonth) : null,
+        periodYear ? Number(periodYear) : null,
+        paidDate || null,
+        amount ? Number(amount) : null,
+        notes || null,
+        chequeNumber || null,
+        paymentSlipNumber || null,
+        req.params.id,
+        tenantId,
+      ],
+    )
+
+    req.auditContext = {
+      action: 'SUPPLIER_PAYMENT_UPDATE',
+      entityType: 'SUPPLIER_PAYMENT',
+      entityId: String(req.params.id),
+      description: `Updated payment record #${req.params.id}`,
+    }
+
+    return res.json(result.rows[0])
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to update payment record.', error: error.message })
   }
 })
 
