@@ -71,26 +71,6 @@ router.get('/', async (req, res) => {
   }
 })
 
-// GET /api/supplier-payments/:id — get single payment record（租户隔离）
-router.get('/:id', async (req, res) => {
-  const tenantId = getTenantId(req)
-  try {
-    const result = await query(
-      `SELECT spr.*, suppliers.name AS supplier_name, suppliers.company_name AS supplier_branch
-       FROM supplier_payment_records spr
-       INNER JOIN suppliers ON suppliers.id = spr.supplier_id AND suppliers.tenant_id = spr.tenant_id
-       WHERE spr.id = $1 AND spr.tenant_id = $2`,
-      [req.params.id, tenantId],
-    )
-    if (!result.rows[0]) {
-      return res.status(404).json({ message: 'Payment record not found.' })
-    }
-    return res.json(result.rows[0])
-  } catch (error) {
-    return res.status(500).json({ message: 'Failed to fetch payment record.', error: error.message })
-  }
-})
-
 // GET /api/supplier-payments/summary — grouped by supplier（租户隔离）
 router.get('/summary', async (req, res) => {
   const tenantId = getTenantId(req)
@@ -201,6 +181,8 @@ router.post('/', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
 router.put('/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
   const tenantId = getTenantId(req)
   const { supplierId, periodMonth, periodYear, paidDate, amount, notes, chequeNumber, paymentSlipNumber } = req.body
+  
+  console.log('PUT /supplier-payments/:id called with:', { id: req.params.id, tenantId, body: req.body })
 
   try {
     // 校验记录存在且属于当前租户
@@ -259,6 +241,7 @@ router.put('/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
 
     return res.json(result.rows[0])
   } catch (error) {
+    console.error('Error updating payment record:', error)
     return res.status(500).json({ message: 'Failed to update payment record.', error: error.message })
   }
 })
@@ -290,6 +273,27 @@ router.delete('/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
     return res.status(204).send()
   } catch (error) {
     return res.status(500).json({ message: 'Failed to delete payment record.', error: error.message })
+  }
+})
+
+// GET /api/supplier-payments/:id — get single payment record（租户隔离）
+router.get('/:id', async (req, res) => {
+  const tenantId = getTenantId(req)
+  try {
+    const result = await query(
+      `SELECT spr.*, suppliers.name AS supplier_name, suppliers.company_name AS supplier_branch
+       FROM supplier_payment_records spr
+       INNER JOIN suppliers ON suppliers.id = spr.supplier_id AND suppliers.tenant_id = spr.tenant_id
+       WHERE spr.id = $1 AND spr.tenant_id = $2`,
+      [req.params.id, tenantId],
+    )
+    if (!result.rows[0]) {
+      return res.status(404).json({ message: 'Payment record not found.' })
+    }
+    return res.json(result.rows[0])
+  } catch (error) {
+    console.error('Error fetching payment record:', error)
+    return res.status(500).json({ message: 'Failed to fetch payment record.', error: error.message })
   }
 })
 
