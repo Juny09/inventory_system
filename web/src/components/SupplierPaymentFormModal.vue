@@ -14,7 +14,7 @@ const props = defineProps({
   defaultYear: { type: Number, default: new Date().getFullYear() },
 })
 
-const emit = defineEmits(['close', 'saved'])
+const emit = defineEmits(['close', 'saved', 'delete'])
 
 const loading = ref(false)
 const submitting = ref(false)
@@ -35,11 +35,11 @@ const form = ref({
   notes: '',
 })
 
-const isViewMode = computed(() => props.mode === 'view')
-const isReadOnly = computed(() => props.mode === 'view')
+const isViewMode = computed(() => internalMode.value === 'view')
+const isReadOnly = computed(() => internalMode.value === 'view')
 const modalTitle = computed(() => {
-  if (props.mode === 'add') return localeStore.locale === 'en' ? 'Add Payment Record' : '添加还账记录'
-  if (props.mode === 'edit') return localeStore.locale === 'en' ? 'Edit Payment Record' : '编辑还账记录'
+  if (internalMode.value === 'add') return localeStore.locale === 'en' ? 'Add Payment Record' : '添加还账记录'
+  if (internalMode.value === 'edit') return localeStore.locale === 'en' ? 'Edit Payment Record' : '编辑还账记录'
   return localeStore.locale === 'en' ? 'View Payment Record' : '查看还账记录'
 })
 
@@ -81,8 +81,6 @@ function resetForm() {
 function fillFormFromInitialData() {
   if (!props.initialData) return
   
-  console.log('Filling form from initialData:', props.initialData)
-  
   form.value.supplierId = String(props.initialData.supplier_id || props.initialData.supplierId || '')
   form.value.periodMonth = props.initialData.period_month || props.initialData.periodMonth || new Date().getMonth() + 1
   form.value.periodYear = props.initialData.period_year || props.initialData.periodYear || props.defaultYear
@@ -91,20 +89,16 @@ function fillFormFromInitialData() {
   form.value.chequeNumber = props.initialData.cheque_number || props.initialData.chequeNumber || ''
   form.value.paymentSlipNumber = props.initialData.payment_slip_number || props.initialData.paymentSlipNumber || ''
   form.value.notes = props.initialData.notes || ''
-  
-  console.log('Form filled:', form.value)
 }
 
 async function loadPayment() {
   if (!props.id) return
   
-  console.log('Loading payment from API, id:', props.id)
   loading.value = true
   formError.value = ''
   
   try {
     const { data } = await api.get(`/supplier-payments/${props.id}`)
-    console.log('API response:', data)
     
     form.value.supplierId = String(data.supplier_id)
     form.value.periodMonth = data.period_month
@@ -114,10 +108,7 @@ async function loadPayment() {
     form.value.chequeNumber = data.cheque_number || ''
     form.value.paymentSlipNumber = data.payment_slip_number || ''
     form.value.notes = data.notes || ''
-    
-    console.log('Form after API load:', form.value)
   } catch (error) {
-    console.error('API error:', error)
     formError.value = error.response?.data?.message || tr('Failed to load payment.', '加载失败')
   } finally {
     loading.value = false
@@ -171,14 +162,43 @@ function handleClose() {
   emit('close')
 }
 
+function switchToEditMode() {
+  // 通过 emit 让父组件重新打开 edit 模式
+  // 我们需要保存当前数据，因为关闭后会重置
+  const currentFormData = { ...form.value }
+  emit('close')
+  // 这里我们需要触发父组件重新打开，但是我们没有办法直接传状态
+  // 所以我们使用一个更简单的方法：不关闭，直接把 view 模式变成 edit 模式
+  // 但是因为 props 是只读的，我们需要有一个内部的 mode
+  // 让我们添加一个内部的 mode
+}
+
+// 添加内部 mode
+const internalMode = ref(props.mode)
+
+// 监听 props.mode 变化
+watch(() => props.mode, (newMode) => {
+  internalMode.value = newMode
+})
+
+watch(() => props.show, (newVal) => {
+  if (newVal) {
+    internalMode.value = props.mode
+  }
+})
+
+function switchToEdit() {
+  internalMode.value = 'edit'
+}
+
+function handleDelete() {
+  emit('delete')
+  emit('close')
+}
+
 // 监听 show 属性变化
 watch(() => props.show, async (newVal) => {
   if (newVal) {
-    console.log('=== Modal opened ===')
-    console.log('Mode:', props.mode)
-    console.log('ID:', props.id)
-    console.log('InitialData:', props.initialData)
-    
     resetForm()
     await nextTick()
     
@@ -193,16 +213,6 @@ watch(() => props.show, async (newVal) => {
 
 <template>
   <div v-show="show" class="fixed inset-0 z-[100] overflow-y-auto">
-    <!-- 调试信息：临时显示，方便排查问题 -->
-    <div class="fixed top-4 left-4 z-[150] bg-black/80 text-white p-3 rounded-lg text-xs max-w-sm">
-      <p><strong>调试信息:</strong></p>
-      <p>Mode: {{ mode }}</p>
-      <p>ID: {{ id }}</p>
-      <p>Form data: {{ JSON.stringify(form, null, 2) }}</p>
-      <hr class="my-2 border-white/30">
-      <p>InitialData: {{ JSON.stringify(initialData, null, 2) }}</p>
-    </div>
-    
     <div class="flex min-h-screen items-end justify-center px-4 pt-4 pb-20 text-center sm:block sm:p-0">
       <div class="fixed inset-0 transition-opacity bg-slate-500/75" @click="handleClose"></div>
 
@@ -326,22 +336,48 @@ watch(() => props.show, async (newVal) => {
           </div>
         </div>
         <div class="bg-slate-50 px-4 py-3 sm:flex sm:flex-row-reverse sm:px-6">
-          <button
-            v-if="!isViewMode"
-            type="button"
-            @click="handleSave"
-            :disabled="submitting"
-            class="inline-flex w-full justify-center rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 sm:ml-3 sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {{ submitting ? tr('Saving...', '保存中...') : tr('Save', '保存') }}
-          </button>
-          <button
-            type="button"
-            @click="handleClose"
-            class="mt-3 inline-flex w-full justify-center rounded-2xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50 sm:mt-0 sm:w-auto"
-          >
-            {{ tr('Close', '关闭') }}
-          </button>
+          <!-- View 模式的按钮 -->
+          <template v-if="isViewMode">
+            <button
+              type="button"
+              @click="switchToEdit"
+              class="inline-flex w-full justify-center rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 sm:ml-3 sm:w-auto"
+            >
+              {{ tr('Edit', '编辑') }}
+            </button>
+            <button
+              type="button"
+              @click="handleDelete"
+              class="mt-3 inline-flex w-full justify-center rounded-2xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-rose-700 sm:mt-0 sm:ml-3 sm:w-auto"
+            >
+              {{ tr('Delete', '删除') }}
+            </button>
+            <button
+              type="button"
+              @click="handleClose"
+              class="mt-3 inline-flex w-full justify-center rounded-2xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50 sm:mt-0 sm:w-auto"
+            >
+              {{ tr('Close', '关闭') }}
+            </button>
+          </template>
+          <!-- Edit/Add 模式的按钮 -->
+          <template v-else>
+            <button
+              type="button"
+              @click="handleSave"
+              :disabled="submitting"
+              class="inline-flex w-full justify-center rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 sm:ml-3 sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {{ submitting ? tr('Saving...', '保存中...') : tr('Save', '保存') }}
+            </button>
+            <button
+              type="button"
+              @click="handleClose"
+              class="mt-3 inline-flex w-full justify-center rounded-2xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50 sm:mt-0 sm:w-auto"
+            >
+              {{ tr('Close', '关闭') }}
+            </button>
+          </template>
         </div>
       </div>
     </div>

@@ -26,6 +26,7 @@ const showPaymentModal = ref(false)
 const paymentModalMode = ref('add')
 const paymentModalId = ref(null)
 const paymentModalData = ref(null)
+const currentViewingRecord = ref(null)
 
 const MONTH_NAMES_EN = [
   '', 'January', 'February', 'March', 'April', 'May', 'June',
@@ -129,12 +130,12 @@ function openEmptyForm() {
 function openViewForm(record, supplier) {
   paymentModalMode.value = 'view'
   paymentModalId.value = record.id
+  currentViewingRecord.value = record
   // 确保 record 中有 supplier_id
   paymentModalData.value = {
     ...record,
     supplier_id: record.supplier_id || supplier?.id
   }
-  console.log('Opening view form with:', paymentModalData.value)
   showPaymentModal.value = true
 }
 
@@ -146,7 +147,6 @@ function openEditForm(record, supplier) {
     ...record,
     supplier_id: record.supplier_id || supplier?.id
   }
-  console.log('Opening edit form with:', paymentModalData.value)
   showPaymentModal.value = true
 }
 
@@ -160,6 +160,11 @@ async function confirmDeletePayment(record) {
   } catch (error) {
     errorMessage.value = error.response?.data?.message || tr('Failed to delete payment record.', '删除还账记录失败。')
   }
+}
+
+async function handleModalDelete() {
+  if (!currentViewingRecord.value) return
+  await confirmDeletePayment(currentViewingRecord.value)
 }
 
 async function handlePaymentSaved() {
@@ -433,29 +438,13 @@ onMounted(async () => {
                   </td>
                   <td v-for="m in 12" :key="m" class="px-1 py-3 text-center">
                     <template v-if="isMonthPaid(s.payments, m)">
-                      <div class="relative inline-block flex items-center gap-1">
-                        <button
-                          class="inline-flex items-center justify-center rounded-lg bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-200"
-                          :title="tr('Click to view', '点击查看')"
-                          @click="openViewForm(getPaymentRecord(s.payments, m), s)"
-                        >
-                          ✓
-                        </button>
-                        <button
-                          @click.stop="openEditForm(getPaymentRecord(s.payments, m), s)"
-                          class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-slate-50 px-1.5 py-1 text-xs text-slate-600 hover:border-brand-400 hover:text-brand-500"
-                          :title="tr('Edit', '编辑')"
-                        >
-                          ✏️
-                        </button>
-                        <button
-                          @click.stop="confirmDeletePayment(getPaymentRecord(s.payments, m))"
-                          class="inline-flex items-center justify-center rounded-lg border border-rose-300 bg-rose-50 px-1.5 py-1 text-xs text-rose-600 hover:border-rose-500 hover:text-rose-700"
-                          :title="tr('Delete', '删除')"
-                        >
-                          🗑️
-                        </button>
-                      </div>
+                      <button
+                        class="inline-flex items-center justify-center rounded-lg bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-200"
+                        :title="tr('Click to view', '点击查看')"
+                        @click="openViewForm(getPaymentRecord(s.payments, m), s)"
+                      >
+                        ✓
+                      </button>
                     </template>
                     <template v-else>
                       <button
@@ -632,6 +621,7 @@ onMounted(async () => {
       :default-year="selectedYear"
       @close="showPaymentModal = false"
       @saved="handlePaymentSaved"
+      @delete="handleModalDelete"
     />
 
     <!-- Schedule Form Modal -->

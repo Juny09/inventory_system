@@ -179,10 +179,9 @@ router.post('/', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
 
 // PUT /api/supplier-payments/:id — update a payment record（租户隔离）
 router.put('/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  console.log('✅ PUT /supplier-payments/:id hit!', { id: req.params.id, body: req.body })
   const tenantId = getTenantId(req)
   const { supplierId, periodMonth, periodYear, paidDate, amount, notes, chequeNumber, paymentSlipNumber } = req.body
-  
-  console.log('PUT /supplier-payments/:id called with:', { id: req.params.id, tenantId, body: req.body })
 
   try {
     // 校验记录存在且属于当前租户
@@ -241,7 +240,6 @@ router.put('/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
 
     return res.json(result.rows[0])
   } catch (error) {
-    console.error('Error updating payment record:', error)
     return res.status(500).json({ message: 'Failed to update payment record.', error: error.message })
   }
 })
@@ -292,7 +290,6 @@ router.get('/:id', async (req, res) => {
     }
     return res.json(result.rows[0])
   } catch (error) {
-    console.error('Error fetching payment record:', error)
     return res.status(500).json({ message: 'Failed to fetch payment record.', error: error.message })
   }
 })
