@@ -108,6 +108,7 @@ router.get('/summary', async (req, res) => {
             FROM (
               SELECT
                 spr.id,
+                spr.supplier_id,
                 spr.period_month,
                 spr.period_year,
                 spr.paid_date,

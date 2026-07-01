@@ -77,7 +77,7 @@ function resetForm() {
 }
 
 async function loadPayment() {
-  if (!props.id || props.mode !== 'edit') return
+  if (!props.id) return
   loading.value = true
   formError.value = ''
   try {
@@ -148,7 +148,11 @@ function handleClose() {
 watch(() => props.show, (newVal) => {
   if (newVal) {
     resetForm()
-    if (props.initialData) {
+    if (props.id && (props.mode === 'edit' || props.mode === 'view')) {
+      // 如果有 id，从后端加载完整数据
+      loadPayment()
+    } else if (props.initialData) {
+      // 如果没有 id，使用传入的初始数据
       form.value = {
         supplierId: String(props.initialData.supplier_id || props.initialData.supplierId || ''),
         periodMonth: props.initialData.period_month || props.initialData.periodMonth || new Date().getMonth() + 1,
@@ -159,8 +163,6 @@ watch(() => props.show, (newVal) => {
         paymentSlipNumber: props.initialData.payment_slip_number || props.initialData.paymentSlipNumber || '',
         notes: props.initialData.notes || '',
       }
-    } else if (props.id && props.mode === 'edit') {
-      loadPayment()
     }
   }
 })
