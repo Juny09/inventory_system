@@ -125,32 +125,46 @@ async function handleSave() {
   formError.value = ''
   
   try {
-    if (props.mode === 'add' || !props.id) {
-      await api.post('/supplier-payments', {
-        supplierId: Number(form.value.supplierId),
-        periodMonth: Number(form.value.periodMonth),
-        periodYear: Number(form.value.periodYear),
-        paidDate: form.value.paidDate || null,
-        amount: form.value.amount ? Number(form.value.amount) : null,
-        chequeNumber: form.value.chequeNumber || null,
-        paymentSlipNumber: form.value.paymentSlipNumber || null,
-        notes: form.value.notes || null,
-      })
-    } else {
-      await api.put(`/supplier-payments/${props.id}`, {
-        supplierId: Number(form.value.supplierId),
-        periodMonth: Number(form.value.periodMonth),
-        periodYear: Number(form.value.periodYear),
-        paidDate: form.value.paidDate || null,
-        amount: form.value.amount ? Number(form.value.amount) : null,
-        chequeNumber: form.value.chequeNumber || null,
-        paymentSlipNumber: form.value.paymentSlipNumber || null,
-        notes: form.value.notes || null,
-      })
+    // #region debug-point A:save-request
+    fetch("http://127.0.0.1:7777/event",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionId:"supplier-payment-404",runId:"pre-fix",hypothesisId:"A",location:"SupplierPaymentFormModal.vue:handleSave",msg:"[DEBUG] supplier payment save request prepared",data:{mode:props.mode,id:props.id,method:"POST",baseURL:api.defaults.baseURL,url:"/supplier-payments",supplierId:Number(form.value.supplierId),periodMonth:Number(form.value.periodMonth),periodYear:Number(form.value.periodYear)},ts:Date.now()})}).catch(()=>{})
+    // #endregion
+    const payload = {
+      supplierId: Number(form.value.supplierId),
+      periodMonth: Number(form.value.periodMonth),
+      periodYear: Number(form.value.periodYear),
+      paidDate: form.value.paidDate || null,
+      amount: form.value.amount ? Number(form.value.amount) : null,
+      chequeNumber: form.value.chequeNumber || null,
+      paymentSlipNumber: form.value.paymentSlipNumber || null,
+      notes: form.value.notes || null,
+    }
+
+    // 用 POST upsert 统一处理新增和编辑，避免旧环境没有 PUT 路由时出现 404。
+    await api.post('/supplier-payments', payload)
+
+    if (props.mode !== 'add' && props.id && props.initialData) {
+      const originalSupplierId = Number(props.initialData.supplier_id || props.initialData.supplierId || 0)
+      const originalPeriodMonth = Number(props.initialData.period_month || props.initialData.periodMonth || 0)
+      const originalPeriodYear = Number(props.initialData.period_year || props.initialData.periodYear || 0)
+      const identityChanged =
+        originalSupplierId !== payload.supplierId ||
+        originalPeriodMonth !== payload.periodMonth ||
+        originalPeriodYear !== payload.periodYear
+
+      // 如果用户把供应商或月份改掉了，旧记录会变成多余数据，这里顺手清掉旧记录。
+      if (identityChanged) {
+        // #region debug-point C:edit-upsert-delete-old
+        fetch("http://127.0.0.1:7777/event",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionId:"supplier-payment-404",runId:"post-fix",hypothesisId:"C",location:"SupplierPaymentFormModal.vue:handleSave:delete-old",msg:"[DEBUG] supplier payment edit changed identity, deleting old record after post upsert",data:{id:props.id,originalSupplierId,originalPeriodMonth,originalPeriodYear,newSupplierId:payload.supplierId,newPeriodMonth:payload.periodMonth,newPeriodYear:payload.periodYear},ts:Date.now()})}).catch(()=>{})
+        // #endregion
+        await api.delete(`/supplier-payments/${props.id}`)
+      }
     }
     emit('saved')
     emit('close')
   } catch (error) {
+    // #region debug-point D:save-error
+    fetch("http://127.0.0.1:7777/event",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionId:"supplier-payment-404",runId:"pre-fix",hypothesisId:"D",location:"SupplierPaymentFormModal.vue:handleSave:catch",msg:"[DEBUG] supplier payment save failed",data:{mode:props.mode,id:props.id,status:error?.response?.status||null,message:error?.response?.data?.message||error?.message||null,baseURL:api.defaults.baseURL,url:(props.mode === 'add' || !props.id) ? "/supplier-payments" : `/supplier-payments/${props.id}`},ts:Date.now()})}).catch(()=>{})
+    // #endregion
     formError.value = error.response?.data?.message || tr('Failed to save payment.', '保存失败')
   } finally {
     submitting.value = false
@@ -160,17 +174,6 @@ async function handleSave() {
 function handleClose() {
   resetForm()
   emit('close')
-}
-
-function switchToEditMode() {
-  // 通过 emit 让父组件重新打开 edit 模式
-  // 我们需要保存当前数据，因为关闭后会重置
-  const currentFormData = { ...form.value }
-  emit('close')
-  // 这里我们需要触发父组件重新打开，但是我们没有办法直接传状态
-  // 所以我们使用一个更简单的方法：不关闭，直接把 view 模式变成 edit 模式
-  // 但是因为 props 是只读的，我们需要有一个内部的 mode
-  // 让我们添加一个内部的 mode
 }
 
 // 添加内部 mode

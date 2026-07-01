@@ -179,7 +179,9 @@ router.post('/', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
 
 // PUT /api/supplier-payments/:id — update a payment record（租户隔离）
 router.put('/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
-  console.log('✅ PUT /supplier-payments/:id hit!', { id: req.params.id, body: req.body })
+  // #region debug-point B:put-route-hit
+  fetch("http://127.0.0.1:7777/event",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionId:"supplier-payment-404",runId:"pre-fix",hypothesisId:"B",location:"supplierPaymentRoutes.js:PUT/:id",msg:"[DEBUG] supplier payment PUT route hit",data:{id:req.params.id,hasAuth:Boolean(req.headers.authorization),bodyKeys:Object.keys(req.body||{})},ts:Date.now()})}).catch(()=>{})
+  // #endregion
   const tenantId = getTenantId(req)
   const { supplierId, periodMonth, periodYear, paidDate, amount, notes, chequeNumber, paymentSlipNumber } = req.body
 
