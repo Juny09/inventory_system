@@ -132,7 +132,7 @@ function openViewForm(record, supplier) {
   // 确保 record 中有 supplier_id
   paymentModalData.value = {
     ...record,
-    supplier_id: record.supplier_id || supplier?.supplier_id
+    supplier_id: record.supplier_id || supplier?.id
   }
   console.log('Opening view form with:', paymentModalData.value)
   showPaymentModal.value = true
@@ -144,7 +144,7 @@ function openEditForm(record, supplier) {
   // 确保 record 中有 supplier_id
   paymentModalData.value = {
     ...record,
-    supplier_id: record.supplier_id || supplier?.supplier_id
+    supplier_id: record.supplier_id || supplier?.id
   }
   console.log('Opening edit form with:', paymentModalData.value)
   showPaymentModal.value = true
