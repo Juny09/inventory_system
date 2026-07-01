@@ -92,7 +92,7 @@ function fillFormFromInitialData() {
 }
 
 async function loadPayment() {
-  if (!props.id) return
+  if (!props.id) return false
   
   loading.value = true
   formError.value = ''
@@ -108,8 +108,10 @@ async function loadPayment() {
     form.value.chequeNumber = data.cheque_number || ''
     form.value.paymentSlipNumber = data.payment_slip_number || ''
     form.value.notes = data.notes || ''
+    return true
   } catch (error) {
     formError.value = error.response?.data?.message || tr('Failed to load payment.', '加载失败')
+    return false
   } finally {
     loading.value = false
   }
@@ -205,10 +207,14 @@ watch(() => props.show, async (newVal) => {
     resetForm()
     await nextTick()
     
-    if (props.initialData) {
+    // 已有记录优先从后端拉最新详情，避免列表摘要数据延迟或字段不全。
+    if (props.id) {
+      const loaded = await loadPayment()
+      if (!loaded && props.initialData) {
+        fillFormFromInitialData()
+      }
+    } else if (props.initialData) {
       fillFormFromInitialData()
-    } else if (props.id) {
-      await loadPayment()
     }
   }
 }, { immediate: true })
