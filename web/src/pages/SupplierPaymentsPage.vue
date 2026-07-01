@@ -126,17 +126,27 @@ function openEmptyForm() {
   showPaymentModal.value = true
 }
 
-function openViewForm(record) {
+function openViewForm(record, supplier) {
   paymentModalMode.value = 'view'
   paymentModalId.value = record.id
-  paymentModalData.value = record
+  // 确保 record 中有 supplier_id
+  paymentModalData.value = {
+    ...record,
+    supplier_id: record.supplier_id || supplier?.supplier_id
+  }
+  console.log('Opening view form with:', paymentModalData.value)
   showPaymentModal.value = true
 }
 
-function openEditForm(record) {
+function openEditForm(record, supplier) {
   paymentModalMode.value = 'edit'
   paymentModalId.value = record.id
-  paymentModalData.value = record
+  // 确保 record 中有 supplier_id
+  paymentModalData.value = {
+    ...record,
+    supplier_id: record.supplier_id || supplier?.supplier_id
+  }
+  console.log('Opening edit form with:', paymentModalData.value)
   showPaymentModal.value = true
 }
 
@@ -427,12 +437,12 @@ onMounted(async () => {
                         <button
                           class="inline-flex items-center justify-center rounded-lg bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-200"
                           :title="tr('Click to view', '点击查看')"
-                          @click="openViewForm(getPaymentRecord(s.payments, m))"
+                          @click="openViewForm(getPaymentRecord(s.payments, m), s)"
                         >
                           ✓
                         </button>
                         <button
-                          @click.stop="openEditForm(getPaymentRecord(s.payments, m))"
+                          @click.stop="openEditForm(getPaymentRecord(s.payments, m), s)"
                           class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-slate-50 px-1.5 py-1 text-xs text-slate-600 hover:border-brand-400 hover:text-brand-500"
                           :title="tr('Edit', '编辑')"
                         >

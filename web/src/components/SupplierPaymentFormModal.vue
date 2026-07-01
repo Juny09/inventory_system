@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import api from '../services/api'
 import { useLocaleStore } from '../stores/locale'
 
@@ -23,6 +23,7 @@ const formError = ref('')
 const MONTH_NAMES_EN = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const MONTH_NAMES_CN = ['', '1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月']
 
+// 表单数据 - 直接使用 reactive 确保响应式
 const form = ref({
   supplierId: '',
   periodMonth: new Date().getMonth() + 1,
@@ -76,23 +77,47 @@ function resetForm() {
   formError.value = ''
 }
 
+// 从 props.initialData 填充表单
+function fillFormFromInitialData() {
+  if (!props.initialData) return
+  
+  console.log('Filling form from initialData:', props.initialData)
+  
+  form.value.supplierId = String(props.initialData.supplier_id || props.initialData.supplierId || '')
+  form.value.periodMonth = props.initialData.period_month || props.initialData.periodMonth || new Date().getMonth() + 1
+  form.value.periodYear = props.initialData.period_year || props.initialData.periodYear || props.defaultYear
+  form.value.paidDate = formatDateForInput(props.initialData.paid_date || props.initialData.paidDate || '')
+  form.value.amount = formatAmount(props.initialData.amount)
+  form.value.chequeNumber = props.initialData.cheque_number || props.initialData.chequeNumber || ''
+  form.value.paymentSlipNumber = props.initialData.payment_slip_number || props.initialData.paymentSlipNumber || ''
+  form.value.notes = props.initialData.notes || ''
+  
+  console.log('Form filled:', form.value)
+}
+
 async function loadPayment() {
   if (!props.id) return
+  
+  console.log('Loading payment from API, id:', props.id)
   loading.value = true
   formError.value = ''
+  
   try {
     const { data } = await api.get(`/supplier-payments/${props.id}`)
-    form.value = {
-      supplierId: String(data.supplier_id),
-      periodMonth: data.period_month,
-      periodYear: data.period_year,
-      paidDate: formatDateForInput(data.paid_date),
-      amount: formatAmount(data.amount),
-      chequeNumber: data.cheque_number || '',
-      paymentSlipNumber: data.payment_slip_number || '',
-      notes: data.notes || '',
-    }
+    console.log('API response:', data)
+    
+    form.value.supplierId = String(data.supplier_id)
+    form.value.periodMonth = data.period_month
+    form.value.periodYear = data.period_year
+    form.value.paidDate = formatDateForInput(data.paid_date)
+    form.value.amount = formatAmount(data.amount)
+    form.value.chequeNumber = data.cheque_number || ''
+    form.value.paymentSlipNumber = data.payment_slip_number || ''
+    form.value.notes = data.notes || ''
+    
+    console.log('Form after API load:', form.value)
   } catch (error) {
+    console.error('API error:', error)
     formError.value = error.response?.data?.message || tr('Failed to load payment.', '加载失败')
   } finally {
     loading.value = false
@@ -107,6 +132,7 @@ async function handleSave() {
   }
   submitting.value = true
   formError.value = ''
+  
   try {
     if (props.mode === 'add' || !props.id) {
       await api.post('/supplier-payments', {
@@ -145,31 +171,38 @@ function handleClose() {
   emit('close')
 }
 
-watch(() => props.show, (newVal) => {
+// 监听 show 属性变化
+watch(() => props.show, async (newVal) => {
   if (newVal) {
+    console.log('=== Modal opened ===')
+    console.log('Mode:', props.mode)
+    console.log('ID:', props.id)
+    console.log('InitialData:', props.initialData)
+    
     resetForm()
-    if (props.id && (props.mode === 'edit' || props.mode === 'view')) {
-      // 如果有 id，从后端加载完整数据
-      loadPayment()
-    } else if (props.initialData) {
-      // 如果没有 id，使用传入的初始数据
-      form.value = {
-        supplierId: String(props.initialData.supplier_id || props.initialData.supplierId || ''),
-        periodMonth: props.initialData.period_month || props.initialData.periodMonth || new Date().getMonth() + 1,
-        periodYear: props.initialData.period_year || props.initialData.periodYear || props.defaultYear,
-        paidDate: formatDateForInput(props.initialData.paid_date || props.initialData.paidDate || ''),
-        amount: formatAmount(props.initialData.amount),
-        chequeNumber: props.initialData.cheque_number || props.initialData.chequeNumber || '',
-        paymentSlipNumber: props.initialData.payment_slip_number || props.initialData.paymentSlipNumber || '',
-        notes: props.initialData.notes || '',
-      }
+    await nextTick()
+    
+    if (props.initialData) {
+      fillFormFromInitialData()
+    } else if (props.id) {
+      await loadPayment()
     }
   }
-})
+}, { immediate: true })
 </script>
 
 <template>
-  <div v-if="show" class="fixed inset-0 z-[100] overflow-y-auto">
+  <div v-show="show" class="fixed inset-0 z-[100] overflow-y-auto">
+    <!-- 调试信息：临时显示，方便排查问题 -->
+    <div class="fixed top-4 left-4 z-[150] bg-black/80 text-white p-3 rounded-lg text-xs max-w-sm">
+      <p><strong>调试信息:</strong></p>
+      <p>Mode: {{ mode }}</p>
+      <p>ID: {{ id }}</p>
+      <p>Form data: {{ JSON.stringify(form, null, 2) }}</p>
+      <hr class="my-2 border-white/30">
+      <p>InitialData: {{ JSON.stringify(initialData, null, 2) }}</p>
+    </div>
+    
     <div class="flex min-h-screen items-end justify-center px-4 pt-4 pb-20 text-center sm:block sm:p-0">
       <div class="fixed inset-0 transition-opacity bg-slate-500/75" @click="handleClose"></div>
 
