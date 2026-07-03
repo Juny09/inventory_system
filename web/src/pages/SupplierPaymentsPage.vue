@@ -35,6 +35,7 @@ const importSubmitting = ref(false)
 const importError = ref('')
 const importPreviewSummary = ref(null)
 const importPreviewRows = ref([])
+const importTemplateUrl = '/templates/supplier-payment-import-template.xlsx'
 
 const MONTH_NAMES_EN = [
   '', 'January', 'February', 'March', 'April', 'May', 'June',
@@ -815,7 +816,16 @@ onMounted(async () => {
                   {{ importPreviewLoading ? tr('Checking...', '检查中...') : tr('Preview Import', '预览导入') }}
                 </button>
 
+                <a
+                  :href="importTemplateUrl"
+                  download
+                  class="flex w-full items-center justify-center rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  {{ tr('Download Excel Template', '下载 Excel 模板') }}
+                </a>
+
                 <div class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-6 text-amber-800">
+                  <!-- 中文说明：模板列名必须和后端导入规则一致，用户直接下载后填数据最安全。 -->
                   <p>{{ tr('Import rules:', '导入规则：') }}</p>
                   <p>{{ tr('1. DESC must match an active supplier name in the system.', '1. DESC 必须能匹配系统里的启用供应商名称。') }}</p>
                   <p>{{ tr('2. WITHDRAW DR is the payment amount. CR is reference only.', '2. WITHDRAW DR 是付款金额，CR 目前只作参考。') }}</p>
