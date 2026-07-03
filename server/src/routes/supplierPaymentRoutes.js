@@ -1,5 +1,7 @@
 const express = require('express')
-const { query } = require('../config/db')
+const multer = require('multer')
+const XLSX = require('xlsx')
+const { pool, query } = require('../config/db')
 const { authenticateToken, authorizeRoles } = require('../middleware/auth')
 const { getPaginationParams, buildPagination } = require('../utils/pagination')
 const { getTenantId } = require('../utils/tenant')
@@ -15,6 +17,239 @@ const MONTH_NAMES = [
 
 function formatPeriod(month, year) {
   return `${year}-${String(month).padStart(2, '0')}`
+}
+
+const importUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowedMimeTypes = new Set([
+      'text/csv',
+      'application/csv',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ])
+    const ext = String(file.originalname || '').toLowerCase()
+    if (allowedMimeTypes.has(file.mimetype) || ext.endsWith('.csv') || ext.endsWith('.xls') || ext.endsWith('.xlsx')) {
+      cb(null, true)
+      return
+    }
+    cb(new Error('Unsupported file type. Please upload CSV or Excel.'), false)
+  },
+})
+
+function normalizeImportHeader(value) {
+  return String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+}
+
+function normalizeSupplierKey(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toUpperCase()
+}
+
+function parseImportNumber(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return null
+  const normalized = raw.replace(/,/g, '')
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function parseImportInteger(value) {
+  const parsed = parseImportNumber(value)
+  if (!Number.isInteger(parsed)) return null
+  return parsed
+}
+
+function hasImportValue(value) {
+  return String(value ?? '').trim() !== ''
+}
+
+function isImportRowEmpty(row) {
+  return Object.values(row || {}).every((value) => !hasImportValue(value))
+}
+
+function buildSupplierLookup(rows) {
+  const map = new Map()
+  for (const row of rows) {
+    const keys = [
+      normalizeSupplierKey(row.name),
+      normalizeSupplierKey(row.company_name),
+      normalizeSupplierKey(row.company_name ? `${row.name} (${row.company_name})` : row.name),
+    ].filter(Boolean)
+
+    for (const key of keys) {
+      const list = map.get(key) || []
+      list.push(row)
+      map.set(key, list)
+    }
+  }
+  return map
+}
+
+function readImportWorkbook(file) {
+  const workbook = XLSX.read(file.buffer, { type: 'buffer' })
+  const sheetName = workbook.SheetNames[0]
+  if (!sheetName) return []
+  const sheet = workbook.Sheets[sheetName]
+  return XLSX.utils.sheet_to_json(sheet, { defval: '' })
+}
+
+function mapImportRow(rawRow) {
+  const normalizedEntries = Object.entries(rawRow || {}).map(([key, value]) => [normalizeImportHeader(key), value])
+  const normalizedRow = Object.fromEntries(normalizedEntries)
+
+  return {
+    chequeNumber: String(normalizedRow.CHEQUENUM || '').trim(),
+    supplierName: String(normalizedRow.DESC || '').trim(),
+    ref: String(normalizedRow.REF || '').trim(),
+    amount: parseImportNumber(normalizedRow.WITHDRAWDR),
+    creditAmount: parseImportNumber(normalizedRow.CR),
+    cancel: String(normalizedRow.CANCEL || '').trim(),
+    month: parseImportInteger(normalizedRow.MONTH),
+    year: parseImportInteger(normalizedRow.YEAR),
+  }
+}
+
+function buildExistingPaymentMap(rows) {
+  const map = new Map()
+  for (const row of rows) {
+    map.set(`${row.supplier_id}-${row.period_year}-${row.period_month}`, row)
+  }
+  return map
+}
+
+async function fetchExistingPayments(tenantId, rows) {
+  const supplierIds = [...new Set(rows.map((row) => row.supplierId).filter(Boolean))]
+  const years = [...new Set(rows.map((row) => row.year).filter(Boolean))]
+  if (!supplierIds.length || !years.length) return new Map()
+
+  const result = await query(
+    `SELECT id, supplier_id, period_month, period_year
+     FROM supplier_payment_records
+     WHERE tenant_id = $1
+       AND supplier_id = ANY($2::int[])
+       AND period_year = ANY($3::int[])`,
+    [tenantId, supplierIds, years],
+  )
+  return buildExistingPaymentMap(result.rows)
+}
+
+async function buildImportPreviewRows(tenantId, rawRows) {
+  const suppliersResult = await query(
+    `SELECT id, name, company_name
+     FROM suppliers
+     WHERE tenant_id = $1
+       AND is_active = TRUE
+     ORDER BY name`,
+    [tenantId],
+  )
+  const supplierLookup = buildSupplierLookup(suppliersResult.rows)
+  // 中文说明：这里先把上传文件转成“预览结果”，让前端先确认哪些行会新增、更新、跳过或报错。
+  const previewRows = rawRows
+    .filter((row) => !isImportRowEmpty(row))
+    .map((rawRow, index) => {
+      const mapped = mapImportRow(rawRow)
+      const messages = []
+      let status = 'ready'
+      let supplierId = null
+
+      if (hasImportValue(mapped.cancel)) {
+        messages.push('CANCEL has value, so this row will be skipped.')
+      } else {
+        if (!mapped.supplierName) {
+          status = 'error'
+          messages.push('DESC is required.')
+        } else {
+          const matches = supplierLookup.get(normalizeSupplierKey(mapped.supplierName)) || []
+          if (matches.length === 1) {
+            supplierId = Number(matches[0].id)
+          } else if (matches.length > 1) {
+            status = 'error'
+            messages.push('DESC matches multiple suppliers. Please make the supplier name more specific.')
+          } else {
+            status = 'error'
+            messages.push('Supplier not found in current company.')
+          }
+        }
+
+        if (!Number.isInteger(mapped.month) || mapped.month < 1 || mapped.month > 12) {
+          status = 'error'
+          messages.push('Month must be an integer between 1 and 12.')
+        }
+
+        if (!Number.isInteger(mapped.year) || mapped.year < 2000 || mapped.year > 2100) {
+          status = 'error'
+          messages.push('Year must be a valid 4-digit year.')
+        }
+
+        if (mapped.amount === null || mapped.amount <= 0) {
+          status = 'error'
+          messages.push('WITHDRAW DR must be a number greater than 0.')
+        }
+
+        if (mapped.creditAmount !== null && mapped.creditAmount > 0) {
+          messages.push('CR has value. Current import keeps CR as reference only and does not write it into supplier payment amount.')
+        }
+      }
+
+      return {
+        rowNo: index + 2,
+        ...mapped,
+        supplierId,
+        status,
+        action: 'pending',
+        existingId: null,
+        notes: mapped.ref || null,
+        paidDate: null,
+        messages,
+      }
+    })
+
+  const duplicateMap = new Map()
+  for (const row of previewRows) {
+    if (row.status !== 'ready') continue
+    const key = `${row.supplierId}-${row.year}-${row.month}`
+    const list = duplicateMap.get(key) || []
+    list.push(row)
+    duplicateMap.set(key, list)
+  }
+
+  for (const rows of duplicateMap.values()) {
+    if (rows.length < 2) continue
+    const rowNos = rows.map((row) => row.rowNo).join(', ')
+    for (const row of rows) {
+      row.status = 'error'
+      row.messages.push(`Duplicate supplier + month + year found in this file (rows: ${rowNos}). Please keep only one row for each period.`)
+    }
+  }
+
+  const readyRows = previewRows.filter((row) => row.status === 'ready')
+  const existingMap = await fetchExistingPayments(tenantId, readyRows)
+
+  for (const row of previewRows) {
+    if (row.status !== 'ready') continue
+    const existing = existingMap.get(`${row.supplierId}-${row.year}-${row.month}`)
+    row.action = existing ? 'update' : 'create'
+    row.existingId = existing?.id || null
+  }
+
+  return {
+    rows: previewRows,
+    summary: {
+      total: previewRows.length,
+      ready: previewRows.filter((row) => row.status === 'ready').length,
+      create: previewRows.filter((row) => row.status === 'ready' && row.action === 'create').length,
+      update: previewRows.filter((row) => row.status === 'ready' && row.action === 'update').length,
+      skip: previewRows.filter((row) => row.status === 'skip').length,
+      error: previewRows.filter((row) => row.status === 'error').length,
+    },
+  }
 }
 
 // GET /api/supplier-payments — list all payment records (with filters, 租户隔离)
@@ -124,6 +359,164 @@ router.get('/summary', async (req, res) => {
   }
 })
 
+// POST /api/supplier-payments/import/preview — parse import file and show validation result
+router.post('/import/preview', authorizeRoles('ADMIN', 'MANAGER'), importUpload.single('file'), async (req, res) => {
+  const tenantId = getTenantId(req)
+  if (!req.file) {
+    return res.status(400).json({ message: 'Import file is required.' })
+  }
+
+  try {
+    const rawRows = readImportWorkbook(req.file)
+    const preview = await buildImportPreviewRows(tenantId, rawRows)
+
+    return res.json({
+      fileName: req.file.originalname,
+      summary: preview.summary,
+      rows: preview.rows,
+    })
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to preview import file.', error: error.message })
+  }
+})
+
+// POST /api/supplier-payments/import/commit — import validated rows into supplier payments
+router.post('/import/commit', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  const tenantId = getTenantId(req)
+  const rawRows = Array.isArray(req.body?.rows) ? req.body.rows : []
+
+  if (!rawRows.length) {
+    return res.status(400).json({ message: 'No rows selected for import.' })
+  }
+
+  const rows = rawRows
+    .filter((row) => row?.status === 'ready')
+    .map((row) => ({
+      supplierId: Number(row.supplierId),
+      month: Number(row.month),
+      year: Number(row.year),
+      amount: Number(row.amount),
+      chequeNumber: row.chequeNumber ? String(row.chequeNumber).trim() : null,
+      notes: row.ref ? String(row.ref).trim() : null,
+    }))
+
+  if (!rows.length) {
+    return res.status(400).json({ message: 'No valid rows are ready to import.' })
+  }
+
+  const invalidRows = rows.filter((row) => {
+    if (!Number.isInteger(row.supplierId) || row.supplierId <= 0) return true
+    if (!Number.isInteger(row.month) || row.month < 1 || row.month > 12) return true
+    if (!Number.isInteger(row.year) || row.year < 2000 || row.year > 2100) return true
+    if (!Number.isFinite(row.amount) || row.amount <= 0) return true
+    return false
+  })
+
+  if (invalidRows.length) {
+    return res.status(400).json({ message: 'Import rows contain invalid values. Please preview again before importing.' })
+  }
+
+  const supplierIds = [...new Set(rows.map((row) => row.supplierId))]
+  try {
+    const supplierCheck = await query(
+      `SELECT id
+       FROM suppliers
+       WHERE tenant_id = $1
+         AND is_active = TRUE
+         AND id = ANY($2::int[])`,
+      [tenantId, supplierIds],
+    )
+    if (supplierCheck.rows.length !== supplierIds.length) {
+      return res.status(400).json({ message: 'Some suppliers no longer exist or are inactive. Please preview again.' })
+    }
+
+    const existingMap = await fetchExistingPayments(tenantId, rows)
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+
+      const items = []
+      let created = 0
+      let updated = 0
+
+      for (const row of rows) {
+        // 中文说明：导入时仍然再次校验并做 upsert，避免前端预览后数据被篡改。
+        const key = `${row.supplierId}-${row.year}-${row.month}`
+        const existing = existingMap.get(key)
+        const result = await client.query(
+          `INSERT INTO supplier_payment_records (
+             tenant_id,
+             supplier_id,
+             period_month,
+             period_year,
+             paid_date,
+             amount,
+             notes,
+             cheque_number,
+             payment_slip_number,
+             created_by
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           ON CONFLICT (tenant_id, supplier_id, period_year, period_month)
+           DO UPDATE SET
+             paid_date = COALESCE(EXCLUDED.paid_date, supplier_payment_records.paid_date),
+             amount = EXCLUDED.amount,
+             notes = EXCLUDED.notes,
+             cheque_number = EXCLUDED.cheque_number,
+             payment_slip_number = COALESCE(EXCLUDED.payment_slip_number, supplier_payment_records.payment_slip_number),
+             updated_at = CURRENT_TIMESTAMP
+           RETURNING *`,
+          [
+            tenantId,
+            row.supplierId,
+            row.month,
+            row.year,
+            null,
+            row.amount,
+            row.notes,
+            row.chequeNumber,
+            null,
+            req.user.id,
+          ],
+        )
+
+        if (existing) {
+          updated += 1
+        } else {
+          created += 1
+        }
+
+        items.push(result.rows[0])
+      }
+
+      await client.query('COMMIT')
+
+      req.auditContext = {
+        action: 'SUPPLIER_PAYMENT_IMPORT',
+        entityType: 'SUPPLIER_PAYMENT_IMPORT',
+        entityId: `${tenantId}-${Date.now()}`,
+        description: `Imported ${rows.length} supplier payment rows (${created} created, ${updated} updated)`,
+      }
+
+      return res.json({
+        summary: {
+          imported: rows.length,
+          created,
+          updated,
+        },
+        items,
+      })
+    } catch (error) {
+      await client.query('ROLLBACK')
+      return res.status(500).json({ message: 'Failed to import supplier payments.', error: error.message })
+    } finally {
+      client.release()
+    }
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to import supplier payments.', error: error.message })
+  }
+})
+
 // POST /api/supplier-payments — create a payment record（租户隔离）
 router.post('/', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
   const tenantId = getTenantId(req)
@@ -179,9 +572,6 @@ router.post('/', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
 
 // PUT /api/supplier-payments/:id — update a payment record（租户隔离）
 router.put('/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
-  // #region debug-point B:put-route-hit
-  fetch("http://127.0.0.1:7777/event",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionId:"supplier-payment-404",runId:"pre-fix",hypothesisId:"B",location:"supplierPaymentRoutes.js:PUT/:id",msg:"[DEBUG] supplier payment PUT route hit",data:{id:req.params.id,hasAuth:Boolean(req.headers.authorization),bodyKeys:Object.keys(req.body||{})},ts:Date.now()})}).catch(()=>{})
-  // #endregion
   const tenantId = getTenantId(req)
   const { supplierId, periodMonth, periodYear, paidDate, amount, notes, chequeNumber, paymentSlipNumber } = req.body
 

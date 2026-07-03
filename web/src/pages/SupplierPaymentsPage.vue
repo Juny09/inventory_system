@@ -27,6 +27,14 @@ const paymentModalMode = ref('add')
 const paymentModalId = ref(null)
 const paymentModalData = ref(null)
 const currentViewingRecord = ref(null)
+const showImportModal = ref(false)
+const importFile = ref(null)
+const importFileInput = ref(null)
+const importPreviewLoading = ref(false)
+const importSubmitting = ref(false)
+const importError = ref('')
+const importPreviewSummary = ref(null)
+const importPreviewRows = ref([])
 
 const MONTH_NAMES_EN = [
   '', 'January', 'February', 'March', 'April', 'May', 'June',
@@ -70,6 +78,9 @@ const supplierOptions = computed(() =>
     company_name: s.supplier_branch || '',
   })),
 )
+
+const importFileName = computed(() => importFile.value?.name || '')
+const readyImportRows = computed(() => importPreviewRows.value.filter((row) => row.status === 'ready'))
 
 function isMonthPaid(supplierPayments, month) {
   return supplierPayments.some((p) => p.period_month === month)
@@ -139,17 +150,6 @@ function openViewForm(record, supplier) {
   showPaymentModal.value = true
 }
 
-function openEditForm(record, supplier) {
-  paymentModalMode.value = 'edit'
-  paymentModalId.value = record.id
-  // 确保 record 中有 supplier_id
-  paymentModalData.value = {
-    ...record,
-    supplier_id: record.supplier_id || supplier?.id
-  }
-  showPaymentModal.value = true
-}
-
 async function confirmDeletePayment(record) {
   if (!confirm(tr('Are you sure you want to delete this payment record?', '确定要删除这条还账记录吗？'))) {
     return
@@ -167,8 +167,152 @@ async function handleModalDelete() {
   await confirmDeletePayment(currentViewingRecord.value)
 }
 
-async function handlePaymentSaved() {
-  await loadSummary()
+function applySavedPaymentToLocalList(savedRecord) {
+  if (!savedRecord) return
+
+  const previousRecord = paymentModalData.value
+  const previousSupplierId = Number(previousRecord?.supplier_id || previousRecord?.supplierId || 0)
+  const previousMonth = Number(previousRecord?.period_month || previousRecord?.periodMonth || 0)
+  const nextSupplierId = Number(savedRecord.supplier_id || 0)
+  const nextMonth = Number(savedRecord.period_month || 0)
+
+  suppliers.value = suppliers.value.map((supplier) => {
+    let payments = [...(supplier.payments || [])]
+
+    if (supplier.supplier_id === previousSupplierId) {
+      payments = payments.filter((payment) => {
+        if (payment.id && savedRecord.id && payment.id === savedRecord.id) return false
+        return payment.period_month !== previousMonth
+      })
+    }
+
+    if (supplier.supplier_id === nextSupplierId) {
+      payments = payments.filter((payment) => {
+        if (savedRecord.id && payment.id === savedRecord.id) return false
+        return payment.period_month !== nextMonth
+      })
+      payments.push({
+        ...savedRecord,
+        id: savedRecord.id || previousRecord?.id || null,
+      })
+      payments.sort((a, b) => a.period_month - b.period_month)
+    }
+
+    return {
+      ...supplier,
+      payments,
+    }
+  })
+}
+
+async function handlePaymentSaved(savedRecord) {
+  applySavedPaymentToLocalList(savedRecord)
+  currentViewingRecord.value = savedRecord || null
+}
+
+function openImportModal() {
+  importError.value = ''
+  importFile.value = null
+  importPreviewSummary.value = null
+  importPreviewRows.value = []
+  if (importFileInput.value) importFileInput.value.value = ''
+  showImportModal.value = true
+}
+
+function closeImportModal() {
+  showImportModal.value = false
+  importFile.value = null
+  importError.value = ''
+  importPreviewSummary.value = null
+  importPreviewRows.value = []
+  importPreviewLoading.value = false
+  importSubmitting.value = false
+  if (importFileInput.value) importFileInput.value.value = ''
+}
+
+function openImportFilePicker() {
+  importFileInput.value?.click()
+}
+
+function onImportFileChange(event) {
+  const picked = event.target.files?.[0]
+  importFile.value = picked || null
+  importPreviewSummary.value = null
+  importPreviewRows.value = []
+}
+
+function importStatusClass(status) {
+  switch (status) {
+    case 'ready':
+      return 'bg-emerald-100 text-emerald-700'
+    case 'skip':
+      return 'bg-slate-100 text-slate-600'
+    default:
+      return 'bg-rose-100 text-rose-700'
+  }
+}
+
+function importActionLabel(row) {
+  if (row.status === 'skip') return tr('Skip', '跳过')
+  if (row.status === 'error') return tr('Error', '错误')
+  return row.action === 'update' ? tr('Update', '更新') : tr('Create', '新增')
+}
+
+async function previewImportFile() {
+  importError.value = ''
+  if (!importFile.value) {
+    importError.value = tr('Please choose a CSV or Excel file first.', '请先选择 CSV 或 Excel 文件。')
+    return
+  }
+
+  importPreviewLoading.value = true
+  try {
+    // 中文说明：先做预览，不直接写数据库，避免错误表格一键覆盖原数据。
+    const formData = new FormData()
+    formData.append('file', importFile.value)
+    const { data } = await api.post('/supplier-payments/import/preview', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    importPreviewSummary.value = data.summary || null
+    importPreviewRows.value = data.rows || []
+  } catch (error) {
+    importError.value = error.response?.data?.message || tr('Failed to preview import file.', '预览导入文件失败。')
+  } finally {
+    importPreviewLoading.value = false
+  }
+}
+
+async function confirmImportPayments() {
+  importError.value = ''
+  if (!readyImportRows.value.length) {
+    importError.value = tr('No valid rows are ready to import.', '没有可导入的有效数据。')
+    return
+  }
+
+  importSubmitting.value = true
+  try {
+    // 中文说明：这里只提交已经通过校验的行，skip 和 error 行不会送去真正导入。
+    const payload = readyImportRows.value.map((row) => ({
+      status: row.status,
+      supplierId: row.supplierId,
+      month: row.month,
+      year: row.year,
+      amount: row.amount,
+      chequeNumber: row.chequeNumber,
+      ref: row.ref,
+    }))
+    const { data } = await api.post('/supplier-payments/import/commit', { rows: payload })
+    await loadSummary()
+    closeImportModal()
+    alert(tr(
+      `Import completed. ${data.summary?.created || 0} created, ${data.summary?.updated || 0} updated.`,
+      `导入完成。新增 ${data.summary?.created || 0} 条，更新 ${data.summary?.updated || 0} 条。`,
+    ))
+  } catch (error) {
+    importError.value = error.response?.data?.message || tr('Failed to import supplier payments.', '导入供应商付款失败。')
+  } finally {
+    importSubmitting.value = false
+  }
 }
 
 function back() {
@@ -359,6 +503,13 @@ onMounted(async () => {
         <div class="flex gap-2">
           <button class="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700" @click="back">
             {{ tr('Back to suppliers', '返回供应商列表') }}
+          </button>
+          <button
+            v-if="activeTab === 'paid'"
+            class="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
+            @click="openImportModal"
+          >
+            {{ tr('Import', '导入') }}
           </button>
           <button
             v-if="activeTab === 'paid'"
@@ -609,6 +760,155 @@ onMounted(async () => {
         </div>
       </div>
     </section>
+
+    <div v-if="showImportModal" class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 px-4 py-6">
+      <div class="absolute inset-0" @click="closeImportModal" />
+      <div class="relative z-10 flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-[32px] bg-white shadow-2xl">
+        <div class="flex items-start justify-between border-b border-slate-200 px-6 py-5">
+          <div>
+            <h3 class="text-2xl font-semibold text-slate-900">{{ tr('Import Supplier Payments', '导入供应商付款') }}</h3>
+            <p class="mt-2 text-sm text-slate-500">
+              {{ tr('Upload CSV or Excel with the fixed columns: CHEQUE NUM, DESC, REF, WITHDRAW DR, CR, CANCEL, Month, Year.', '上传包含固定列的 CSV 或 Excel：CHEQUE NUM、DESC、REF、WITHDRAW DR、CR、CANCEL、Month、Year。') }}
+            </p>
+          </div>
+          <button class="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600" @click="closeImportModal">
+            {{ tr('Close', '关闭') }}
+          </button>
+        </div>
+
+        <div class="overflow-y-auto px-6 py-5">
+          <div class="grid gap-4 lg:grid-cols-[360px_1fr]">
+            <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+              <h4 class="text-lg font-semibold text-slate-900">{{ tr('Step 1: Choose file', '步骤 1：选择文件') }}</h4>
+              <p class="mt-2 text-sm text-slate-500">
+                {{ tr('One row should only represent one supplier payment for one month.', '一行数据只代表一个供应商在一个月份的一笔付款。') }}
+              </p>
+
+              <div class="mt-5 space-y-4">
+                <div class="relative">
+                  <input
+                    :value="importFileName"
+                    type="text"
+                    readonly
+                    placeholder=" "
+                    class="peer w-full cursor-pointer rounded-2xl border border-slate-200 bg-white px-4 pb-2 pt-5 text-sm outline-none focus:border-brand-500"
+                    @click="openImportFilePicker"
+                  />
+                  <label class="pointer-events-none absolute left-4 top-3 text-xs text-slate-500 transition-all peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:text-sm peer-placeholder-shown:text-slate-400 peer-focus:top-3 peer-focus:-translate-y-0 peer-focus:text-xs peer-focus:text-slate-500">
+                    {{ tr('Import File', '导入文件') }}
+                  </label>
+                  <input
+                    ref="importFileInput"
+                    type="file"
+                    accept=".csv,.xls,.xlsx"
+                    class="hidden"
+                    @change="onImportFileChange"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  class="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                  :disabled="importPreviewLoading"
+                  @click="previewImportFile"
+                >
+                  {{ importPreviewLoading ? tr('Checking...', '检查中...') : tr('Preview Import', '预览导入') }}
+                </button>
+
+                <div class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-6 text-amber-800">
+                  <p>{{ tr('Import rules:', '导入规则：') }}</p>
+                  <p>{{ tr('1. DESC must match an active supplier name in the system.', '1. DESC 必须能匹配系统里的启用供应商名称。') }}</p>
+                  <p>{{ tr('2. WITHDRAW DR is the payment amount. CR is reference only.', '2. WITHDRAW DR 是付款金额，CR 目前只作参考。') }}</p>
+                  <p>{{ tr('3. CANCEL has value means the row will be skipped.', '3. CANCEL 只要有值，该行就会跳过。') }}</p>
+                  <p>{{ tr('4. Month and Year must be filled. Multi-month totals need to be split into separate rows.', '4. Month 和 Year 必填，多个月份合计金额要先拆成多行。') }}</p>
+                </div>
+
+                <p v-if="importError" class="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">
+                  {{ importError }}
+                </p>
+              </div>
+            </div>
+
+            <div class="rounded-3xl border border-slate-200 bg-white">
+              <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+                <div>
+                  <h4 class="text-lg font-semibold text-slate-900">{{ tr('Step 2: Preview Result', '步骤 2：预览结果') }}</h4>
+                  <p class="mt-1 text-sm text-slate-500">{{ tr('Review all rows before importing.', '导入前先检查每一行的状态。') }}</p>
+                </div>
+                <div v-if="importPreviewSummary" class="flex flex-wrap gap-2 text-xs font-semibold">
+                  <span class="rounded-full bg-slate-100 px-3 py-1 text-slate-700">{{ tr('Total', '总数') }} {{ importPreviewSummary.total }}</span>
+                  <span class="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700">{{ tr('Ready', '可导入') }} {{ importPreviewSummary.ready }}</span>
+                  <span class="rounded-full bg-blue-100 px-3 py-1 text-blue-700">{{ tr('New', '新增') }} {{ importPreviewSummary.create }}</span>
+                  <span class="rounded-full bg-amber-100 px-3 py-1 text-amber-700">{{ tr('Update', '更新') }} {{ importPreviewSummary.update }}</span>
+                  <span class="rounded-full bg-slate-100 px-3 py-1 text-slate-600">{{ tr('Skip', '跳过') }} {{ importPreviewSummary.skip }}</span>
+                  <span class="rounded-full bg-rose-100 px-3 py-1 text-rose-700">{{ tr('Error', '错误') }} {{ importPreviewSummary.error }}</span>
+                </div>
+              </div>
+
+              <div v-if="!importPreviewRows.length" class="px-5 py-10 text-center text-sm text-slate-500">
+                {{ tr('No preview yet. Choose a file and click Preview Import.', '还没有预览结果，请先选择文件再点击预览导入。') }}
+              </div>
+
+              <div v-else class="max-h-[52vh] overflow-auto">
+                <table class="min-w-full text-left text-sm">
+                  <thead class="sticky top-0 bg-slate-50 text-slate-500">
+                    <tr>
+                      <th class="px-4 py-3">#</th>
+                      <th class="px-4 py-3">{{ tr('Status', '状态') }}</th>
+                      <th class="px-4 py-3">{{ tr('Supplier', '供应商') }}</th>
+                      <th class="px-4 py-3">{{ tr('Month', '月份') }}</th>
+                      <th class="px-4 py-3">{{ tr('Year', '年份') }}</th>
+                      <th class="px-4 py-3 text-right">{{ tr('Amount', '金额') }}</th>
+                      <th class="px-4 py-3">{{ tr('Cheque', '支票号') }}</th>
+                      <th class="px-4 py-3">{{ tr('Notes', '备注') }}</th>
+                      <th class="px-4 py-3">{{ tr('Message', '提示') }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="row in importPreviewRows" :key="`${row.rowNo}-${row.supplierName}-${row.month}-${row.year}`" class="border-t border-slate-100 align-top">
+                      <td class="px-4 py-3 text-slate-500">{{ row.rowNo }}</td>
+                      <td class="px-4 py-3">
+                        <span class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold" :class="importStatusClass(row.status)">
+                          {{ importActionLabel(row) }}
+                        </span>
+                      </td>
+                      <td class="px-4 py-3 font-medium text-slate-800">{{ row.supplierName || '—' }}</td>
+                      <td class="px-4 py-3 text-slate-600">{{ row.month || '—' }}</td>
+                      <td class="px-4 py-3 text-slate-600">{{ row.year || '—' }}</td>
+                      <td class="px-4 py-3 text-right text-slate-800">{{ row.amount ? formatAmount(row.amount) : '—' }}</td>
+                      <td class="px-4 py-3 text-slate-600">{{ row.chequeNumber || '—' }}</td>
+                      <td class="px-4 py-3 text-slate-600">{{ row.ref || '—' }}</td>
+                      <td class="px-4 py-3 text-xs leading-5 text-slate-500">
+                        <p v-for="message in row.messages" :key="message">{{ message }}</p>
+                        <p v-if="!row.messages?.length">—</p>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
+          <p class="text-sm text-slate-500">
+            {{ tr('Only rows marked as New or Update will be imported.', '只有标记为“新增”或“更新”的行会被导入。') }}
+          </p>
+          <div class="flex gap-2">
+            <button class="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700" @click="closeImportModal">
+              {{ tr('Cancel', '取消') }}
+            </button>
+            <button
+              class="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+              :disabled="importSubmitting || !readyImportRows.length"
+              @click="confirmImportPayments"
+            >
+              {{ importSubmitting ? tr('Importing...', '导入中...') : tr('Confirm Import', '确认导入') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- Payment Form Modal -->
     <SupplierPaymentFormModal

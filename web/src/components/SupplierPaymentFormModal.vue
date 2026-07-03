@@ -127,9 +127,6 @@ async function handleSave() {
   formError.value = ''
   
   try {
-    // #region debug-point A:save-request
-    fetch("http://127.0.0.1:7777/event",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionId:"supplier-payment-404",runId:"pre-fix",hypothesisId:"A",location:"SupplierPaymentFormModal.vue:handleSave",msg:"[DEBUG] supplier payment save request prepared",data:{mode:props.mode,id:props.id,method:"POST",baseURL:api.defaults.baseURL,url:"/supplier-payments",supplierId:Number(form.value.supplierId),periodMonth:Number(form.value.periodMonth),periodYear:Number(form.value.periodYear)},ts:Date.now()})}).catch(()=>{})
-    // #endregion
     const payload = {
       supplierId: Number(form.value.supplierId),
       periodMonth: Number(form.value.periodMonth),
@@ -142,7 +139,7 @@ async function handleSave() {
     }
 
     // 用 POST upsert 统一处理新增和编辑，避免旧环境没有 PUT 路由时出现 404。
-    await api.post('/supplier-payments', payload)
+    const { data } = await api.post('/supplier-payments', payload)
 
     if (props.mode !== 'add' && props.id && props.initialData) {
       const originalSupplierId = Number(props.initialData.supplier_id || props.initialData.supplierId || 0)
@@ -155,18 +152,22 @@ async function handleSave() {
 
       // 如果用户把供应商或月份改掉了，旧记录会变成多余数据，这里顺手清掉旧记录。
       if (identityChanged) {
-        // #region debug-point C:edit-upsert-delete-old
-        fetch("http://127.0.0.1:7777/event",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionId:"supplier-payment-404",runId:"post-fix",hypothesisId:"C",location:"SupplierPaymentFormModal.vue:handleSave:delete-old",msg:"[DEBUG] supplier payment edit changed identity, deleting old record after post upsert",data:{id:props.id,originalSupplierId,originalPeriodMonth,originalPeriodYear,newSupplierId:payload.supplierId,newPeriodMonth:payload.periodMonth,newPeriodYear:payload.periodYear},ts:Date.now()})}).catch(()=>{})
-        // #endregion
         await api.delete(`/supplier-payments/${props.id}`)
       }
     }
-    emit('saved')
+    emit('saved', {
+      id: data?.id || props.id || null,
+      supplier_id: payload.supplierId,
+      period_month: payload.periodMonth,
+      period_year: payload.periodYear,
+      paid_date: payload.paidDate,
+      amount: payload.amount,
+      cheque_number: payload.chequeNumber,
+      payment_slip_number: payload.paymentSlipNumber,
+      notes: payload.notes,
+    })
     emit('close')
   } catch (error) {
-    // #region debug-point D:save-error
-    fetch("http://127.0.0.1:7777/event",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionId:"supplier-payment-404",runId:"pre-fix",hypothesisId:"D",location:"SupplierPaymentFormModal.vue:handleSave:catch",msg:"[DEBUG] supplier payment save failed",data:{mode:props.mode,id:props.id,status:error?.response?.status||null,message:error?.response?.data?.message||error?.message||null,baseURL:api.defaults.baseURL,url:(props.mode === 'add' || !props.id) ? "/supplier-payments" : `/supplier-payments/${props.id}`},ts:Date.now()})}).catch(()=>{})
-    // #endregion
     formError.value = error.response?.data?.message || tr('Failed to save payment.', '保存失败')
   } finally {
     submitting.value = false
@@ -207,14 +208,12 @@ watch(() => props.show, async (newVal) => {
     resetForm()
     await nextTick()
     
-    // 已有记录优先从后端拉最新详情，避免列表摘要数据延迟或字段不全。
-    if (props.id) {
-      const loaded = await loadPayment()
-      if (!loaded && props.initialData) {
-        fillFormFromInitialData()
-      }
-    } else if (props.initialData) {
+    // 现在线上环境对 /:id 详情接口不稳定，优先使用列表里的当前记录数据打开。
+    if (props.initialData) {
       fillFormFromInitialData()
+      formError.value = ''
+    } else if (props.id) {
+      await loadPayment()
     }
   }
 }, { immediate: true })
