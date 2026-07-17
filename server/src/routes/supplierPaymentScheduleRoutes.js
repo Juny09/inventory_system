@@ -1,5 +1,5 @@
 const express = require('express')
-const { query } = require('../config/db')
+const { pool, query } = require('../config/db')
 const { authenticateToken, authorizeRoles } = require('../middleware/auth')
 const { getPaginationParams, buildPagination } = require('../utils/pagination')
 const { getTenantId } = require('../utils/tenant')
@@ -440,31 +440,67 @@ router.post('/:id/add-payment', authorizeRoles('ADMIN', 'MANAGER'), async (req, 
 // POST /api/supplier-payment-schedules/:id/mark-paid
 router.post('/:id/mark-paid', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
   const tenantId = getTenantId(req)
+  const { paidDate } = req.body || {}
   try {
-    const existing = await query(
-      'SELECT * FROM supplier_payment_schedules WHERE id = $1 AND tenant_id = $2',
-      [req.params.id, tenantId],
-    )
-    if (!existing.rows[0]) {
-      return res.status(404).json({ message: 'Schedule not found.' })
-    }
-    const row = existing.rows[0]
-    const result = await query(
-      `UPDATE supplier_payment_schedules
-       SET amount_paid = amount_due, status = 'PAID', updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1 AND tenant_id = $2
-       RETURNING *`,
-      [req.params.id, tenantId],
-    )
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      const existing = await client.query(
+        'SELECT * FROM supplier_payment_schedules WHERE id = $1 AND tenant_id = $2 FOR UPDATE',
+        [req.params.id, tenantId],
+      )
+      if (!existing.rows[0]) {
+        await client.query('ROLLBACK')
+        return res.status(404).json({ message: 'Schedule not found.' })
+      }
+      const row = existing.rows[0]
 
-    req.auditContext = {
-      action: 'PAYMENT_SCHEDULE_MARK_PAID',
-      entityType: 'PAYMENT_SCHEDULE',
-      entityId: String(req.params.id),
-      description: `Marked schedule #${req.params.id} as PAID`,
-    }
+      const result = await client.query(
+        `UPDATE supplier_payment_schedules
+         SET amount_paid = amount_due, status = 'PAID', updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND tenant_id = $2
+         RETURNING *`,
+        [req.params.id, tenantId],
+      )
 
-    return res.json(enrich(result.rows[0]))
+      const paymentDate = paidDate || new Date().toISOString().slice(0, 10)
+      await client.query(
+        `INSERT INTO supplier_payment_records
+           (tenant_id, supplier_id, period_month, period_year, paid_date, amount, notes, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (tenant_id, supplier_id, period_year, period_month)
+         DO UPDATE SET amount = EXCLUDED.amount,
+                       paid_date = EXCLUDED.paid_date,
+                       notes = COALESCE(supplier_payment_records.notes, EXCLUDED.notes),
+                       created_by = EXCLUDED.created_by`,
+        [
+          tenantId,
+          row.supplier_id,
+          row.period_month,
+          row.period_year,
+          paymentDate,
+          Number(row.amount_due) || 0,
+          `From schedule #${row.id} (mark paid)`,
+          req.user.id,
+        ],
+      )
+
+      await client.query('COMMIT')
+
+      req.auditContext = {
+        action: 'PAYMENT_SCHEDULE_MARK_PAID',
+        entityType: 'PAYMENT_SCHEDULE',
+        entityId: String(req.params.id),
+        description: `Marked schedule #${req.params.id} as PAID`,
+      }
+
+      return res.json(enrich(result.rows[0]))
+    } catch (error) {
+      await client.query('ROLLBACK')
+      return res.status(500).json({ message: 'Failed to mark as paid.', error: error.message })
+    } finally {
+      client.release()
+    }
   } catch (error) {
     return res.status(500).json({ message: 'Failed to mark as paid.', error: error.message })
   }

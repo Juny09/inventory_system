@@ -413,7 +413,7 @@ async function markPaid(row) {
   if (!confirm(tr('Mark this schedule as fully paid?', '确认将该还款计划标记为已付清？'))) return
   try {
     await api.post(`/supplier-payment-schedules/${row.id}/mark-paid`)
-    await Promise.all([loadSchedules(), loadAlertCounts()])
+    await Promise.all([loadSchedules(), loadAlertCounts(), loadSummary()])
   } catch (error) {
     errorMessage.value = error.response?.data?.message || tr('Failed to mark as paid.', '标记失败。')
   }
