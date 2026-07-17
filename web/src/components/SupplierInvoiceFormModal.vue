@@ -1,5 +1,5 @@
 <template>
-  <div class="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/60 p-2" @click.self="$emit('close')">
+  <div class="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/60 p-2">
     <div class="flex max-h-[95vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
       <div class="flex flex-shrink-0 items-center justify-between border-b border-slate-200 px-5 py-3">
         <h3 class="text-lg font-semibold text-slate-800">
@@ -397,6 +397,7 @@ import ProductSelector from './ProductSelector.vue'
 import AttachmentSection from './AttachmentSection.vue'
 import SupplierSearchSelect from './SupplierSearchSelect.vue'
 import { useLocaleStore } from '../stores/locale'
+import { useFormDraft } from '../composables/useFormDraft'
 
 const props = defineProps({
   id: { type: [Number, String, null], default: null },
@@ -436,6 +437,19 @@ const ocrConfirmationTimeline = ref([])
 const activeTimelineTrace = ref(null)
 const flashFieldTarget = ref(null)
 const traceFieldHint = ref(null)
+const { restoreDraft, clearDraft } = useFormDraft({
+  storageKey: () => `supplier-invoice-form:${props.id || 'new'}`,
+  // 中文说明：Invoice 表单比较大，先保存草稿，误关后重新打开还能继续编辑。
+  buildState: () => ({
+    ...form,
+    items: form.items.map((item) => ({ ...item })),
+  }),
+  applyState: (draft) => {
+    if (!draft || typeof draft !== 'object') return
+    Object.assign(form, draft)
+    form.items = Array.isArray(draft.items) ? draft.items.map((item) => ({ ...blankRow(), ...item })) : [blankRow()]
+  },
+})
 
 async function loadWarehouses() {
   try {
@@ -1056,6 +1070,7 @@ async function submit() {
       await attachmentRef.value.flush(form.id)
     }
     const attachmentWarning = await uploadImportedSourceFile(form.id)
+    clearDraft()
     emit('saved', { id: form.id, attachmentWarning })
   } catch (error) {
     errorMessage.value = error.response?.data?.message || error.message || 'Failed to save.'
@@ -1067,11 +1082,13 @@ async function submit() {
 onMounted(() => {
   loadWarehouses()
   if (props.id) {
-    loadExisting(props.id)
+    Promise.resolve(loadExisting(props.id)).then(() => restoreDraft())
   } else if (props.initialData) {
     applyInitialData(props.initialData)
+    restoreDraft()
   } else {
     form.items = [blankRow()]
+    restoreDraft()
   }
 })
 

@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
 import { useAuthStore } from '../stores/auth'
+import { useFormDraft } from '../composables/useFormDraft'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -16,6 +17,17 @@ const filter = ref('ALL') // ALL | PENDING | ACTIVE | REJECTED | SUSPENDED
 // 拒绝弹窗状态
 const rejectModal = ref({ open: false, tenant: null, reason: '' })
 const actingId = ref(null)
+const rejectDraft = useFormDraft({
+  storageKey: () => `admin-tenant-reject:${rejectModal.value.tenant?.id || 'new'}`,
+  buildState: () => ({ ...rejectModal.value }),
+  applyState: (draft) => {
+    if (!draft || typeof draft !== 'object') return
+    rejectModal.value = {
+      ...rejectModal.value,
+      reason: draft.reason || rejectModal.value.reason,
+    }
+  },
+})
 
 const filteredTenants = computed(() => {
   if (filter.value === 'ALL') return tenants.value
@@ -65,6 +77,7 @@ async function approveTenant(tenant) {
 
 function openRejectModal(tenant) {
   rejectModal.value = { open: true, tenant, reason: '' }
+  rejectDraft.restoreDraft()
 }
 
 async function confirmReject() {
@@ -73,6 +86,7 @@ async function confirmReject() {
   actingId.value = tenant.id
   try {
     await api.post(`/admin/tenants/${tenant.id}/reject`, { reason: reason.trim() || null })
+    rejectDraft.clearDraft()
     rejectModal.value = { open: false, tenant: null, reason: '' }
     await loadData()
   } catch (error) {
@@ -252,7 +266,6 @@ onMounted(loadData)
     <div
       v-if="rejectModal.open"
       class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4"
-      @click.self="rejectModal.open = false"
     >
       <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
         <h3 class="text-lg font-bold text-slate-900">

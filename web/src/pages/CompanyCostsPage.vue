@@ -16,6 +16,7 @@ import AppLayout from '../layouts/AppLayout.vue'
 import api from '../services/api'
 import { useLocaleStore } from '../stores/locale'
 import { exportToCsv } from '../utils/export'
+import { useFormDraft } from '../composables/useFormDraft'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Tooltip, Legend)
 
@@ -68,6 +69,16 @@ const form = reactive({
   occurredDate: '',
   notes: '',
 })
+const draftKey = computed(() => `company-cost-form:${formMode.value}:${editingId.value || 'new'}`)
+const formDraft = useFormDraft({
+  storageKey: draftKey,
+  // 中文说明：公司成本弹窗先记住输入内容，重新打开还能接着改。
+  buildState: () => ({ ...form }),
+  applyState: (draft) => {
+    if (!draft || typeof draft !== 'object') return
+    Object.assign(form, draft)
+  },
+})
 
 const items = ref([])
 
@@ -85,6 +96,7 @@ function openCreate() {
   form.occurredDate = defaultOccurredDate(selected.year, selected.month)
   form.notes = ''
   formOpen.value = true
+  formDraft.restoreDraft()
 }
 
 function openEdit(row) {
@@ -97,6 +109,7 @@ function openEdit(row) {
   form.occurredDate = row.occurred_date
   form.notes = row.notes || ''
   formOpen.value = true
+  formDraft.restoreDraft()
 }
 
 function pickCategory(value) {
@@ -139,6 +152,7 @@ async function submitForm() {
       await api.put(`/company-costs/${editingId.value}`, payload)
     }
 
+    formDraft.clearDraft()
     formOpen.value = false
     await loadList()
     await loadSummary()
@@ -406,7 +420,6 @@ onMounted(async () => {
         <div
           v-if="formOpen"
           class="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 px-4 py-8"
-          @click.self="formOpen = false"
         >
           <div class="w-full max-w-xl rounded-3xl bg-white p-6">
             <div class="flex items-start justify-between gap-3">

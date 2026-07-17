@@ -6,6 +6,7 @@ import PaginationBar from '../components/PaginationBar.vue'
 import api from '../services/api'
 import { useAuthStore } from '../stores/auth'
 import { useLocaleStore } from '../stores/locale'
+import { useFormDraft } from '../composables/useFormDraft'
 
 const authStore = useAuthStore()
 const localeStore = useLocaleStore()
@@ -95,12 +96,61 @@ const allocationForm = reactive({
   referenceNo: '',
   notes: '',
 })
+const stockInDraft = useFormDraft({
+  storageKey: 'inventory-form-stock-in',
+  buildState: () => ({ ...stockInForm }),
+  applyState: (draft) => {
+    if (!draft || typeof draft !== 'object') return
+    Object.assign(stockInForm, draft)
+  },
+})
+const stockOutDraft = useFormDraft({
+  storageKey: 'inventory-form-stock-out',
+  buildState: () => ({ ...stockOutForm }),
+  applyState: (draft) => {
+    if (!draft || typeof draft !== 'object') return
+    Object.assign(stockOutForm, draft)
+  },
+})
+const transferDraft = useFormDraft({
+  storageKey: 'inventory-form-transfer',
+  buildState: () => ({ ...transferForm }),
+  applyState: (draft) => {
+    if (!draft || typeof draft !== 'object') return
+    Object.assign(transferForm, draft)
+  },
+})
+const allocationDraft = useFormDraft({
+  storageKey: 'inventory-form-allocation',
+  buildState: () => ({ ...allocationForm }),
+  applyState: (draft) => {
+    if (!draft || typeof draft !== 'object') return
+    Object.assign(allocationForm, draft)
+  },
+})
 
 // Modal state for stock movement forms
 const activeModal = ref('') // '' | 'stockIn' | 'stockOut' | 'transfer' | 'allocation'
 
-function openModal(name) {
+function restoreDraftByModal(name) {
+  if (name === 'stockIn') stockInDraft.restoreDraft()
+  if (name === 'stockOut') stockOutDraft.restoreDraft()
+  if (name === 'transfer') transferDraft.restoreDraft()
+  if (name === 'allocation') allocationDraft.restoreDraft()
+}
+
+function clearDraftByModal(name) {
+  if (name === 'stockIn') stockInDraft.clearDraft()
+  if (name === 'stockOut') stockOutDraft.clearDraft()
+  if (name === 'transfer') transferDraft.clearDraft()
+  if (name === 'allocation') allocationDraft.clearDraft()
+}
+
+function openModal(name, options = {}) {
   activeModal.value = name
+  if (options.restore !== false) {
+    restoreDraftByModal(name)
+  }
 }
 
 function closeModal() {
@@ -364,7 +414,7 @@ function applyScannerPrefill() {
     })
   }
 
-  openModal(action)
+  openModal(action, { restore: false })
   scannerPrefillMessage.value = localeStore.locale === 'en'
     ? `Scanned item ${variant.product_name} · ${variant.sku} has been loaded into the ${action === 'stockIn' ? 'stock in' : 'stock out'} form.`
     : `已把扫码商品 ${variant.product_name} · ${variant.sku} 带入${action === 'stockIn' ? '入库' : '出库'}表单。`
@@ -373,7 +423,9 @@ function applyScannerPrefill() {
 
 async function submitMovement(endpoint, payload) {
   try {
+    const completedModal = activeModal.value
     await api.post(endpoint, payload)
+    clearDraftByModal(completedModal)
     resetForms()
     closeModal()
     await loadInventoryPage(1, 1)
@@ -772,7 +824,6 @@ watch(() => stockInForm.locationId, (value) => {
       <div
         v-if="activeModal"
         class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 sm:items-center"
-        @click.self="closeModal"
       >
         <div class="w-full max-w-lg rounded-3xl bg-white shadow-xl">
           <!-- Stock In -->

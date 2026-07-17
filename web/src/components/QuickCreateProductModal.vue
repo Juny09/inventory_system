@@ -1,5 +1,5 @@
 <template>
-  <div class="fixed inset-0 z-[95] flex items-center justify-center bg-slate-900/60 p-4" @click.self="handleBackdropClick">
+  <div class="fixed inset-0 z-[95] flex items-center justify-center bg-slate-900/60 p-4">
     <div class="flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-lg bg-white shadow-xl">
       <div class="flex flex-shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4">
         <h3 class="text-lg font-semibold text-slate-800">Quick Create Product</h3>
@@ -284,21 +284,6 @@ watch(
   },
   { deep: true },
 )
-
-function handleBackdropClick() {
-  const hasData =
-    form.name.trim() ||
-    form.sku.trim() ||
-    form.productCode.trim() ||
-    form.description.trim() ||
-    sizesText.value.trim() ||
-    colorsText.value.trim()
-  if (hasData) {
-    const ok = confirm('You have unsaved product data. Click OK to discard, Cancel to keep editing.')
-    if (!ok) return
-  }
-  emit('close')
-}
 
 onMounted(() => {
   loadBrands()

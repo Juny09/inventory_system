@@ -2,6 +2,7 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import api from '../services/api'
 import { useLocaleStore } from '../stores/locale'
+import { useFormDraft } from '../composables/useFormDraft'
 
 const localeStore = useLocaleStore()
 
@@ -75,6 +76,23 @@ function resetForm() {
     notes: '',
   }
   formError.value = ''
+}
+
+const draftKey = computed(() => `supplier-payment-form:${props.id || 'new'}:${internalMode.value}`)
+
+function applyDraft(draft) {
+  if (!draft || typeof draft !== 'object') return
+  form.value = {
+    ...form.value,
+    supplierId: draft.supplierId ?? form.value.supplierId,
+    periodMonth: draft.periodMonth ?? form.value.periodMonth,
+    periodYear: draft.periodYear ?? form.value.periodYear,
+    paidDate: draft.paidDate ?? form.value.paidDate,
+    amount: draft.amount ?? form.value.amount,
+    chequeNumber: draft.chequeNumber ?? form.value.chequeNumber,
+    paymentSlipNumber: draft.paymentSlipNumber ?? form.value.paymentSlipNumber,
+    notes: draft.notes ?? form.value.notes,
+  }
 }
 
 // 从 props.initialData 填充表单
@@ -166,6 +184,7 @@ async function handleSave() {
       payment_slip_number: payload.paymentSlipNumber,
       notes: payload.notes,
     })
+    clearDraft()
     emit('close')
   } catch (error) {
     formError.value = error.response?.data?.message || tr('Failed to save payment.', '保存失败')
@@ -175,12 +194,17 @@ async function handleSave() {
 }
 
 function handleClose() {
-  resetForm()
   emit('close')
 }
 
 // 添加内部 mode
 const internalMode = ref(props.mode)
+const { restoreDraft, clearDraft } = useFormDraft({
+  storageKey: () => (internalMode.value === 'view' ? '' : draftKey.value),
+  // 中文说明：保存未提交的表单内容，误关弹窗后重新打开还能继续填写。
+  buildState: () => ({ ...form.value }),
+  applyState: applyDraft,
+})
 
 // 监听 props.mode 变化
 watch(() => props.mode, (newMode) => {
@@ -215,6 +239,7 @@ watch(() => props.show, async (newVal) => {
     } else if (props.id) {
       await loadPayment()
     }
+    restoreDraft()
   }
 }, { immediate: true })
 </script>
@@ -222,7 +247,7 @@ watch(() => props.show, async (newVal) => {
 <template>
   <div v-show="show" class="fixed inset-0 z-[100] overflow-y-auto">
     <div class="flex min-h-screen items-end justify-center px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-      <div class="fixed inset-0 transition-opacity bg-slate-500/75" @click="handleClose"></div>
+      <div class="fixed inset-0 transition-opacity bg-slate-500/75"></div>
 
       <span class="hidden sm:inline-block sm:h-screen sm:align-middle">&#8203;</span>
 

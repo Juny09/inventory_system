@@ -1,5 +1,5 @@
 <template>
-  <div class="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/60 p-2" @click.self="$emit('close')">
+  <div class="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/60 p-2">
     <div class="flex max-h-[95vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
       <div class="flex flex-shrink-0 items-center justify-between border-b border-slate-200 px-5 py-3">
         <h3 class="text-lg font-semibold text-slate-800">
@@ -115,6 +115,7 @@ import api from '../services/api'
 import ProductSelector from './ProductSelector.vue'
 import AttachmentSection from './AttachmentSection.vue'
 import SupplierSearchSelect from './SupplierSearchSelect.vue'
+import { useFormDraft } from '../composables/useFormDraft'
 
 const props = defineProps({
   id: { type: [Number, String, null], default: null },
@@ -135,6 +136,19 @@ const attachments = ref([])
 const attachmentRef = ref(null)
 const submitting = ref(false)
 const errorMessage = ref('')
+const { restoreDraft, clearDraft } = useFormDraft({
+  storageKey: () => `supplier-return-form:${props.id || 'new'}`,
+  // 中文说明：退货/索赔表单行项目多，先自动记忆，避免误关后全部重填。
+  buildState: () => ({
+    ...form,
+    items: form.items.map((item) => ({ ...item })),
+  }),
+  applyState: (draft) => {
+    if (!draft || typeof draft !== 'object') return
+    Object.assign(form, draft)
+    form.items = Array.isArray(draft.items) ? draft.items.map((item) => ({ ...blankRow(), ...item })) : [blankRow()]
+  },
+})
 
 function blankRow() {
   return { product_id: null, product_label: '', item_code: '', description: '', serial_no: '', quantity: 1 }
@@ -212,6 +226,7 @@ async function submit() {
     if (attachmentRef.value && typeof attachmentRef.value.flush === 'function') {
       await attachmentRef.value.flush(form.id)
     }
+    clearDraft()
     emit('saved', form.id)
   } catch (error) {
     errorMessage.value = error.response?.data?.message || error.message || 'Failed to save.'
@@ -222,9 +237,10 @@ async function submit() {
 
 onMounted(() => {
   if (props.id) {
-    loadExisting(props.id)
+    Promise.resolve(loadExisting(props.id)).then(() => restoreDraft())
   } else {
     form.items = [blankRow()]
+    restoreDraft()
   }
 })
 </script>

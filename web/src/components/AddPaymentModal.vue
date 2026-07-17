@@ -1,5 +1,5 @@
 <template>
-  <div class="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/60 p-2" @click.self="$emit('close')">
+  <div class="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/60 p-2">
     <div class="flex max-h-[95vh] w-full max-w-md flex-col overflow-hidden rounded-lg bg-white shadow-xl">
       <div class="flex flex-shrink-0 items-center justify-between border-b border-slate-200 px-5 py-3">
         <h3 class="text-lg font-semibold text-slate-800">
@@ -44,6 +44,7 @@
 import { computed, reactive, ref } from 'vue'
 import api from '../services/api'
 import { useLocaleStore } from '../stores/locale'
+import { useFormDraft } from '../composables/useFormDraft'
 
 const props = defineProps({
   schedule: { type: Object, required: true },
@@ -61,6 +62,16 @@ const form = reactive({
 })
 const submitting = ref(false)
 const errorMessage = ref('')
+const { restoreDraft, clearDraft } = useFormDraft({
+  storageKey: () => `schedule-add-payment:${props.schedule.id}`,
+  // 中文说明：记录当前付款输入，误关弹窗后还能继续补填。
+  buildState: () => ({ ...form }),
+  applyState: (draft) => {
+    if (!draft || typeof draft !== 'object') return
+    Object.assign(form, draft)
+  },
+})
+restoreDraft()
 
 async function submit() {
   submitting.value = true
@@ -70,6 +81,7 @@ async function submit() {
       amount: Number(form.amount),
       paidDate: form.paid_date || null,
     })
+    clearDraft()
     emit('saved')
   } catch (error) {
     errorMessage.value = error.response?.data?.message || error.message || 'Failed to add payment.'

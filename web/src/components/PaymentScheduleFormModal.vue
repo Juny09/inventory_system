@@ -1,5 +1,5 @@
 <template>
-  <div class="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/60 p-2" @click.self="$emit('close')">
+  <div class="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/60 p-2">
     <div class="flex max-h-[95vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
       <div class="flex flex-shrink-0 items-center justify-between border-b border-slate-200 px-5 py-3">
         <h3 class="text-lg font-semibold text-slate-800">
@@ -63,6 +63,7 @@
 import { reactive, ref, onMounted } from 'vue'
 import api from '../services/api'
 import { useLocaleStore } from '../stores/locale'
+import { useFormDraft } from '../composables/useFormDraft'
 
 const props = defineProps({
   id: { type: [Number, String, null], default: null },
@@ -94,6 +95,15 @@ const form = reactive({
 })
 const submitting = ref(false)
 const errorMessage = ref('')
+const { restoreDraft, clearDraft } = useFormDraft({
+  storageKey: () => `payment-schedule-form:${props.id || 'new'}`,
+  // 中文说明：把计划表单暂存到浏览器，关闭后再打开不会丢资料。
+  buildState: () => ({ ...form }),
+  applyState: (draft) => {
+    if (!draft || typeof draft !== 'object') return
+    Object.assign(form, draft)
+  },
+})
 
 async function loadExisting(id) {
   // If parent already supplied the row data, use it directly
@@ -133,6 +143,7 @@ async function submit() {
     } else {
       await api.post('/supplier-payment-schedules', payload)
     }
+    clearDraft()
     emit('saved')
   } catch (error) {
     errorMessage.value = error.response?.data?.message || error.message || 'Failed to save.'
@@ -144,7 +155,9 @@ async function submit() {
 onMounted(() => {
   if (props.id) {
     form.id = props.id
-    loadExisting(props.id)
+    Promise.resolve(loadExisting(props.id)).then(() => restoreDraft())
+  } else {
+    restoreDraft()
   }
 })
 </script>

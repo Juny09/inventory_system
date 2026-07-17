@@ -7,6 +7,7 @@ import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
 import { useLocaleStore } from '../stores/locale'
 import { useRoute } from 'vue-router'
+import { useFormDraft } from '../composables/useFormDraft'
 
 const authStore = useAuthStore()
 const toastStore = useToastStore()
@@ -57,6 +58,14 @@ const bulkReorderLevelModal = reactive({
   reorderLevel: '',
   warehouseId: '',
   productId: '',
+})
+const bulkReorderDraft = useFormDraft({
+  storageKey: 'alerts-bulk-reorder-form',
+  buildState: () => ({ ...bulkReorderLevelModal }),
+  applyState: (draft) => {
+    if (!draft || typeof draft !== 'object') return
+    Object.assign(bulkReorderLevelModal, draft)
+  },
 })
 
 const sortField = ref(localStorage.getItem('alerts_sort_field') || 'shortage')
@@ -365,6 +374,7 @@ function resetFilters() {
 
 function openBulkReorderLevelModal() {
   bulkReorderLevelModal.isOpen = true
+  bulkReorderDraft.restoreDraft()
 }
 
 function closeBulkReorderLevelModal() {
@@ -390,6 +400,7 @@ async function applyBulkReorderLevel() {
         `已为 ${selectedAlertItems.value.length} 个商品更新补货线。`,
       ),
     })
+    bulkReorderDraft.clearDraft()
     closeBulkReorderLevelModal()
     await loadAlerts(pagination.value.page)
   } catch (error) {
@@ -802,7 +813,7 @@ watch(
 
       <!-- Bulk Reorder Level Modal -->
       <Teleport to="body">
-        <div v-if="bulkReorderLevelModal.isOpen" class="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 sm:items-center" @click.self="closeBulkReorderLevelModal">
+        <div v-if="bulkReorderLevelModal.isOpen" class="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 sm:items-center">
           <div class="w-full max-w-lg rounded-3xl bg-white shadow-xl">
             <div class="flex items-center justify-between border-b border-slate-200 px-6 py-4">
               <h3 class="text-lg font-semibold text-slate-900">{{ tr('Bulk update reorder level', '批量更新补货线') }}</h3>

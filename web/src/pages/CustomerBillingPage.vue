@@ -4,6 +4,7 @@ import AppLayout from '../layouts/AppLayout.vue'
 import api from '../services/api'
 import { useLocaleStore } from '../stores/locale'
 import { exportToPdf } from '../utils/export'
+import { useFormDraft } from '../composables/useFormDraft'
 
 const localeStore = useLocaleStore()
 const activeTab = ref('bills')
@@ -62,6 +63,32 @@ const billForm = reactive({
 const selectedBillDetail = ref(null)
 const billDetailLoading = ref(false)
 const exportLoading = ref(false)
+const customerDraftKey = computed(() => `customer-billing-customer-form:${customerMode.value}:${editingCustomerId.value || 'new'}`)
+const billDraftKey = computed(() => `customer-billing-bill-form:${billMode.value}:${editingBillId.value || 'new'}`)
+const customerDraft = useFormDraft({
+  storageKey: customerDraftKey,
+  // 中文说明：客户弹窗关闭后，下次打开继续保留还没提交的内容。
+  buildState: () => ({ ...customerForm }),
+  applyState: (draft) => {
+    if (!draft || typeof draft !== 'object') return
+    Object.assign(customerForm, draft)
+  },
+})
+const billDraft = useFormDraft({
+  storageKey: billDraftKey,
+  // 中文说明：账单表单包含多行明细，先保存在本地，避免误关后重做。
+  buildState: () => ({
+    ...billForm,
+    items: billForm.items.map((item) => ({ ...item })),
+  }),
+  applyState: (draft) => {
+    if (!draft || typeof draft !== 'object') return
+    Object.assign(billForm, draft)
+    billForm.items = Array.isArray(draft.items) && draft.items.length
+      ? draft.items.map((item) => ({ description: '', quantity: 1, unitPrice: 0, ...item }))
+      : [{ description: '', quantity: 1, unitPrice: 0 }]
+  },
+})
 
 const visibleCustomers = computed(() => {
   const keyword = String(filters.customerSearch || '').trim().toLowerCase()
@@ -120,6 +147,7 @@ function openCustomerCreate() {
   customerForm.notes = ''
   customerForm.isActive = true
   customerModalOpen.value = true
+  customerDraft.restoreDraft()
 }
 
 function openCustomerEdit(row) {
@@ -134,6 +162,7 @@ function openCustomerEdit(row) {
   customerForm.notes = row.notes || ''
   customerForm.isActive = row.is_active !== false
   customerModalOpen.value = true
+  customerDraft.restoreDraft()
 }
 
 async function submitCustomer() {
@@ -158,6 +187,7 @@ async function submitCustomer() {
       await api.put(`/customers/${editingCustomerId.value}`, payload)
     }
 
+    customerDraft.clearDraft()
     customerModalOpen.value = false
     await loadCustomers()
   } catch (error) {
@@ -200,6 +230,7 @@ function openBillCreate(customerId = '') {
   resetBillForm()
   billForm.customerId = customerId ? String(customerId) : ''
   billModalOpen.value = true
+  billDraft.restoreDraft()
 }
 
 async function openBillEdit(billId) {
@@ -208,6 +239,7 @@ async function openBillEdit(billId) {
   selectedBillDetail.value = null
   billModalOpen.value = true
   await loadBillDetail(billId, { hydrateForm: true })
+  billDraft.restoreDraft()
 }
 
 function addBillItem() {
@@ -247,6 +279,7 @@ async function submitBill() {
 
     if (billMode.value === 'create') {
       const { data } = await api.post('/customer-bills', payload)
+      billDraft.clearDraft()
       billModalOpen.value = false
       await loadBills()
       await openBillEdit(data.bill.id)
@@ -254,6 +287,7 @@ async function submitBill() {
     }
 
     await api.put(`/customer-bills/${editingBillId.value}`, payload)
+    billDraft.clearDraft()
     await loadBills()
     await loadBillDetail(editingBillId.value, { hydrateForm: false })
     billModalOpen.value = false
@@ -532,7 +566,6 @@ onMounted(refreshAll)
           <div
             v-if="billModalOpen"
             class="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 px-4 py-8"
-            @click.self="billModalOpen = false"
           >
             <div class="w-full max-w-4xl overflow-hidden rounded-3xl bg-white">
               <div class="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-6 py-4">
@@ -741,7 +774,6 @@ onMounted(refreshAll)
           <div
             v-if="customerModalOpen"
             class="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 px-4 py-8"
-            @click.self="customerModalOpen = false"
           >
             <div class="w-full max-w-2xl rounded-3xl bg-white p-6">
               <div class="flex items-start justify-between gap-3">
