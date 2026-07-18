@@ -9,6 +9,7 @@
       </div>
       <form class="flex min-h-0 flex-1 flex-col" @submit.prevent="submit">
         <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-3">
+          <DraftNoticeBar :show="draftRestored" @discard="discardDraftAndRestore" @clear="clearFormInputs" />
           <p class="text-xs text-slate-500">
             {{ tr('Quickly create schedules by period (e.g. every 3 months).', '按周期批量生成还款计划（例如每 3 个月一期）。') }}
           </p>
@@ -83,6 +84,7 @@ import { reactive, ref } from 'vue'
 import api from '../services/api'
 import { useLocaleStore } from '../stores/locale'
 import { useFormDraft } from '../composables/useFormDraft'
+import DraftNoticeBar from './DraftNoticeBar.vue'
 
 defineProps({
   suppliers: { type: Array, default: () => [] },
@@ -112,6 +114,7 @@ const form = reactive({
 const submitting = ref(false)
 const errorMessage = ref('')
 const resultMessage = ref('')
+const draftRestored = ref(false)
 const { restoreDraft, clearDraft } = useFormDraft({
   storageKey: 'payment-schedule-batch-form',
   // 中文说明：批量生成参数通常比较多，先记住，避免误关后重填。
@@ -121,7 +124,33 @@ const { restoreDraft, clearDraft } = useFormDraft({
     Object.assign(form, draft)
   },
 })
-restoreDraft()
+draftRestored.value = restoreDraft()
+
+function resetLocalForm() {
+  Object.assign(form, {
+    supplier_id: '',
+    year: new Date().getFullYear(),
+    amount_per_period: 0,
+    period_interval: 3,
+    start_month: 1,
+    end_month: 12,
+    due_day: 15,
+    remind_days_before: 3,
+    notes: '',
+  })
+}
+
+function discardDraftAndRestore() {
+  clearDraft()
+  draftRestored.value = false
+  resetLocalForm()
+}
+
+function clearFormInputs() {
+  clearDraft()
+  draftRestored.value = false
+  resetLocalForm()
+}
 
 async function submit() {
   submitting.value = true
@@ -146,6 +175,7 @@ async function submit() {
       `已创建 ${created} 条计划，跳过 ${skipped} 条（已存在）。`,
     )
     clearDraft()
+    draftRestored.value = false
     emit('saved')
   } catch (error) {
     errorMessage.value = error.response?.data?.message || error.message || 'Failed to generate.'

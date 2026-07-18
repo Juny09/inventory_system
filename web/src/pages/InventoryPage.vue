@@ -7,6 +7,7 @@ import api from '../services/api'
 import { useAuthStore } from '../stores/auth'
 import { useLocaleStore } from '../stores/locale'
 import { useFormDraft } from '../composables/useFormDraft'
+import DraftNoticeBar from '../components/DraftNoticeBar.vue'
 
 const authStore = useAuthStore()
 const localeStore = useLocaleStore()
@@ -96,6 +97,18 @@ const allocationForm = reactive({
   referenceNo: '',
   notes: '',
 })
+const modalBaseStateMap = reactive({
+  stockIn: null,
+  stockOut: null,
+  transfer: null,
+  allocation: null,
+})
+const draftRestoredMap = reactive({
+  stockIn: false,
+  stockOut: false,
+  transfer: false,
+  allocation: false,
+})
 const stockInDraft = useFormDraft({
   storageKey: 'inventory-form-stock-in',
   buildState: () => ({ ...stockInForm }),
@@ -132,11 +145,25 @@ const allocationDraft = useFormDraft({
 // Modal state for stock movement forms
 const activeModal = ref('') // '' | 'stockIn' | 'stockOut' | 'transfer' | 'allocation'
 
+function rememberBaseStateByModal(name) {
+  if (name === 'stockIn') modalBaseStateMap.stockIn = { ...stockInForm }
+  if (name === 'stockOut') modalBaseStateMap.stockOut = { ...stockOutForm }
+  if (name === 'transfer') modalBaseStateMap.transfer = { ...transferForm }
+  if (name === 'allocation') modalBaseStateMap.allocation = { ...allocationForm }
+}
+
+function restoreBaseStateByModal(name) {
+  if (name === 'stockIn' && modalBaseStateMap.stockIn) Object.assign(stockInForm, modalBaseStateMap.stockIn)
+  if (name === 'stockOut' && modalBaseStateMap.stockOut) Object.assign(stockOutForm, modalBaseStateMap.stockOut)
+  if (name === 'transfer' && modalBaseStateMap.transfer) Object.assign(transferForm, modalBaseStateMap.transfer)
+  if (name === 'allocation' && modalBaseStateMap.allocation) Object.assign(allocationForm, modalBaseStateMap.allocation)
+}
+
 function restoreDraftByModal(name) {
-  if (name === 'stockIn') stockInDraft.restoreDraft()
-  if (name === 'stockOut') stockOutDraft.restoreDraft()
-  if (name === 'transfer') transferDraft.restoreDraft()
-  if (name === 'allocation') allocationDraft.restoreDraft()
+  if (name === 'stockIn') draftRestoredMap.stockIn = stockInDraft.restoreDraft()
+  if (name === 'stockOut') draftRestoredMap.stockOut = stockOutDraft.restoreDraft()
+  if (name === 'transfer') draftRestoredMap.transfer = transferDraft.restoreDraft()
+  if (name === 'allocation') draftRestoredMap.allocation = allocationDraft.restoreDraft()
 }
 
 function clearDraftByModal(name) {
@@ -144,17 +171,99 @@ function clearDraftByModal(name) {
   if (name === 'stockOut') stockOutDraft.clearDraft()
   if (name === 'transfer') transferDraft.clearDraft()
   if (name === 'allocation') allocationDraft.clearDraft()
+  if (name === 'stockIn') draftRestoredMap.stockIn = false
+  if (name === 'stockOut') draftRestoredMap.stockOut = false
+  if (name === 'transfer') draftRestoredMap.transfer = false
+  if (name === 'allocation') draftRestoredMap.allocation = false
+}
+
+function discardDraftAndRestoreCurrentModal() {
+  if (!activeModal.value) return
+  const current = activeModal.value
+  clearDraftByModal(current)
+  restoreBaseStateByModal(current)
+}
+
+function clearCurrentModalInputs() {
+  const current = activeModal.value
+  if (!current) return
+  clearDraftByModal(current)
+  if (current === 'stockIn') {
+    Object.assign(stockInForm, {
+      variantId: '',
+      warehouseId: '',
+      locationId: '',
+      locationCode: '',
+      locationName: '',
+      zone: '',
+      shelf: '',
+      bin: '',
+      level: '',
+      supplierId: '',
+      quantity: 1,
+      unit: '',
+      unitCost: '',
+      referenceNo: '',
+      purchaseReason: '',
+      notes: '',
+    })
+  }
+  if (current === 'stockOut') {
+    Object.assign(stockOutForm, {
+      variantId: '',
+      warehouseId: '',
+      locationId: '',
+      unit: '',
+      quantity: 1,
+      referenceNo: '',
+      notes: '',
+    })
+  }
+  if (current === 'transfer') {
+    Object.assign(transferForm, {
+      variantId: '',
+      sourceWarehouseId: '',
+      sourceLocationId: '',
+      destinationWarehouseId: '',
+      destinationLocationId: '',
+      quantity: 1,
+      referenceNo: '',
+      notes: '',
+    })
+  }
+  if (current === 'allocation') {
+    Object.assign(allocationForm, {
+      variantId: '',
+      warehouseId: '',
+      unit: '',
+      quantity: 1,
+      mode: 'reserve',
+      referenceNo: '',
+      notes: '',
+    })
+  }
 }
 
 function openModal(name, options = {}) {
   activeModal.value = name
+  rememberBaseStateByModal(name)
   if (options.restore !== false) {
     restoreDraftByModal(name)
+    return
   }
+  if (name === 'stockIn') draftRestoredMap.stockIn = false
+  if (name === 'stockOut') draftRestoredMap.stockOut = false
+  if (name === 'transfer') draftRestoredMap.transfer = false
+  if (name === 'allocation') draftRestoredMap.allocation = false
 }
 
 function closeModal() {
+  const current = activeModal.value
   activeModal.value = ''
+  if (current === 'stockIn') draftRestoredMap.stockIn = false
+  if (current === 'stockOut') draftRestoredMap.stockOut = false
+  if (current === 'transfer') draftRestoredMap.transfer = false
+  if (current === 'allocation') draftRestoredMap.allocation = false
 }
 
 async function loadSelectors() {
@@ -838,6 +947,11 @@ watch(() => stockInForm.locationId, (value) => {
               <button type="button" class="text-slate-400 hover:text-slate-600" @click="closeModal">✕</button>
             </div>
             <div class="max-h-[70vh] space-y-3 overflow-y-auto px-6 py-5">
+              <DraftNoticeBar
+                :show="draftRestoredMap.stockIn"
+                @discard="discardDraftAndRestoreCurrentModal"
+                @clear="clearCurrentModalInputs"
+              />
               <select v-model="stockInForm.variantId" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
                 <option value="">{{ localeStore.locale === 'en' ? 'Select SKU' : '选择 SKU' }}</option>
                 <option v-for="variant in variants" :key="variant.id" :value="variant.id">
@@ -909,6 +1023,11 @@ watch(() => stockInForm.locationId, (value) => {
               <button type="button" class="text-slate-400 hover:text-slate-600" @click="closeModal">✕</button>
             </div>
             <div class="max-h-[70vh] space-y-3 overflow-y-auto px-6 py-5">
+              <DraftNoticeBar
+                :show="draftRestoredMap.stockOut"
+                @discard="discardDraftAndRestoreCurrentModal"
+                @clear="clearCurrentModalInputs"
+              />
               <select v-model="stockOutForm.variantId" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
                 <option value="">{{ localeStore.locale === 'en' ? 'Select SKU' : '选择 SKU' }}</option>
                 <option v-for="variant in variants" :key="variant.id" :value="variant.id">
@@ -962,6 +1081,11 @@ watch(() => stockInForm.locationId, (value) => {
               <button type="button" class="text-slate-400 hover:text-slate-600" @click="closeModal">✕</button>
             </div>
             <div class="max-h-[70vh] space-y-3 overflow-y-auto px-6 py-5">
+              <DraftNoticeBar
+                :show="draftRestoredMap.transfer"
+                @discard="discardDraftAndRestoreCurrentModal"
+                @clear="clearCurrentModalInputs"
+              />
               <select v-model="transferForm.variantId" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
                 <option value="">{{ localeStore.locale === 'en' ? 'Select SKU' : '选择 SKU' }}</option>
                 <option v-for="variant in variants" :key="variant.id" :value="variant.id">
@@ -1027,6 +1151,11 @@ watch(() => stockInForm.locationId, (value) => {
               <button type="button" class="text-slate-400 hover:text-slate-600" @click="closeModal">✕</button>
             </div>
             <div class="max-h-[70vh] space-y-3 overflow-y-auto px-6 py-5">
+              <DraftNoticeBar
+                :show="draftRestoredMap.allocation"
+                @discard="discardDraftAndRestoreCurrentModal"
+                @clear="clearCurrentModalInputs"
+              />
               <select v-model="allocationForm.variantId" required class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-brand-500">
                 <option value="">{{ localeStore.locale === 'en' ? 'Select SKU' : '选择 SKU' }}</option>
                 <option v-for="variant in variants" :key="variant.id" :value="variant.id">

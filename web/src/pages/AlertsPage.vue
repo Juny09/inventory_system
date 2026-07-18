@@ -8,6 +8,7 @@ import { useToastStore } from '../stores/toast'
 import { useLocaleStore } from '../stores/locale'
 import { useRoute } from 'vue-router'
 import { useFormDraft } from '../composables/useFormDraft'
+import DraftNoticeBar from '../components/DraftNoticeBar.vue'
 
 const authStore = useAuthStore()
 const toastStore = useToastStore()
@@ -59,12 +60,22 @@ const bulkReorderLevelModal = reactive({
   warehouseId: '',
   productId: '',
 })
+const bulkReorderDraftRestored = ref(false)
+const bulkReorderBaseState = ref(null)
 const bulkReorderDraft = useFormDraft({
   storageKey: 'alerts-bulk-reorder-form',
-  buildState: () => ({ ...bulkReorderLevelModal }),
+  buildState: () => ({
+    reorderLevel: bulkReorderLevelModal.reorderLevel,
+    warehouseId: bulkReorderLevelModal.warehouseId,
+    productId: bulkReorderLevelModal.productId,
+  }),
   applyState: (draft) => {
     if (!draft || typeof draft !== 'object') return
-    Object.assign(bulkReorderLevelModal, draft)
+    Object.assign(bulkReorderLevelModal, {
+      reorderLevel: draft.reorderLevel ?? bulkReorderLevelModal.reorderLevel,
+      warehouseId: draft.warehouseId ?? bulkReorderLevelModal.warehouseId,
+      productId: draft.productId ?? bulkReorderLevelModal.productId,
+    })
   },
 })
 
@@ -374,11 +385,35 @@ function resetFilters() {
 
 function openBulkReorderLevelModal() {
   bulkReorderLevelModal.isOpen = true
-  bulkReorderDraft.restoreDraft()
+  bulkReorderBaseState.value = {
+    reorderLevel: bulkReorderLevelModal.reorderLevel,
+    warehouseId: bulkReorderLevelModal.warehouseId,
+    productId: bulkReorderLevelModal.productId,
+  }
+  bulkReorderDraftRestored.value = bulkReorderDraft.restoreDraft()
 }
 
 function closeBulkReorderLevelModal() {
   bulkReorderLevelModal.isOpen = false
+  bulkReorderDraftRestored.value = false
+}
+
+function discardBulkReorderDraftAndRestore() {
+  bulkReorderDraft.clearDraft()
+  bulkReorderDraftRestored.value = false
+  if (bulkReorderBaseState.value) {
+    Object.assign(bulkReorderLevelModal, bulkReorderBaseState.value)
+  }
+}
+
+function clearBulkReorderInputs() {
+  bulkReorderDraft.clearDraft()
+  bulkReorderDraftRestored.value = false
+  Object.assign(bulkReorderLevelModal, {
+    reorderLevel: '',
+    warehouseId: '',
+    productId: '',
+  })
 }
 
 async function applyBulkReorderLevel() {
@@ -401,6 +436,7 @@ async function applyBulkReorderLevel() {
       ),
     })
     bulkReorderDraft.clearDraft()
+    bulkReorderDraftRestored.value = false
     closeBulkReorderLevelModal()
     await loadAlerts(pagination.value.page)
   } catch (error) {
@@ -820,8 +856,13 @@ watch(
               <button type="button" class="text-slate-400 hover:text-slate-600" @click="closeBulkReorderLevelModal">✕</button>
             </div>
             <div class="max-h-[70vh] space-y-4 overflow-y-auto px-6 py-5">
+              <DraftNoticeBar
+                :show="bulkReorderDraftRestored"
+                @discard="discardBulkReorderDraftAndRestore"
+                @clear="clearBulkReorderInputs"
+              />
               <p class="text-sm text-slate-500">{{ tr('Update reorder level for selected products or all filtered results.', '为选中的商品或所有筛选结果更新补货线。') }}</p>
-              
+
               <div class="space-y-3">
                 <div class="rounded-2xl border border-slate-200 bg-white p-4">
                   <label class="block text-sm font-medium text-slate-900 mb-2">{{ tr('New reorder level', '新的补货线') }}</label>

@@ -8,6 +8,17 @@
 
       <form class="flex min-h-0 flex-1 flex-col" @submit.prevent="submit">
         <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4">
+          <DraftNoticeBar
+            :show="draftRestored"
+            message-en="Recovered unsaved draft."
+            message-cn="已恢复上次未提交内容。"
+            discard-en="Discard draft"
+            discard-cn="放弃草稿"
+            clear-en="Clear form"
+            clear-cn="清空表单"
+            @discard="discardDraftAndRestore"
+            @clear="clearFormInputs"
+          />
           <p class="text-xs text-slate-500">
             Cost / selling price / category / stock can be refined later on the Products page.
           </p>
@@ -146,6 +157,7 @@
 <script setup>
 import { onMounted, reactive, ref, watch, nextTick } from 'vue'
 import api from '../services/api'
+import DraftNoticeBar from './DraftNoticeBar.vue'
 
 const STORAGE_KEY = 'quickCreateProductDraft'
 
@@ -169,6 +181,7 @@ const brands = ref([])
 const variantsOpen = ref(false)
 const sizesText = ref('')
 const colorsText = ref('')
+const draftRestored = ref(false)
 
 const showNewBrand = ref(false)
 const newBrandName = ref('')
@@ -230,6 +243,7 @@ function loadDraft() {
       sizesText.value = parsed.sizesText || ''
       colorsText.value = parsed.colorsText || ''
       variantsOpen.value = Boolean(parsed.variantsOpen)
+      draftRestored.value = true
     }
   } catch {
     // ignore parse errors
@@ -256,6 +270,32 @@ function saveDraft() {
 
 function clearDraft() {
   localStorage.removeItem(STORAGE_KEY)
+}
+
+function resetLocalForm() {
+  Object.assign(form, {
+    name: '',
+    sku: '',
+    productCode: '',
+    description: '',
+    unit: 'pcs',
+    brandId: '',
+  })
+  variantsOpen.value = false
+  sizesText.value = ''
+  colorsText.value = ''
+}
+
+function discardDraftAndRestore() {
+  clearDraft()
+  draftRestored.value = false
+  resetLocalForm()
+}
+
+function clearFormInputs() {
+  clearDraft()
+  draftRestored.value = false
+  resetLocalForm()
 }
 
 function parseBulkOptions(raw) {
@@ -321,6 +361,7 @@ async function submit() {
       throw new Error('Unexpected response shape.')
     }
     clearDraft()
+    draftRestored.value = false
     emit('created', product)
   } catch (error) {
     errorMessage.value = error.response?.data?.message || error.message || 'Failed to create product.'

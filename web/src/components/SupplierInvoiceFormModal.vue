@@ -10,6 +10,7 @@
 
       <form class="flex min-h-0 flex-1 flex-col" @submit.prevent="submit">
         <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-3">
+        <DraftNoticeBar :show="draftRestored" @discard="discardDraftAndRestore" @clear="clearFormInputs" />
         <div v-if="props.initialData?.imported_from_scan" class="rounded-lg border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-700">
           已从文档自动带入资料，请检查数量、单价和供应商后再保存。
           <span v-if="props.initialData?.source_file_name" class="ml-1 font-medium">{{ props.initialData.source_file_name }}</span>
@@ -398,6 +399,7 @@ import AttachmentSection from './AttachmentSection.vue'
 import SupplierSearchSelect from './SupplierSearchSelect.vue'
 import { useLocaleStore } from '../stores/locale'
 import { useFormDraft } from '../composables/useFormDraft'
+import DraftNoticeBar from './DraftNoticeBar.vue'
 
 const props = defineProps({
   id: { type: [Number, String, null], default: null },
@@ -437,6 +439,7 @@ const ocrConfirmationTimeline = ref([])
 const activeTimelineTrace = ref(null)
 const flashFieldTarget = ref(null)
 const traceFieldHint = ref(null)
+const draftRestored = ref(false)
 const { restoreDraft, clearDraft } = useFormDraft({
   storageKey: () => `supplier-invoice-form:${props.id || 'new'}`,
   // 中文说明：Invoice 表单比较大，先保存草稿，误关后重新打开还能继续编辑。
@@ -450,6 +453,45 @@ const { restoreDraft, clearDraft } = useFormDraft({
     form.items = Array.isArray(draft.items) ? draft.items.map((item) => ({ ...blankRow(), ...item })) : [blankRow()]
   },
 })
+
+function resetLocalForm() {
+  Object.assign(form, {
+    id: null,
+    supplier_id: '',
+    do_id: '',
+    invoice_no: '',
+    invoice_date: new Date().toLocaleDateString('en-CA'),
+    notes: '',
+    post_to_inventory: true,
+    warehouse_id: '',
+    items: [blankRow()],
+    priceIncludesDiscount: false,
+  })
+  importedSourceFile.value = null
+  ocrReviewContext.value = null
+  ocrConfirmationTimeline.value = []
+  activeTimelineTrace.value = null
+}
+
+function discardDraftAndRestore() {
+  clearDraft()
+  draftRestored.value = false
+  if (props.id) {
+    Promise.resolve(loadExisting(props.id))
+    return
+  }
+  if (props.initialData) {
+    applyInitialData(props.initialData)
+    return
+  }
+  resetLocalForm()
+}
+
+function clearFormInputs() {
+  clearDraft()
+  draftRestored.value = false
+  resetLocalForm()
+}
 
 async function loadWarehouses() {
   try {
@@ -1071,6 +1113,7 @@ async function submit() {
     }
     const attachmentWarning = await uploadImportedSourceFile(form.id)
     clearDraft()
+    draftRestored.value = false
     emit('saved', { id: form.id, attachmentWarning })
   } catch (error) {
     errorMessage.value = error.response?.data?.message || error.message || 'Failed to save.'
@@ -1082,13 +1125,15 @@ async function submit() {
 onMounted(() => {
   loadWarehouses()
   if (props.id) {
-    Promise.resolve(loadExisting(props.id)).then(() => restoreDraft())
+    Promise.resolve(loadExisting(props.id)).then(() => {
+      draftRestored.value = restoreDraft()
+    })
   } else if (props.initialData) {
     applyInitialData(props.initialData)
-    restoreDraft()
+    draftRestored.value = restoreDraft()
   } else {
     form.items = [blankRow()]
-    restoreDraft()
+    draftRestored.value = restoreDraft()
   }
 })
 

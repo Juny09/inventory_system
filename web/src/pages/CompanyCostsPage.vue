@@ -17,6 +17,7 @@ import api from '../services/api'
 import { useLocaleStore } from '../stores/locale'
 import { exportToCsv } from '../utils/export'
 import { useFormDraft } from '../composables/useFormDraft'
+import DraftNoticeBar from '../components/DraftNoticeBar.vue'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Tooltip, Legend)
 
@@ -69,6 +70,7 @@ const form = reactive({
   occurredDate: '',
   notes: '',
 })
+const draftRestored = ref(false)
 const draftKey = computed(() => `company-cost-form:${formMode.value}:${editingId.value || 'new'}`)
 const formDraft = useFormDraft({
   storageKey: draftKey,
@@ -96,7 +98,7 @@ function openCreate() {
   form.occurredDate = defaultOccurredDate(selected.year, selected.month)
   form.notes = ''
   formOpen.value = true
-  formDraft.restoreDraft()
+  draftRestored.value = formDraft.restoreDraft()
 }
 
 function openEdit(row) {
@@ -109,11 +111,33 @@ function openEdit(row) {
   form.occurredDate = row.occurred_date
   form.notes = row.notes || ''
   formOpen.value = true
-  formDraft.restoreDraft()
+  draftRestored.value = formDraft.restoreDraft()
 }
 
 function pickCategory(value) {
   form.categoryLabel = value
+}
+
+function discardDraftAndRestore() {
+  formDraft.clearDraft()
+  draftRestored.value = false
+  if (formMode.value === 'edit') {
+    const target = items.value.find((x) => Number(x.id) === Number(editingId.value))
+    if (target) {
+      openEdit(target)
+      return
+    }
+  }
+  openCreate()
+}
+
+function clearFormInputs() {
+  formDraft.clearDraft()
+  draftRestored.value = false
+  form.categoryLabel = ''
+  form.amount = ''
+  form.occurredDate = defaultOccurredDate(selected.year, selected.month)
+  form.notes = ''
 }
 
 async function loadList() {
@@ -153,6 +177,7 @@ async function submitForm() {
     }
 
     formDraft.clearDraft()
+    draftRestored.value = false
     formOpen.value = false
     await loadList()
     await loadSummary()
@@ -437,6 +462,7 @@ onMounted(async () => {
             </div>
 
             <form class="mt-6 grid gap-4" @submit.prevent="submitForm">
+              <DraftNoticeBar :show="draftRestored" @discard="discardDraftAndRestore" @clear="clearFormInputs" />
               <div class="grid gap-3 md:grid-cols-2">
                 <div>
                   <label class="text-xs uppercase tracking-wide text-slate-500">{{ localeStore.locale === 'en' ? 'Year' : '年' }}</label>

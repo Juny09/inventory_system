@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import api from '../services/api'
 import { useAuthStore } from '../stores/auth'
 import { useFormDraft } from '../composables/useFormDraft'
+import DraftNoticeBar from '../components/DraftNoticeBar.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -17,6 +18,8 @@ const filter = ref('ALL') // ALL | PENDING | ACTIVE | REJECTED | SUSPENDED
 // 拒绝弹窗状态
 const rejectModal = ref({ open: false, tenant: null, reason: '' })
 const actingId = ref(null)
+const rejectDraftRestored = ref(false)
+const rejectBaseState = ref(null)
 const rejectDraft = useFormDraft({
   storageKey: () => `admin-tenant-reject:${rejectModal.value.tenant?.id || 'new'}`,
   buildState: () => ({ ...rejectModal.value }),
@@ -77,7 +80,35 @@ async function approveTenant(tenant) {
 
 function openRejectModal(tenant) {
   rejectModal.value = { open: true, tenant, reason: '' }
-  rejectDraft.restoreDraft()
+  rejectBaseState.value = { ...rejectModal.value }
+  rejectDraftRestored.value = rejectDraft.restoreDraft()
+}
+
+function closeRejectModal() {
+  rejectModal.value = {
+    ...rejectModal.value,
+    open: false,
+  }
+  rejectDraftRestored.value = false
+}
+
+function discardRejectDraftAndRestore() {
+  rejectDraft.clearDraft()
+  rejectDraftRestored.value = false
+  if (rejectBaseState.value) {
+    rejectModal.value = { ...rejectBaseState.value }
+    return
+  }
+  rejectModal.value = { open: false, tenant: null, reason: '' }
+}
+
+function clearRejectFormInputs() {
+  rejectDraft.clearDraft()
+  rejectDraftRestored.value = false
+  rejectModal.value = {
+    ...rejectModal.value,
+    reason: '',
+  }
 }
 
 async function confirmReject() {
@@ -87,6 +118,7 @@ async function confirmReject() {
   try {
     await api.post(`/admin/tenants/${tenant.id}/reject`, { reason: reason.trim() || null })
     rejectDraft.clearDraft()
+    rejectDraftRestored.value = false
     rejectModal.value = { open: false, tenant: null, reason: '' }
     await loadData()
   } catch (error) {
@@ -274,6 +306,11 @@ onMounted(loadData)
         <p class="mt-2 text-sm text-slate-500">
           The company will be marked as REJECTED and admins won't be able to log in. You can re-approve later.
         </p>
+        <DraftNoticeBar
+          :show="rejectDraftRestored"
+          @discard="discardRejectDraftAndRestore"
+          @clear="clearRejectFormInputs"
+        />
         <label class="mt-4 block">
           <span class="mb-2 block text-sm font-medium text-slate-700">Reason (optional)</span>
           <textarea
@@ -286,7 +323,7 @@ onMounted(loadData)
         <div class="mt-5 flex justify-end gap-2">
           <button
             class="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            @click="rejectModal.open = false"
+            @click="closeRejectModal"
           >
             Cancel
           </button>

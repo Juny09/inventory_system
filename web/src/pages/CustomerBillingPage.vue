@@ -5,6 +5,7 @@ import api from '../services/api'
 import { useLocaleStore } from '../stores/locale'
 import { exportToPdf } from '../utils/export'
 import { useFormDraft } from '../composables/useFormDraft'
+import DraftNoticeBar from '../components/DraftNoticeBar.vue'
 
 const localeStore = useLocaleStore()
 const activeTab = ref('bills')
@@ -63,6 +64,8 @@ const billForm = reactive({
 const selectedBillDetail = ref(null)
 const billDetailLoading = ref(false)
 const exportLoading = ref(false)
+const customerDraftRestored = ref(false)
+const billDraftRestored = ref(false)
 const customerDraftKey = computed(() => `customer-billing-customer-form:${customerMode.value}:${editingCustomerId.value || 'new'}`)
 const billDraftKey = computed(() => `customer-billing-bill-form:${billMode.value}:${editingBillId.value || 'new'}`)
 const customerDraft = useFormDraft({
@@ -147,7 +150,7 @@ function openCustomerCreate() {
   customerForm.notes = ''
   customerForm.isActive = true
   customerModalOpen.value = true
-  customerDraft.restoreDraft()
+  customerDraftRestored.value = customerDraft.restoreDraft()
 }
 
 function openCustomerEdit(row) {
@@ -162,7 +165,7 @@ function openCustomerEdit(row) {
   customerForm.notes = row.notes || ''
   customerForm.isActive = row.is_active !== false
   customerModalOpen.value = true
-  customerDraft.restoreDraft()
+  customerDraftRestored.value = customerDraft.restoreDraft()
 }
 
 async function submitCustomer() {
@@ -188,6 +191,7 @@ async function submitCustomer() {
     }
 
     customerDraft.clearDraft()
+    customerDraftRestored.value = false
     customerModalOpen.value = false
     await loadCustomers()
   } catch (error) {
@@ -195,6 +199,32 @@ async function submitCustomer() {
   } finally {
     loading.value = false
   }
+}
+
+function discardCustomerDraftAndRestore() {
+  customerDraft.clearDraft()
+  customerDraftRestored.value = false
+  if (customerMode.value === 'edit' && editingCustomerId.value) {
+    const target = customers.value.find((c) => Number(c.id) === Number(editingCustomerId.value))
+    if (target) {
+      openCustomerEdit(target)
+      return
+    }
+  }
+  openCustomerCreate()
+}
+
+function clearCustomerFormInputs() {
+  customerDraft.clearDraft()
+  customerDraftRestored.value = false
+  customerForm.name = ''
+  customerForm.companyName = ''
+  customerForm.contactName = ''
+  customerForm.phone = ''
+  customerForm.email = ''
+  customerForm.address = ''
+  customerForm.notes = ''
+  customerForm.isActive = true
 }
 
 async function deleteCustomer(row) {
@@ -230,7 +260,7 @@ function openBillCreate(customerId = '') {
   resetBillForm()
   billForm.customerId = customerId ? String(customerId) : ''
   billModalOpen.value = true
-  billDraft.restoreDraft()
+  billDraftRestored.value = billDraft.restoreDraft()
 }
 
 async function openBillEdit(billId) {
@@ -239,7 +269,7 @@ async function openBillEdit(billId) {
   selectedBillDetail.value = null
   billModalOpen.value = true
   await loadBillDetail(billId, { hydrateForm: true })
-  billDraft.restoreDraft()
+  billDraftRestored.value = billDraft.restoreDraft()
 }
 
 function addBillItem() {
@@ -280,6 +310,7 @@ async function submitBill() {
     if (billMode.value === 'create') {
       const { data } = await api.post('/customer-bills', payload)
       billDraft.clearDraft()
+      billDraftRestored.value = false
       billModalOpen.value = false
       await loadBills()
       await openBillEdit(data.bill.id)
@@ -288,6 +319,7 @@ async function submitBill() {
 
     await api.put(`/customer-bills/${editingBillId.value}`, payload)
     billDraft.clearDraft()
+    billDraftRestored.value = false
     await loadBills()
     await loadBillDetail(editingBillId.value, { hydrateForm: false })
     billModalOpen.value = false
@@ -296,6 +328,22 @@ async function submitBill() {
   } finally {
     loading.value = false
   }
+}
+
+function discardBillDraftAndRestore() {
+  billDraft.clearDraft()
+  billDraftRestored.value = false
+  if (billMode.value === 'edit' && editingBillId.value) {
+    openBillEdit(editingBillId.value)
+    return
+  }
+  openBillCreate(billForm.customerId)
+}
+
+function clearBillFormInputs() {
+  billDraft.clearDraft()
+  billDraftRestored.value = false
+  resetBillForm()
 }
 
 async function loadBillDetail(billId, { hydrateForm } = { hydrateForm: false }) {
@@ -590,6 +638,11 @@ onMounted(refreshAll)
                 </div>
 
                 <form v-else class="grid gap-4" @submit.prevent="submitBill">
+                  <DraftNoticeBar
+                    :show="billDraftRestored"
+                    @discard="discardBillDraftAndRestore"
+                    @clear="clearBillFormInputs"
+                  />
                   <div class="grid gap-3 lg:grid-cols-3">
                     <div class="lg:col-span-2">
                       <label class="text-xs uppercase tracking-wide text-slate-500">{{ localeStore.locale === 'en' ? 'Customer' : '客户' }}</label>
@@ -788,6 +841,11 @@ onMounted(refreshAll)
               </div>
 
               <form class="mt-6 grid gap-4" @submit.prevent="submitCustomer">
+                <DraftNoticeBar
+                  :show="customerDraftRestored"
+                  @discard="discardCustomerDraftAndRestore"
+                  @clear="clearCustomerFormInputs"
+                />
                 <div class="grid gap-3 md:grid-cols-2">
                   <div>
                     <label class="text-xs uppercase tracking-wide text-slate-500">{{ localeStore.locale === 'en' ? 'Name' : '名称' }}</label>

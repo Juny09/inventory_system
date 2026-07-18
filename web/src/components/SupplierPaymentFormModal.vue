@@ -3,6 +3,7 @@ import { ref, computed, watch, nextTick } from 'vue'
 import api from '../services/api'
 import { useLocaleStore } from '../stores/locale'
 import { useFormDraft } from '../composables/useFormDraft'
+import DraftNoticeBar from './DraftNoticeBar.vue'
 
 const localeStore = useLocaleStore()
 
@@ -20,6 +21,7 @@ const emit = defineEmits(['close', 'saved', 'delete'])
 const loading = ref(false)
 const submitting = ref(false)
 const formError = ref('')
+const draftRestored = ref(false)
 
 const MONTH_NAMES_EN = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const MONTH_NAMES_CN = ['', '1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月']
@@ -206,6 +208,31 @@ const { restoreDraft, clearDraft } = useFormDraft({
   applyState: applyDraft,
 })
 
+async function initFormForOpen({ restore = true } = {}) {
+  resetForm()
+  await nextTick()
+
+  if (props.initialData) {
+    fillFormFromInitialData()
+    formError.value = ''
+  } else if (props.id) {
+    await loadPayment()
+  }
+
+  draftRestored.value = restore ? restoreDraft() : false
+}
+
+async function discardDraftAndRestore() {
+  clearDraft()
+  await initFormForOpen({ restore: false })
+}
+
+async function clearFormInputs() {
+  clearDraft()
+  resetForm()
+  draftRestored.value = false
+}
+
 // 监听 props.mode 变化
 watch(() => props.mode, (newMode) => {
   internalMode.value = newMode
@@ -229,17 +256,7 @@ function handleDelete() {
 // 监听 show 属性变化
 watch(() => props.show, async (newVal) => {
   if (newVal) {
-    resetForm()
-    await nextTick()
-    
-    // 现在线上环境对 /:id 详情接口不稳定，优先使用列表里的当前记录数据打开。
-    if (props.initialData) {
-      fillFormFromInitialData()
-      formError.value = ''
-    } else if (props.id) {
-      await loadPayment()
-    }
-    restoreDraft()
+    await initFormForOpen({ restore: true })
   }
 }, { immediate: true })
 </script>
@@ -270,6 +287,7 @@ watch(() => props.show, async (newVal) => {
                 <p v-if="loading" class="text-sm text-slate-500 mb-4">{{ tr('Loading...', '加载中...') }}</p>
 
                 <div v-if="!loading" class="space-y-4">
+                  <DraftNoticeBar :show="draftRestored" @discard="discardDraftAndRestore" @clear="clearFormInputs" />
                   <div>
                     <label class="block text-xs font-semibold text-slate-600 mb-1">{{ tr('Supplier', '供应商') }}</label>
                     <select

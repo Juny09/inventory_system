@@ -10,6 +10,7 @@
 
       <form class="flex min-h-0 flex-1 flex-col" @submit.prevent="submit">
         <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-3">
+        <DraftNoticeBar :show="draftRestored" @discard="discardDraftAndRestore" @clear="clearFormInputs" />
         <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
           <div>
             <label class="block text-xs font-medium text-slate-600">Supplier Company <span class="text-red-500">*</span></label>
@@ -116,6 +117,7 @@ import ProductSelector from './ProductSelector.vue'
 import AttachmentSection from './AttachmentSection.vue'
 import SupplierSearchSelect from './SupplierSearchSelect.vue'
 import { useFormDraft } from '../composables/useFormDraft'
+import DraftNoticeBar from './DraftNoticeBar.vue'
 
 const props = defineProps({
   id: { type: [Number, String, null], default: null },
@@ -136,6 +138,7 @@ const attachments = ref([])
 const attachmentRef = ref(null)
 const submitting = ref(false)
 const errorMessage = ref('')
+const draftRestored = ref(false)
 const { restoreDraft, clearDraft } = useFormDraft({
   storageKey: () => `supplier-return-form:${props.id || 'new'}`,
   // 中文说明：退货/索赔表单行项目多，先自动记忆，避免误关后全部重填。
@@ -149,6 +152,34 @@ const { restoreDraft, clearDraft } = useFormDraft({
     form.items = Array.isArray(draft.items) ? draft.items.map((item) => ({ ...blankRow(), ...item })) : [blankRow()]
   },
 })
+
+function resetLocalForm() {
+  Object.assign(form, {
+    id: null,
+    supplier_id: '',
+    doc_type: 'RETURN',
+    document_no: '',
+    document_date: new Date().toLocaleDateString('en-CA'),
+    notes: '',
+    items: [blankRow()],
+  })
+}
+
+function discardDraftAndRestore() {
+  clearDraft()
+  draftRestored.value = false
+  if (props.id) {
+    Promise.resolve(loadExisting(props.id))
+    return
+  }
+  resetLocalForm()
+}
+
+function clearFormInputs() {
+  clearDraft()
+  draftRestored.value = false
+  resetLocalForm()
+}
 
 function blankRow() {
   return { product_id: null, product_label: '', item_code: '', description: '', serial_no: '', quantity: 1 }
@@ -227,6 +258,7 @@ async function submit() {
       await attachmentRef.value.flush(form.id)
     }
     clearDraft()
+    draftRestored.value = false
     emit('saved', form.id)
   } catch (error) {
     errorMessage.value = error.response?.data?.message || error.message || 'Failed to save.'
@@ -237,10 +269,12 @@ async function submit() {
 
 onMounted(() => {
   if (props.id) {
-    Promise.resolve(loadExisting(props.id)).then(() => restoreDraft())
+    Promise.resolve(loadExisting(props.id)).then(() => {
+      draftRestored.value = restoreDraft()
+    })
   } else {
     form.items = [blankRow()]
-    restoreDraft()
+    draftRestored.value = restoreDraft()
   }
 })
 </script>

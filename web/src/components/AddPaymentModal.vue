@@ -9,6 +9,7 @@
       </div>
       <form class="flex min-h-0 flex-1 flex-col" @submit.prevent="submit">
         <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-3">
+          <DraftNoticeBar :show="draftRestored" @discard="discardDraftAndRestore" @clear="clearFormInputs" />
           <div class="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
             <div><span class="font-semibold">{{ tr('Supplier', '供应商') }}:</span> {{ schedule.supplier_name }}{{ schedule.supplier_branch ? ` (${schedule.supplier_branch})` : '' }}</div>
             <div><span class="font-semibold">{{ tr('Period', '账期') }}:</span> {{ schedule.period_label }}</div>
@@ -45,6 +46,7 @@ import { computed, reactive, ref } from 'vue'
 import api from '../services/api'
 import { useLocaleStore } from '../stores/locale'
 import { useFormDraft } from '../composables/useFormDraft'
+import DraftNoticeBar from './DraftNoticeBar.vue'
 
 const props = defineProps({
   schedule: { type: Object, required: true },
@@ -62,6 +64,7 @@ const form = reactive({
 })
 const submitting = ref(false)
 const errorMessage = ref('')
+const draftRestored = ref(false)
 const { restoreDraft, clearDraft } = useFormDraft({
   storageKey: () => `schedule-add-payment:${props.schedule.id}`,
   // 中文说明：记录当前付款输入，误关弹窗后还能继续补填。
@@ -71,7 +74,24 @@ const { restoreDraft, clearDraft } = useFormDraft({
     Object.assign(form, draft)
   },
 })
-restoreDraft()
+draftRestored.value = restoreDraft()
+
+function resetLocalForm() {
+  form.amount = remaining.value
+  form.paid_date = new Date().toLocaleDateString('en-CA')
+}
+
+function discardDraftAndRestore() {
+  clearDraft()
+  draftRestored.value = false
+  resetLocalForm()
+}
+
+function clearFormInputs() {
+  clearDraft()
+  draftRestored.value = false
+  resetLocalForm()
+}
 
 async function submit() {
   submitting.value = true
@@ -82,6 +102,7 @@ async function submit() {
       paidDate: form.paid_date || null,
     })
     clearDraft()
+    draftRestored.value = false
     emit('saved')
   } catch (error) {
     errorMessage.value = error.response?.data?.message || error.message || 'Failed to add payment.'

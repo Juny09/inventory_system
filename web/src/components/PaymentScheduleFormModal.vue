@@ -9,6 +9,7 @@
       </div>
       <form class="flex min-h-0 flex-1 flex-col" @submit.prevent="submit">
         <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-3">
+          <DraftNoticeBar :show="draftRestored" @discard="discardDraftAndRestore" @clear="clearFormInputs" />
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div>
               <label class="block text-xs font-medium text-slate-600">{{ tr('Supplier', '供应商') }} <span class="text-red-500">*</span></label>
@@ -64,6 +65,7 @@ import { reactive, ref, onMounted } from 'vue'
 import api from '../services/api'
 import { useLocaleStore } from '../stores/locale'
 import { useFormDraft } from '../composables/useFormDraft'
+import DraftNoticeBar from './DraftNoticeBar.vue'
 
 const props = defineProps({
   id: { type: [Number, String, null], default: null },
@@ -95,6 +97,7 @@ const form = reactive({
 })
 const submitting = ref(false)
 const errorMessage = ref('')
+const draftRestored = ref(false)
 const { restoreDraft, clearDraft } = useFormDraft({
   storageKey: () => `payment-schedule-form:${props.id || 'new'}`,
   // 中文说明：把计划表单暂存到浏览器，关闭后再打开不会丢资料。
@@ -104,6 +107,35 @@ const { restoreDraft, clearDraft } = useFormDraft({
     Object.assign(form, draft)
   },
 })
+
+function resetLocalForm() {
+  Object.assign(form, {
+    id: null,
+    supplier_id: props.defaults.supplier_id || '',
+    period_month: props.defaults.period_month || new Date().getMonth() + 1,
+    period_year: props.defaults.period_year || new Date().getFullYear(),
+    due_date: props.defaults.due_date || today,
+    amount_due: props.defaults.amount_due || 0,
+    remind_days_before: 3,
+    notes: '',
+  })
+}
+
+function discardDraftAndRestore() {
+  clearDraft()
+  draftRestored.value = false
+  if (props.id) {
+    Promise.resolve(loadExisting(props.id))
+    return
+  }
+  resetLocalForm()
+}
+
+function clearFormInputs() {
+  clearDraft()
+  resetLocalForm()
+  draftRestored.value = false
+}
 
 async function loadExisting(id) {
   // If parent already supplied the row data, use it directly
@@ -155,9 +187,11 @@ async function submit() {
 onMounted(() => {
   if (props.id) {
     form.id = props.id
-    Promise.resolve(loadExisting(props.id)).then(() => restoreDraft())
+    Promise.resolve(loadExisting(props.id)).then(() => {
+      draftRestored.value = restoreDraft()
+    })
   } else {
-    restoreDraft()
+    draftRestored.value = restoreDraft()
   }
 })
 </script>
