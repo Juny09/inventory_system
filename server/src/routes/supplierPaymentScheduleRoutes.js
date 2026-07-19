@@ -337,12 +337,13 @@ router.put('/:id', authorizeRoles('ADMIN', 'MANAGER'), async (req, res) => {
 
     const result = await query(
       `UPDATE supplier_payment_schedules
-       SET due_date = $1,
+       SET due_date = $1::date,
            amount_due = $2,
            remind_days_before = $3,
            notes = $4,
            status = $5,
-           reminder_sent = CASE WHEN $1 <> $6 THEN FALSE ELSE reminder_sent END,
+           -- 中文说明：明确把新旧日期都按 date 比较，避免 PostgreSQL 把同一个参数推断成冲突类型。
+           reminder_sent = CASE WHEN $1::date <> $6::date THEN FALSE ELSE reminder_sent END,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $7 AND tenant_id = $8
        RETURNING *`,

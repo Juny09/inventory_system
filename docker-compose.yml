@@ -28,7 +28,8 @@ services:
     environment:
       PORT: 4000
       DATABASE_URL: postgresql://postgres:junyuan123@db:5432/inventory_system
-      JWT_SECRET: change_this_to_a_secure_secret
+      JWT_SECRET: b01a49e5766d6595e0b16f383ddfae0231630a494a4194656c9631886ada9c226f69e51c9f3889f36e1ab529de622a14954e4e42bcfdefdf3bc801e3d8d85dc2
+      CORS_ORIGIN: https://skimmed-living-nephew.ngrok-free.dev,http://localhost:8080,http://localhost:5173
       SHOPEE_SYNC_ENDPOINT: ""
       SHOPEE_ACCESS_TOKEN: ""
       LAZADA_SYNC_ENDPOINT: ""
