@@ -343,7 +343,11 @@ const showBatchModal = ref(false)
 const showAddPaymentModal = ref(false)
 const addingPaymentSchedule = ref(null)
 
-const futureSummary = ref({ next3m: { totalRemaining: 0, scheduleCount: 0 }, next6m: { totalRemaining: 0, scheduleCount: 0 }, next12m: { totalRemaining: 0, scheduleCount: 0 } })
+const futureSummary = ref({
+  range0to3: { totalRemaining: 0, scheduleCount: 0 },
+  range4to6: { totalRemaining: 0, scheduleCount: 0 },
+  range7to12: { totalRemaining: 0, scheduleCount: 0 },
+})
 const futureSummaryLoading = ref(false)
 
 async function loadSchedules() {
@@ -642,19 +646,19 @@ onMounted(async () => {
           </div>
           <div class="mt-3 grid grid-cols-3 gap-2 text-center">
             <div class="rounded-xl bg-white/60 px-2 py-2">
-              <p class="text-[11px] font-semibold text-indigo-600">3 {{ tr('months', '个月') }}</p>
-              <p class="mt-0.5 text-lg font-bold text-indigo-800">{{ formatAmount(futureSummary.next3m.totalRemaining) }}</p>
-              <p class="text-[10px] text-indigo-400">{{ futureSummary.next3m.scheduleCount }} {{ tr('bills', '笔') }}</p>
+              <p class="text-[11px] font-semibold text-indigo-600">0-3 {{ tr('months', '个月') }}</p>
+              <p class="mt-0.5 text-lg font-bold text-indigo-800">{{ formatAmount(futureSummary.range0to3.totalRemaining) }}</p>
+              <p class="text-[10px] text-indigo-400">{{ futureSummary.range0to3.scheduleCount }} {{ tr('bills', '笔') }}</p>
             </div>
             <div class="rounded-xl bg-white/60 px-2 py-2">
-              <p class="text-[11px] font-semibold text-indigo-600">6 {{ tr('months', '个月') }}</p>
-              <p class="mt-0.5 text-lg font-bold text-indigo-800">{{ formatAmount(futureSummary.next6m.totalRemaining) }}</p>
-              <p class="text-[10px] text-indigo-400">{{ futureSummary.next6m.scheduleCount }} {{ tr('bills', '笔') }}</p>
+              <p class="text-[11px] font-semibold text-indigo-600">4-6 {{ tr('months', '个月') }}</p>
+              <p class="mt-0.5 text-lg font-bold text-indigo-800">{{ formatAmount(futureSummary.range4to6.totalRemaining) }}</p>
+              <p class="text-[10px] text-indigo-400">{{ futureSummary.range4to6.scheduleCount }} {{ tr('bills', '笔') }}</p>
             </div>
             <div class="rounded-xl bg-white/60 px-2 py-2">
-              <p class="text-[11px] font-semibold text-indigo-600">12 {{ tr('months', '个月') }}</p>
-              <p class="mt-0.5 text-lg font-bold text-indigo-800">{{ formatAmount(futureSummary.next12m.totalRemaining) }}</p>
-              <p class="text-[10px] text-indigo-400">{{ futureSummary.next12m.scheduleCount }} {{ tr('bills', '笔') }}</p>
+              <p class="text-[11px] font-semibold text-indigo-600">7-12 {{ tr('months', '个月') }}</p>
+              <p class="mt-0.5 text-lg font-bold text-indigo-800">{{ formatAmount(futureSummary.range7to12.totalRemaining) }}</p>
+              <p class="text-[10px] text-indigo-400">{{ futureSummary.range7to12.scheduleCount }} {{ tr('bills', '笔') }}</p>
             </div>
           </div>
           <p class="mt-2 text-[11px] text-indigo-500">

@@ -63,27 +63,40 @@ router.get('/future-summary', async (req, res) => {
        ORDER BY sps.period_year, sps.period_month`,
       [tenantId],
     )
-    // Summarise by 3 / 6 / 12 month windows
+    // 中文说明：这里改成分段统计，避免 3/6/12 个月都是累计值而看起来重复。
     const today = new Date()
     const currentYear = today.getFullYear()
     const currentMonth = today.getMonth() + 1
-    const monthsAhead = [3, 6, 12]
-    const summary = {}
-    for (const m of monthsAhead) {
-      let total = 0
-      let count = 0
-      for (const row of result.rows) {
-        const rowYear = Number(row.period_year)
-        const rowMonth = Number(row.period_month)
-        // compute how many months from now
-        const diff = (rowYear - currentYear) * 12 + (rowMonth - currentMonth)
-        if (diff >= 0 && diff < m) {
-          total += Number(row.total_remaining) || 0
-          count += Number(row.schedule_count) || 0
-        }
-      }
-      summary[`next${m}m`] = { totalRemaining: Number(total.toFixed(2)), scheduleCount: count }
+    const ranges = {
+      range0to3: { min: 0, max: 3 },
+      range4to6: { min: 4, max: 6 },
+      range7to12: { min: 7, max: 12 },
     }
+    const summary = {
+      range0to3: { totalRemaining: 0, scheduleCount: 0 },
+      range4to6: { totalRemaining: 0, scheduleCount: 0 },
+      range7to12: { totalRemaining: 0, scheduleCount: 0 },
+    }
+
+    for (const row of result.rows) {
+      const rowYear = Number(row.period_year)
+      const rowMonth = Number(row.period_month)
+      const diff = (rowYear - currentYear) * 12 + (rowMonth - currentMonth)
+      const totalRemaining = Number(row.total_remaining) || 0
+      const scheduleCount = Number(row.schedule_count) || 0
+
+      Object.entries(ranges).forEach(([key, range]) => {
+        if (diff >= range.min && diff <= range.max) {
+          summary[key].totalRemaining += totalRemaining
+          summary[key].scheduleCount += scheduleCount
+        }
+      })
+    }
+
+    Object.values(summary).forEach((item) => {
+      item.totalRemaining = Number(item.totalRemaining.toFixed(2))
+    })
+
     return res.json({ months: result.rows, summary })
   } catch (error) {
     return res.status(500).json({ message: 'Failed to fetch future summary.', error: error.message })
