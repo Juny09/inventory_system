@@ -73,12 +73,23 @@ router.post('/login', loginRateLimit, async (req, res) => {
       return res.status(401).json({ message: 'Invalid company code, email or password.' })
     }
 
-    // 3. 签发 token（包含 tenantId）
-    const token = jwt.sign(
-      { userId: user.id, role: user.role, tenantId: user.tenant_id },
-      process.env.JWT_SECRET,
-      { expiresIn: '8h' },
-    )
+    // 3. 签发 token（包含 tenantId + 常用用户/租户字段）
+    // 中文说明：把鉴权常用的用户/租户信息直接塞进 JWT payload，
+    // 后面中间件绝大部分请求无需再查 users + tenants 两次 DB。
+    // JWT 有签名保证不会被篡改；但为了能及时踢下“被禁用的用户/被停用的租户”，
+    // 中间件会每隔一段时间（默认 60 秒）回 DB 做一次状态校验（短时缓存 + TTL）。
+    const tokenPayload = {
+      userId: user.id,
+      role: user.role,
+      tenantId: user.tenant_id,
+      email: user.email,
+      fullName: user.full_name,
+      preferredCurrency: user.preferred_currency || 'MYR',
+      tenantCode: tenant.code,
+      tenantName: tenant.name,
+      tenantStatus: tenant.status,
+    }
+    const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, { expiresIn: '8h' })
 
     req.auditUser = {
       id: user.id,
