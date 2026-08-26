@@ -1,5 +1,6 @@
 const app = require('./app')
 const { pool } = require('./config/db')
+const { runMigrations } = require('./utils/runMigrations')
 
 const port = process.env.PORT || 4000
 
@@ -18,6 +19,22 @@ async function startServer() {
   try {
     const timeoutMs = Number(process.env.STARTUP_DB_TIMEOUT_MS || 8000)
     await withTimeout(pool.query('SELECT NOW()'), timeoutMs)
+
+    // 中文说明：服务启动前执行数据库 migrations（001... 升序），
+    // 已执行的通过 migrations_meta 表跳过，保证本地/Docker/K8s 三种环境都能自动补齐索引和结构变更。
+    const shouldRunMigrations = String(process.env.RUN_MIGRATIONS_ON_STARTUP || '1') !== '0'
+    if (shouldRunMigrations) {
+      const migrationResult = await runMigrations({
+        skipOnError: process.env.NODE_ENV === 'production',
+      })
+      if (migrationResult.failed.length && process.env.NODE_ENV === 'production') {
+        // 生产环境：migration 失败不要让进程继续对外接流量，避免写入结构不一致的数据。
+        // 但也不要直接 exit(1)：让你先通过 kubectl exec 手动修，保留现场。
+        console.error('[startup] migrations failed in production; refusing to serve traffic.', migrationResult.failed)
+        server.close(() => process.exit(2))
+        return
+      }
+    }
   } catch (error) {
     const connectionString = String(process.env.DATABASE_URL || '')
     const safeConnectionString = connectionString.replace(/:\/\/([^:]+):([^@]+)@/, '://$1:***@')
