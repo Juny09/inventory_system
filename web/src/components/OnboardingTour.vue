@@ -70,8 +70,9 @@ watch(
             </p>
             <h3 class="mt-2 text-xl font-semibold text-slate-900">{{ props.title }}</h3>
           </div>
-          <button type="button" class="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700" @click="close(true)">
-            <AppIcon name="x" class="h-4 w-4" />
+          <!-- 关闭按钮：TraeWork 官方 ds-btn--secondary（次级）+ 图标尺寸 icon--16 默认 16px -->
+          <button type="button" class="ds-btn ds-btn--secondary ds-btn--icon ds-btn--lg" :title="localeStore.t('common.close')" @click="close(true)">
+            <AppIcon name="x" class="icon icon--16" />
           </button>
         </div>
 
