@@ -125,7 +125,8 @@ function startOnboarding() {
   router.push({ name: 'tutorial-center' })
 }
 
-function handleOnboardingComplete(payload) {
+// 新手引导完成回调：参数 _payload 预留，后续如需回传步骤信息可直接启用
+function handleOnboardingComplete(_payload) {
   onboardingOpen.value = false
 }
 
@@ -412,85 +413,109 @@ watch(
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-100">
+  <!-- ========== TraeWork 设计系统应用框架：最外层用 bg-base-default（纯白） ========== -->
+  <div class="min-h-screen bg-tw-bg-base-default text-tw-text-default">
+    <!-- ========== 移动端侧边栏遮罩（TraeWork 浅灰 UI，遮罩用 text-default 的 32% 透明） ========== -->
     <div
       v-if="navMode === 'sidebar' && mobileMenuOpen"
-      class="fixed inset-0 z-40 bg-slate-950/40 lg:hidden"
+      class="fixed inset-0 z-40 bg-tw-text-default/30 lg:hidden"
       @click="mobileMenuOpen = false"
     />
 
+    <!-- ===================== 【移动端侧边栏】：沿用桌面端 visual，用 bg-menu 而不是老的 slate-950 黑底 ===================== -->
     <aside
       v-if="navMode === 'sidebar'"
-      class="fixed inset-y-0 left-0 z-50 flex w-[88vw] max-w-80 flex-col bg-slate-950 px-4 py-4 text-white shadow-2xl transition-transform duration-200 lg:hidden"
+      class="fixed inset-y-0 left-0 z-50 flex w-[88vw] max-w-80 flex-col bg-tw-bg-menu border-r border-tw-border-l1 px-tw-16 py-tw-20 text-tw-text-default shadow-lg transition-transform duration-200 lg:hidden"
       :class="mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'"
     >
-      <div class="flex items-center justify-between border-b border-slate-800 pb-4">
-        <div>
-          <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">{{ localeStore.t('common.inventory') }}</p>
-          <h1 class="mt-1 text-lg font-semibold">{{ localeStore.t('layout.controlCenter') }}</h1>
+      <!-- 顶部品牌区 + 关闭按钮 -->
+      <div class="flex items-start justify-between gap-tw-12 border-b border-tw-border-l1 pb-tw-16">
+        <div class="min-w-0">
+          <p class="tw-body-sm text-tw-text-tertiary uppercase tracking-[0.35em]">
+            {{ localeStore.t('common.inventory') }}
+          </p>
+          <h1 class="mt-tw-8 tw-heading-md">{{ localeStore.t('layout.controlCenter') }}</h1>
+          <p class="mt-tw-4 tw-body-md text-tw-text-tertiary">{{ localeStore.t('layout.mobileDesc') }}</p>
         </div>
-        <button class="rounded-xl border border-slate-700 p-2 text-sm" @click="mobileMenuOpen = false">
-          <AppIcon name="chevronLeft" class="h-4 w-4" />
+        <!-- 关闭按钮：ghost 样式，符合 TraeWork ds-btn--ghost -->
+        <button type="button" class="ds-btn ds-btn--ghost ds-btn--icon ds-btn--md" @click="mobileMenuOpen = false">
+          <AppIcon name="chevronLeft" class="icon icon--16" />
         </button>
       </div>
 
-      <nav class="mt-5 space-y-4 overflow-y-auto">
-        <section v-for="group in navGroups" :key="group.label" class="space-y-2">
+      <!-- 导航组：和桌面端共用结构（TraeWork UI Kit dashboard 的 nav-item 风格） -->
+      <nav class="mt-tw-16 space-y-tw-16 overflow-y-auto">
+        <section v-for="group in navGroups" :key="group.label" class="space-y-tw-4">
+          <!-- 分组标题：text-tertiary + 大写 + 字间距 -->
           <button
             type="button"
-            class="flex w-full items-center justify-between rounded-2xl px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-500 transition hover:bg-slate-900"
+            class="flex w-full items-center justify-between px-tw-8 py-tw-6 text-left tw-body-sm uppercase tracking-[0.2em] text-tw-text-tertiary rounded-tw-8 hover:bg-tw-bg-overlay-l1 transition"
             @click="toggleGroup(group.label)"
           >
             <span>{{ localizedGroupLabel(group.label) }}</span>
             <AppIcon
               name="chevronLeft"
-              class="h-3.5 w-3.5 -rotate-90 transition-transform"
+              class="icon icon--12 -rotate-90 transition-transform"
               :class="isGroupCollapsed(group.label) ? 'rotate-180' : 'rotate-90'"
             />
           </button>
-          <div v-if="!isGroupCollapsed(group.label)" class="space-y-2">
+          <div v-if="!isGroupCollapsed(group.label)" class="space-y-tw-2">
             <button
               v-for="item in group.items"
               :key="item.routeName"
-              class="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition"
+              type="button"
+              class="nav-item flex w-full items-center gap-tw-10 px-tw-10 py-tw-8 text-left transition"
               :class="
                 activeRouteName === item.routeName
-                  ? 'bg-brand-600 text-white'
-                  : 'bg-slate-900 text-slate-200 hover:bg-slate-800'
+                  ? 'nav-item--active'
+                  : 'nav-item--idle'
               "
               @click="selectNav(item.routeName)"
             >
-              <span class="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-white/10">
-                <AppIcon :name="item.icon" class="h-4 w-4" />
+              <span class="nav-item__icon">
+                <AppIcon :name="item.icon" class="icon icon--16" />
               </span>
-              <span class="min-w-0">
-                <span class="block truncate text-sm font-medium">{{ localizedNavLabel(item.label) }}</span>
-                <span class="block truncate text-[11px] text-slate-400">{{ localizedGroupLabel(item.group) }}</span>
+              <span class="nav-item__content">
+                <span class="nav-item__label">{{ localizedNavLabel(item.label) }}</span>
+                <span class="nav-item__sub">{{ localizedGroupLabel(item.group) }}</span>
               </span>
             </button>
           </div>
         </section>
       </nav>
 
-      <div class="mt-5 rounded-3xl bg-slate-900 p-4">
-        <p class="text-xs uppercase tracking-[0.25em] text-slate-500">{{ localeStore.t('layout.currentUser') }}</p>
-        <p class="mt-3 font-medium">{{ authStore.user?.full_name || authStore.user?.fullName }}</p>
-        <p class="text-sm text-slate-400">{{ authStore.user?.role }}</p>
+      <!-- 用户卡片：用 ds-card 包一层 -->
+      <div class="mt-tw-20 ds-card">
+        <p class="tw-body-sm text-tw-text-tertiary uppercase tracking-[0.25em]">
+          {{ localeStore.t('layout.currentUser') }}
+        </p>
+        <div class="mt-tw-12 flex items-center gap-tw-10">
+          <span class="ds-avatar ds-avatar--lg">{{ userInitials }}</span>
+          <div class="min-w-0">
+            <p class="truncate tw-body-base text-tw-text-default">
+              {{ authStore.user?.full_name || authStore.user?.fullName }}
+            </p>
+            <p class="truncate tw-body-sm text-tw-text-tertiary">{{ authStore.user?.role }}</p>
+          </div>
+        </div>
         <button
-          class="mt-4 w-full rounded-2xl border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-200"
+          type="button"
+          class="mt-tw-16 w-full ds-btn ds-btn--secondary ds-btn--lg"
           @click="toggleUserActions"
         >
           {{ userActionsHidden ? localeStore.t('layout.showActions') : localeStore.t('layout.hideActions') }}
         </button>
-        <div v-if="!userActionsHidden" class="mt-3 grid grid-cols-2 gap-2">
+        <div v-if="!userActionsHidden" class="mt-tw-12 grid grid-cols-2 gap-tw-8">
           <button
-            class="rounded-2xl border border-slate-700 px-2 py-3 text-xs font-semibold text-white"
+            type="button"
+            class="ds-btn ds-btn--secondary ds-btn--lg"
             @click="localeStore.toggleLocale()"
           >
             {{ localeStore.locale === 'en' ? localeStore.t('layout.switchToChinese') : localeStore.t('layout.switchToEnglish') }}
           </button>
           <button
-            class="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900"
+            type="button"
+            class="ds-btn ds-btn--primary ds-btn--lg"
             @click="logout"
           >
             {{ localeStore.t('common.logout') }}
@@ -499,71 +524,85 @@ watch(
       </div>
     </aside>
 
+    <!-- ===================== 主布局：sidebar（桌面端） + workspace ===================== -->
     <div class="flex min-h-screen w-full">
+      <!-- ===================== 【桌面端侧边栏】：TraeWork 风格 bg-menu，不再是极暗 slate-950 ===================== -->
       <aside
         v-if="navMode === 'sidebar'"
-        class="sticky top-0 hidden h-screen shrink-0 flex-col border-r border-slate-800 bg-slate-950 px-4 py-5 text-white lg:flex"
+        class="sidebar sticky top-0 hidden h-screen shrink-0 flex-col border-r border-tw-border-l1 bg-tw-bg-menu text-tw-text-default lg:flex"
         :class="sidebarCollapsed ? 'w-24' : 'w-64'"
       >
-        <div class="flex items-start justify-between gap-3">
-          <div v-if="!sidebarCollapsed">
-            <p class="text-xs uppercase tracking-[0.35em] text-slate-500">{{ localeStore.t('common.inventory') }}</p>
-            <h1 class="mt-2 text-2xl font-semibold">{{ localeStore.t('layout.controlCenter') }}</h1>
-            <p class="mt-2 text-sm text-slate-400">{{ localeStore.t('layout.mobileDesc') }}</p>
+        <!-- 品牌头 + 折叠按钮 -->
+        <div class="flex items-start justify-between gap-tw-12 px-tw-20 pt-tw-20">
+          <div v-if="!sidebarCollapsed" class="min-w-0">
+            <p class="tw-body-sm text-tw-text-tertiary uppercase tracking-[0.35em]">
+              {{ localeStore.t('common.inventory') }}
+            </p>
+            <h1 class="mt-tw-8 tw-heading-md">{{ localeStore.t('layout.controlCenter') }}</h1>
+            <p class="mt-tw-4 tw-body-md text-tw-text-tertiary">{{ localeStore.t('layout.mobileDesc') }}</p>
           </div>
-          <div v-else class="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-sm font-semibold">
-            {{ userInitials }}
-          </div>
-          <button class="rounded-xl border border-slate-700 p-2 text-sm" @click="toggleSidebar">
+          <!-- 折叠时直接显示头像占位 -->
+          <span v-else class="ds-avatar ds-avatar--lg">{{ userInitials }}</span>
+          <button
+            type="button"
+            class="ds-btn ds-btn--ghost ds-btn--icon ds-btn--md"
+            title="Toggle sidebar"
+            @click="toggleSidebar"
+          >
             <AppIcon
               name="chevronLeft"
-              class="h-4 w-4 transition-transform"
+              class="icon icon--16 transition-transform"
               :class="sidebarCollapsed ? 'rotate-180' : ''"
             />
           </button>
         </div>
 
-        <nav class="mt-6 space-y-4 overflow-y-auto">
-          <section v-for="group in navGroups" :key="group.label" class="space-y-2">
+        <!-- 导航列表：与 UI Kit dashboard 保持一致 -->
+        <nav class="mt-tw-20 space-y-tw-20 overflow-y-auto px-tw-12">
+          <section v-for="group in navGroups" :key="group.label" class="space-y-tw-4">
+            <!-- 分组标题：折叠态下不显示文字 -->
             <button
               v-if="!sidebarCollapsed"
               type="button"
-              class="flex w-full items-center justify-between rounded-2xl px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500 transition hover:bg-slate-900"
+              class="flex w-full items-center justify-between px-tw-8 py-tw-6 text-left tw-body-sm uppercase tracking-[0.2em] text-tw-text-tertiary rounded-tw-8 hover:bg-tw-bg-overlay-l1 transition"
               @click="toggleGroup(group.label)"
             >
               <span>{{ localizedGroupLabel(group.label) }}</span>
               <AppIcon
                 name="chevronLeft"
-                class="h-3.5 w-3.5 -rotate-90 transition-transform"
+                class="icon icon--12 -rotate-90 transition-transform"
                 :class="isGroupCollapsed(group.label) ? 'rotate-180' : 'rotate-90'"
               />
             </button>
+
             <div
               v-if="sidebarCollapsed || !isGroupCollapsed(group.label)"
-              class="space-y-2"
+              class="space-y-tw-2"
             >
               <button
                 v-for="item in group.items"
                 :key="item.routeName"
+                type="button"
                 :title="sidebarCollapsed ? `${group.label} · ${item.label}` : undefined"
-                class="group relative flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition duration-200"
+                class="nav-item group relative flex w-full items-center gap-tw-10 px-tw-10 py-tw-8 text-left transition"
                 :class="
                   activeRouteName === item.routeName
-                    ? 'translate-x-1 bg-brand-600 text-white shadow-lg shadow-brand-950/30 ring-1 ring-white/10'
-                    : 'bg-slate-900 text-slate-200 hover:bg-slate-800 hover:text-white'
+                    ? 'nav-item--active'
+                    : 'nav-item--idle'
                 "
                 @click="selectNav(item.routeName)"
               >
-                <span class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10">
-                  <AppIcon :name="item.icon" class="h-4 w-4" />
+                <span class="nav-item__icon">
+                  <AppIcon :name="item.icon" class="icon icon--16" />
                 </span>
-                <span v-if="!sidebarCollapsed" class="min-w-0">
-                  <span class="block truncate text-sm font-medium">{{ localizedNavLabel(item.label) }}</span>
-                  <span class="block truncate text-[11px] text-slate-400">{{ localizedGroupLabel(item.group) }}</span>
+                <span v-if="!sidebarCollapsed" class="nav-item__content">
+                  <span class="nav-item__label">{{ localizedNavLabel(item.label) }}</span>
+                  <span class="nav-item__sub">{{ localizedGroupLabel(item.group) }}</span>
                 </span>
+                <!-- 折叠态：hover tooltip 用 bg-tooltip，符合 TraeWork token -->
                 <span
                   v-if="sidebarCollapsed"
-                  class="pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 rounded-xl bg-slate-900 px-3 py-2 text-xs font-medium text-white opacity-0 shadow-lg transition group-hover:opacity-100"
+                  class="pointer-events-none absolute left-full top-1/2 z-20 ml-tw-12 -translate-y-1/2 rounded-tw-8 bg-tw-bg-tooltip px-tw-10 py-tw-8 tw-body-sm text-tw-text-default opacity-0 shadow-lg transition group-hover:opacity-100 whitespace-nowrap"
                 >
                   {{ localizedNavLabel(item.label) }}
                 </span>
@@ -572,312 +611,347 @@ watch(
           </section>
         </nav>
 
-        <div class="mt-auto rounded-3xl bg-slate-900 p-4">
-          <div class="flex items-center gap-3">
-            <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-600 text-sm font-semibold">
-              {{ userInitials }}
+        <!-- 底部用户卡片 -->
+        <div class="sidebar__footer px-tw-16 pb-tw-20">
+          <div class="ds-card">
+            <div class="flex items-center gap-tw-10">
+              <span class="ds-avatar">{{ userInitials }}</span>
+              <div v-if="!sidebarCollapsed" class="min-w-0">
+                <p class="truncate tw-body-base text-tw-text-default">
+                  {{ authStore.user?.full_name || authStore.user?.fullName }}
+                </p>
+                <p class="truncate tw-body-sm text-tw-text-tertiary">{{ authStore.user?.role }}</p>
+              </div>
             </div>
-            <div v-if="!sidebarCollapsed" class="min-w-0">
-              <p class="truncate text-sm font-medium">{{ authStore.user?.full_name || authStore.user?.fullName }}</p>
-              <p class="truncate text-xs text-slate-400">{{ authStore.user?.role }}</p>
-            </div>
-          </div>
-          <button
-            v-if="!sidebarCollapsed"
-            class="mt-4 w-full rounded-2xl border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-200"
-            @click="toggleUserActions"
-          >
-            {{ userActionsHidden ? localeStore.t('layout.showActions') : localeStore.t('layout.hideActions') }}
-          </button>
-          <div v-if="!userActionsHidden" class="mt-3 space-y-3">
             <button
-              class="w-full rounded-2xl border border-slate-700 px-4 py-3 text-sm font-semibold text-white"
-              @click="localeStore.toggleLocale()"
+              v-if="!sidebarCollapsed"
+              type="button"
+              class="mt-tw-16 w-full ds-btn ds-btn--secondary ds-btn--lg"
+              @click="toggleUserActions"
             >
-              {{ localeStore.locale === 'en' ? localeStore.t('layout.switchToChinese') : localeStore.t('layout.switchToEnglish') }}
+              {{ userActionsHidden ? localeStore.t('layout.showActions') : localeStore.t('layout.hideActions') }}
             </button>
-            <button
-              class="w-full rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900"
-              @click="logout"
-            >
-              {{ sidebarCollapsed ? 'Out' : localeStore.t('common.logout') }}
-            </button>
-          </div>
-        </div>
-      </aside>
-
-      <main class="min-w-0 flex-1 px-1 py-1 sm:px-3 lg:px-4">
-        <div class="sticky top-0 z-30 mb-2 rounded-3xl border border-slate-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur lg:hidden">
-          <div class="flex items-center justify-between gap-3">
-            <div class="min-w-0">
-              <p class="text-[11px] uppercase tracking-[0.15em] text-slate-400">{{ localizedNavLabel(currentNavItem?.label || 'Inventory') }}</p>
-              <p class="text-base font-semibold text-slate-900">{{ authStore.user?.role }} {{ localeStore.t('common.workspace').toLowerCase() }}</p>
-            </div>
-            <div class="flex items-center gap-2">
+            <div v-if="!userActionsHidden" class="mt-tw-12 space-y-tw-8">
               <button
-                class="rounded-2xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"
+                type="button"
+                class="w-full ds-btn ds-btn--secondary ds-btn--lg"
                 @click="localeStore.toggleLocale()"
               >
                 {{ localeStore.locale === 'en' ? localeStore.t('layout.switchToChinese') : localeStore.t('layout.switchToEnglish') }}
               </button>
               <button
-                class="rounded-2xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"
+                type="button"
+                class="w-full ds-btn ds-btn--primary ds-btn--lg"
+                @click="logout"
+              >
+                {{ sidebarCollapsed ? 'Out' : localeStore.t('common.logout') }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ===================== 工作区：Topbar（TraeWork 整行吸顶） + 页面内容 ===================== -->
+      <div class="workspace flex-1 min-w-0">
+        <!-- ========== 移动端顶栏（lg:hidden） ========== -->
+        <div class="sticky top-0 z-30 mb-tw-20 lg:hidden border-b border-tw-border-l1 bg-tw-bg-base-default">
+          <div class="flex items-center justify-between gap-tw-12 px-tw-16 py-tw-12">
+            <div class="min-w-0">
+              <p class="tw-body-sm text-tw-text-tertiary uppercase tracking-[0.2em]">
+                {{ localizedNavLabel(currentNavItem?.label || 'Inventory') }}
+              </p>
+              <p class="tw-heading-2xs">
+                {{ authStore.user?.role }} {{ localeStore.t('common.workspace').toLowerCase() }}
+              </p>
+            </div>
+            <div class="flex items-center gap-tw-6">
+              <button
+                type="button"
+                class="ds-btn ds-btn--secondary ds-btn--md"
+                @click="localeStore.toggleLocale()"
+              >
+                {{ localeStore.locale === 'en' ? '中文' : 'EN' }}
+              </button>
+              <button
+                type="button"
+                class="ds-btn ds-btn--secondary ds-btn--md"
                 @click="logout"
               >
                 {{ localeStore.t('common.logout') }}
               </button>
               <button
                 v-if="navMode === 'sidebar'"
-                class="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700"
+                type="button"
+                class="ds-btn ds-btn--secondary ds-btn--icon ds-btn--md"
                 @click="mobileMenuOpen = true"
               >
-                <span class="flex items-center gap-2">
-                  <AppIcon name="menu" class="h-4 w-4" />
-                  <span class="hidden sm:inline">{{ localeStore.t('common.menu') }}</span>
-                </span>
+                <AppIcon name="menu" class="icon icon--16" />
               </button>
             </div>
           </div>
-          <div v-if="navMode === 'navbar'" class="mt-3 space-y-2">
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-for="group in navGroups"
-                :key="`mobile-nav-group-${group.label}`"
-                class="rounded-full border px-3 py-1.5 text-xs font-semibold"
-                :class="
-                  openMobileNavGroup === group.label
-                    ? 'border-slate-900 bg-slate-900 text-white'
-                    : 'border-slate-200 bg-white text-slate-700'
-                "
-                @click="toggleMobileNavGroup(group.label)"
-              >
-                {{ localizedGroupLabel(group.label) }}
-              </button>
-            </div>
-            <div v-if="openMobileNavGroup" class="flex flex-wrap gap-2">
-              <button
-                v-for="item in navGroups.find((g) => g.label === openMobileNavGroup)?.items || []"
-                :key="`mobile-subnav-${item.routeName}`"
-                class="rounded-full border px-3 py-1.5 text-xs font-semibold"
-                :class="
-                  activeRouteName === item.routeName
-                    ? 'border-brand-500 bg-brand-50 text-brand-700'
-                    : 'border-slate-200 bg-white text-slate-700'
-                "
-                @click="selectNav(item.routeName)"
-              >
-                {{ localizedNavLabel(item.label) }}
-              </button>
-            </div>
+          <!-- 移动端 tab 式导航（navbar 模式） -->
+          <div v-if="navMode === 'navbar'" class="flex flex-wrap gap-tw-8 px-tw-16 pb-tw-12">
+            <button
+              v-for="group in navGroups"
+              :key="`mobile-nav-group-${group.label}`"
+              type="button"
+              class="ds-btn ds-btn--sm"
+              :class="openMobileNavGroup === group.label ? 'ds-btn--primary' : 'ds-btn--secondary'"
+              @click="toggleMobileNavGroup(group.label)"
+            >
+              {{ localizedGroupLabel(group.label) }}
+            </button>
+          </div>
+          <div v-if="openMobileNavGroup" class="flex flex-wrap gap-tw-8 px-tw-16 pb-tw-16">
+            <button
+              v-for="item in navGroups.find((g) => g.label === openMobileNavGroup)?.items || []"
+              :key="`mobile-subnav-${item.routeName}`"
+              type="button"
+              class="ds-btn ds-btn--sm"
+              :class="activeRouteName === item.routeName ? 'ds-btn--brand' : 'ds-btn--tertiary'"
+              @click="selectNav(item.routeName)"
+            >
+              {{ localizedNavLabel(item.label) }}
+            </button>
           </div>
         </div>
 
-        <div class="sticky top-0 z-[80] mb-3 hidden rounded-3xl border border-slate-200 bg-white/95 px-5 py-4 shadow-sm backdrop-blur lg:block">
-          <div class="flex items-center justify-between gap-4">
-            <div class="min-w-0">
-              <div class="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.25em] text-slate-400">
-                <button
-                  v-if="canGoBack"
-                  type="button"
-                  class="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-[11px] font-semibold tracking-[0.2em] text-slate-500 transition hover:border-slate-300 hover:text-slate-900"
-                  @click="goBack"
-                >
-                  <AppIcon name="chevronLeft" class="h-3.5 w-3.5" />
-                  <span>{{ localeStore.t('common.back') }}</span>
-                </button>
-                <span v-for="item in breadcrumbs" :key="item.key" class="flex items-center gap-2">
+        <!-- ========== 桌面端 Topbar：TraeWork 整行吸顶 + 分隔线（不再是旧的"悬浮卡片"） ========== -->
+        <div class="topbar hidden lg:flex">
+          <div class="flex flex-1 flex-col items-start justify-center gap-tw-8 min-w-0">
+            <!-- 面包屑（TraeWork .ds-breadcrumb 官方类） -->
+            <nav class="ds-breadcrumb">
+              <button
+                v-if="canGoBack"
+                type="button"
+                class="ds-btn ds-btn--ghost ds-btn--sm mr-tw-4"
+                @click="goBack"
+              >
+                <AppIcon name="chevronLeft" class="icon icon--12" />
+                <span>{{ localeStore.t('common.back') }}</span>
+              </button>
+              <template v-for="(item, idx) in breadcrumbs" :key="item.key">
+                <a v-if="item.routeName" @click.prevent="selectNav(item.routeName)" href="#">
+                  {{ item.label }}
+                </a>
+                <span v-else class="ds-breadcrumb__current">{{ item.label }}</span>
+                <span v-if="idx !== breadcrumbs.length - 1" class="ds-breadcrumb__sep">/</span>
+              </template>
+            </nav>
+
+            <!-- 页面标题区（page header） -->
+            <div class="flex items-center gap-tw-12 w-full">
+              <div class="flex h-tw-40 w-tw-40 items-center justify-center rounded-tw-12 bg-tw-bg-overlay-l2 text-tw-text-default">
+                <AppIcon :name="currentNavItem?.icon || 'guide'" class="icon icon--20" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-tw-8 flex-wrap">
+                  <h1 class="tw-heading-md m-0">
+                    {{ localizedNavLabel(currentNavItem?.label || 'Dashboard') }}
+                  </h1>
+                  <HelpHint :text="guideTooltip" @click="startOnboarding" />
                   <button
-                    v-if="item.routeName"
                     type="button"
-                    class="text-slate-400 transition hover:text-slate-900"
-                    @click="selectNav(item.routeName)"
+                    class="ds-btn ds-btn--secondary ds-btn--sm"
+                    @click="startOnboarding"
                   >
-                    {{ item.label }}
+                    <AppIcon name="guide" class="icon icon--14" />
+                    {{ localeStore.t('common.quickGuide') }}
                   </button>
-                  <span v-else>{{ item.label }}</span>
-                  <span v-if="item.key !== 'current'" class="text-slate-300">/</span>
-                </span>
+                </div>
+                <p class="mt-tw-4 tw-body-md text-tw-text-tertiary m-0">
+                  {{ localizedGroupLabel(currentNavItem?.group || 'Inventory workspace') }}
+                </p>
               </div>
-              <div class="mt-3 flex items-center gap-3">
-                <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-white">
-                  <AppIcon :name="currentNavItem?.icon || 'guide'" class="h-5 w-5" />
-                </div>
-                <div class="min-w-0">
-                  <div class="flex items-center gap-2">
-                    <p class="text-lg font-semibold text-slate-900">{{ localizedNavLabel(currentNavItem?.label || 'Dashboard') }}</p>
-                    <HelpHint :text="guideTooltip" @click="startOnboarding" />
-                    <button
-                      type="button"
-                      class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                      @click="startOnboarding"
-                    >
-                      {{ localeStore.t('common.quickGuide') }}
-                    </button>
-                  </div>
-                  <p class="text-sm text-slate-500">{{ localizedGroupLabel(currentNavItem?.group || 'Inventory workspace') }}</p>
-                </div>
-              </div>
-              <nav v-if="navMode === 'navbar'" ref="topNavRef" class="mt-4 space-y-2">
-                <div class="flex flex-wrap gap-2">
-                  <button
-                    v-for="group in navGroups"
-                    :key="`topnav-group-${group.label}`"
-                    class="rounded-full border px-4 py-2 text-sm font-semibold transition"
-                    :class="
-                      openNavGroup === group.label
-                        ? 'border-slate-900 bg-slate-900 text-white'
-                        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
-                    "
-                    @click="toggleNavGroup(group.label)"
-                  >
-                    {{ localizedGroupLabel(group.label) }}
-                  </button>
-                </div>
-                <div v-if="openNavGroup" class="rounded-2xl border border-slate-200 bg-white p-2">
-                  <button
-                    v-for="item in navGroups.find((g) => g.label === openNavGroup)?.items || []"
-                    :key="`topnav-${item.routeName}`"
-                    class="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm font-semibold transition"
-                    :class="
-                      activeRouteName === item.routeName
-                        ? 'bg-brand-50 text-brand-700'
-                        : 'text-slate-700 hover:bg-slate-50'
-                    "
-                    @click="selectNav(item.routeName)"
-                  >
-                    <span>{{ localizedNavLabel(item.label) }}</span>
-                    <span class="text-xs text-slate-400">{{ localizedGroupLabel(item.group) }}</span>
-                  </button>
-                </div>
-              </nav>
             </div>
-            <div class="space-y-2 text-right">
-              <div class="rounded-2xl bg-slate-50 px-4 py-3">
-                <p class="text-xs uppercase tracking-[0.25em] text-slate-400">{{ authStore.user?.role }}</p>
-                <p class="mt-1 text-sm font-medium text-slate-900">{{ authStore.user?.full_name || authStore.user?.fullName }}</p>
-              </div>
-              <div class="flex flex-col gap-2">
-                <div class="grid grid-cols-3 gap-2">
-                  <div ref="notificationsRef" class="relative">
-                    <button
-                      type="button"
-                      class="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700"
-                      @click="toggleNotifications"
-                    >
-                      <AppIcon name="bell" class="h-4 w-4" />
-                      <span class="hidden sm:inline">{{ localeStore.t('common.alerts') }}</span>
-                    </button>
-                    <span
-                      v-if="notificationsStore.unreadCount > 0"
-                      class="absolute -right-1 -top-1 inline-flex min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[11px] font-semibold text-white"
-                    >
-                      {{ notificationsStore.unreadCount > 99 ? '99+' : notificationsStore.unreadCount }}
-                    </span>
 
-                    <div
-                      v-if="notificationsOpen"
-                      class="absolute right-0 top-11 z-[90] w-80 rounded-3xl border border-slate-200 bg-white p-3 shadow-xl"
-                    >
-                      <div class="flex items-center justify-between gap-3 px-2">
-                        <p class="text-sm font-semibold text-slate-900">{{ localeStore.t('common.notifications') }}</p>
-                        <div class="flex items-center gap-2">
-                          <button
-                            type="button"
-                            class="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700"
-                            :disabled="notificationsStore.loading"
-                            @click="refreshNotifications"
-                          >
-                            {{ notificationsStore.loading ? localeStore.t('common.loading') : localeStore.t('common.refresh') }}
-                          </button>
-                          <button
-                            type="button"
-                            class="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
-                            @click="openNotificationsCenter"
-                          >
-                            {{ localeStore.t('common.view') }}
-                          </button>
-                        </div>
-                      </div>
-
-                      <div class="mt-3 space-y-2">
-                        <button
-                          v-for="item in notificationsStore.items.slice(0, 5)"
-                          :key="item.id"
-                          type="button"
-                          class="w-full rounded-2xl border border-slate-200 px-3 py-2 text-left transition hover:bg-slate-50"
-                          @click="handleNotificationClick(item)"
-                        >
-                          <div class="flex items-start justify-between gap-2">
-                            <p class="text-sm font-semibold text-slate-900">{{ item.title }}</p>
-                            <span
-                              v-if="notificationBadge(item.notification_type || item.type)"
-                              class="inline-flex flex-shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-semibold"
-                              :class="notificationBadge(item.notification_type || item.type).cls"
-                            >
-                              {{ notificationBadge(item.notification_type || item.type).label }}
-                            </span>
-                          </div>
-                          <p class="mt-1 line-clamp-2 text-xs text-slate-500">{{ item.message }}</p>
-                        </button>
-                        <p v-if="notificationsStore.items.length === 0" class="px-2 text-sm text-slate-500">
-                          {{ localeStore.t('layout.noUnreadNotifications') }}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700"
-                    @click="router.push({ name: 'settings' })"
-                  >
-                    {{ localeStore.t('common.settings') }}
-                  </button>
-                  <button
-                    class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700"
-                    @click="localeStore.toggleLocale()"
-                  >
-                    {{ localeStore.locale === 'en' ? '中文' : 'EN' }}
-                  </button>
-                </div>
+            <!-- navbar 模式：顶部二级组导航 -->
+            <nav v-if="navMode === 'navbar'" ref="topNavRef" class="w-full">
+              <div class="flex flex-wrap gap-tw-8">
                 <button
-                  class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700"
-                  @click="logout"
+                  v-for="group in navGroups"
+                  :key="`topnav-group-${group.label}`"
+                  type="button"
+                  class="ds-btn ds-btn--md"
+                  :class="openNavGroup === group.label ? 'ds-btn--primary' : 'ds-btn--ghost'"
+                  @click="toggleNavGroup(group.label)"
                 >
-                  {{ localeStore.t('common.logout') }}
+                  {{ localizedGroupLabel(group.label) }}
                 </button>
               </div>
+              <div v-if="openNavGroup" class="mt-tw-8 ds-card p-tw-8">
+                <button
+                  v-for="item in navGroups.find((g) => g.label === openNavGroup)?.items || []"
+                  :key="`topnav-${item.routeName}`"
+                  type="button"
+                  class="flex w-full items-center justify-between rounded-tw-8 px-tw-10 py-tw-8 tw-body-base transition"
+                  :class="
+                    activeRouteName === item.routeName
+                      ? 'bg-tw-bg-brand-popup text-tw-text-brand'
+                      : 'text-tw-text-default hover:bg-tw-bg-overlay-l1'
+                  "
+                  @click="selectNav(item.routeName)"
+                >
+                  <span>{{ localizedNavLabel(item.label) }}</span>
+                  <span class="tw-body-sm text-tw-text-tertiary">{{ localizedGroupLabel(item.group) }}</span>
+                </button>
+              </div>
+            </nav>
+          </div>
+
+          <!-- Topbar 右侧：通知/设置/语言/退出 -->
+          <div class="flex items-stretch gap-tw-8">
+            <div ref="notificationsRef" class="relative">
+              <button
+                type="button"
+                class="ds-btn ds-btn--secondary ds-btn--lg"
+                @click="toggleNotifications"
+              >
+                <AppIcon name="bell" class="icon icon--16" />
+                <span class="hidden xl:inline">{{ localeStore.t('common.alerts') }}</span>
+              </button>
+              <!-- 未读角标：用 TraeWork .ds-tag--danger（小面积语义色） -->
+              <span
+                v-if="notificationsStore.unreadCount > 0"
+                class="absolute -right-1 -top-1 flex h-tw-18 min-w-tw-18 items-center justify-center rounded-tw-full bg-tw-status-error px-tw-6 py-tw-2 [font-size:10px] leading-none font-semibold text-white"
+              >
+                {{ notificationsStore.unreadCount > 99 ? '99+' : notificationsStore.unreadCount }}
+              </span>
+
+              <!-- 通知下拉：TraeWork .ds-menu 风格 -->
+              <div
+                v-if="notificationsOpen"
+                class="absolute right-0 top-[calc(100%+8px)] z-[90] w-[360px] ds-menu"
+              >
+                <div class="flex items-center justify-between gap-tw-8 px-tw-8 py-tw-4">
+                  <p class="ds-card__title m-0">{{ localeStore.t('common.notifications') }}</p>
+                  <div class="flex items-center gap-tw-6">
+                    <button
+                      type="button"
+                      class="ds-btn ds-btn--tertiary ds-btn--sm"
+                      :disabled="notificationsStore.loading"
+                      @click="refreshNotifications"
+                    >
+                      {{ notificationsStore.loading ? localeStore.t('common.loading') : localeStore.t('common.refresh') }}
+                    </button>
+                    <button
+                      type="button"
+                      class="ds-btn ds-btn--primary ds-btn--sm"
+                      @click="openNotificationsCenter"
+                    >
+                      {{ localeStore.t('common.view') }}
+                    </button>
+                  </div>
+                </div>
+                <div class="ds-menu__divider"></div>
+                <div class="flex flex-col gap-tw-4 max-h-[420px] overflow-y-auto px-tw-4 pb-tw-4">
+                  <button
+                    v-for="item in notificationsStore.items.slice(0, 5)"
+                    :key="item.id"
+                    type="button"
+                    class="ds-menu__item flex-col items-start gap-tw-4"
+                    @click="handleNotificationClick(item)"
+                  >
+                    <div class="flex w-full items-start justify-between gap-tw-8">
+                      <span class="tw-body-base text-tw-text-default">
+                        {{ item.title }}
+                      </span>
+                      <span
+                        v-if="notificationBadge(item.notification_type || item.type)"
+                        class="ds-tag text-tw-text-secondary"
+                        :class="{
+                          'ds-tag--warning': (notificationBadge(item.notification_type || item.type)?.label || '').toLowerCase().includes('due') || (notificationBadge(item.notification_type || item.type)?.label || '').toLowerCase().includes('到期'),
+                          'ds-tag--danger': (notificationBadge(item.notification_type || item.type)?.label || '').toLowerCase().includes('overdue') || (notificationBadge(item.notification_type || item.type)?.label || '').toLowerCase().includes('逾期'),
+                          'ds-tag--brand': !( (notificationBadge(item.notification_type || item.type)?.label || '').toLowerCase().includes('due') || (notificationBadge(item.notification_type || item.type)?.label || '').toLowerCase().includes('到期') || (notificationBadge(item.notification_type || item.type)?.label || '').toLowerCase().includes('overdue') || (notificationBadge(item.notification_type || item.type)?.label || '').toLowerCase().includes('逾期') ),
+                        }"
+                      >
+                        {{ notificationBadge(item.notification_type || item.type).label }}
+                      </span>
+                    </div>
+                    <p class="m-0 line-clamp-2 tw-body-sm text-tw-text-tertiary w-full text-left">
+                      {{ item.message }}
+                    </p>
+                  </button>
+                  <p v-if="notificationsStore.items.length === 0" class="px-tw-8 py-tw-8 tw-body-md text-tw-text-tertiary m-0">
+                    {{ localeStore.t('layout.noUnreadNotifications') }}
+                  </p>
+                </div>
+              </div>
             </div>
+
+            <button
+              type="button"
+              class="ds-btn ds-btn--secondary ds-btn--icon ds-btn--lg"
+              :title="localeStore.t('common.settings')"
+              @click="router.push({ name: 'settings' })"
+            >
+              <AppIcon name="guide" class="icon icon--16" />
+            </button>
+
+            <button
+              type="button"
+              class="ds-btn ds-btn--secondary ds-btn--sm"
+              :title="localeStore.locale === 'en' ? localeStore.t('layout.switchToChinese') : localeStore.t('layout.switchToEnglish')"
+              @click="localeStore.toggleLocale()"
+            >
+              {{ localeStore.locale === 'en' ? '中文' : 'EN' }}
+            </button>
+
+            <div class="topbar__divider"></div>
+
+            <!-- 用户菜单入口（TraeWork .user-menu 风格） -->
+            <button type="button" class="user-menu" @click="toggleUserActions">
+              <span class="ds-avatar">{{ userInitials }}</span>
+              <div class="hidden xl:flex flex-col items-start leading-none gap-tw-2">
+                <span class="tw-body-base text-tw-text-default leading-none">
+                  {{ authStore.user?.full_name || authStore.user?.fullName }}
+                </span>
+                <span class="tw-body-sm text-tw-text-tertiary leading-none">
+                  {{ authStore.user?.role }}
+                </span>
+              </div>
+            </button>
+            <button
+              type="button"
+              class="ds-btn ds-btn--primary ds-btn--lg"
+              @click="logout"
+            >
+              {{ localeStore.t('common.logout') }}
+            </button>
           </div>
         </div>
 
-        <div class="rounded-[28px] bg-white p-4 shadow-sm sm:p-5 lg:p-6">
+        <!-- ========== 页面内容容器：max-width 1280，居中，px 用 spacer-32 ========== -->
+        <div class="main px-tw-16 pb-tw-32 sm:px-tw-24 lg:px-tw-32 lg:pt-tw-24">
           <div
             v-if="navMode === 'navbar' && hasPageSidebar"
-            class="grid gap-5"
+            class="grid gap-tw-24"
             :class="pageSidebarOpen ? 'lg:grid-cols-[1fr_360px]' : 'lg:grid-cols-1'"
           >
             <div class="min-w-0">
-              <div class="mb-4 hidden lg:flex justify-end">
+              <div class="mb-tw-20 hidden lg:flex justify-end">
                 <button
                   type="button"
-                  class="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  class="ds-btn ds-btn--secondary ds-btn--lg"
                   @click="pageSidebarOpen = !pageSidebarOpen"
                 >
                   {{ pageSidebarOpen ? (localeStore.locale === 'en' ? 'Hide tools' : '收起工具') : (localeStore.locale === 'en' ? 'Show tools' : '显示工具') }}
                 </button>
               </div>
 
-              <details class="mb-4 rounded-3xl border border-slate-200 bg-slate-50 p-4 lg:hidden">
-                <summary class="cursor-pointer list-none text-sm font-semibold text-slate-900">
+              <!-- 移动端 Tools 折叠：用 ds-card 包一层 -->
+              <details class="mb-tw-20 ds-card lg:hidden">
+                <summary class="cursor-pointer list-none tw-body-base text-tw-text-default">
                   {{ localeStore.locale === 'en' ? 'Tools' : '工具' }}
                 </summary>
-                <div class="mt-4">
+                <div class="mt-tw-12">
                   <slot name="sidebar" />
                 </div>
               </details>
               <slot />
             </div>
             <aside v-if="pageSidebarOpen" class="hidden lg:block">
-              <div class="sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <div class="sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto ds-card">
                 <slot name="sidebar" />
               </div>
             </aside>
@@ -886,7 +960,7 @@ watch(
             <slot />
           </template>
         </div>
-      </main>
+      </div>
     </div>
   </div>
 
@@ -897,3 +971,130 @@ watch(
     @complete="handleOnboardingComplete"
   />
 </template>
+
+<!-- ========== TraeWork 局部样式：侧栏/顶栏/导航项。所有值都走设计系统 tokens ========== -->
+<style scoped>
+/* 侧栏：TraeWork UI Kit dashboard 的 .sidebar 结构 */
+.sidebar {
+  background: var(--bg-menu);
+  color: var(--text-default);
+}
+
+/* 导航项：与 UI Kit 中 .nav-item 完全对齐。
+   - idle：hover overlay-l1
+   - active：bg-overlay-l2 + text-default（小面积强调，不直接把整行涂成紫色品牌色，符合 TraeWork "品牌色小面积用" 原则）*/
+.nav-item {
+  border-radius: var(--radius-8);
+  min-height: 36px;
+}
+.nav-item--idle {
+  color: var(--text-secondary);
+}
+.nav-item--idle:hover {
+  background: var(--bg-overlay-l1);
+  color: var(--text-default);
+}
+.nav-item--active {
+  background: var(--bg-overlay-l2);
+  color: var(--text-default);
+  font-weight: var(--font-weight-medium);
+}
+.nav-item__icon {
+  width: 20px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: inherit;
+}
+.nav-item__content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-item__label {
+  font-size: var(--body-base-font-size);
+  line-height: var(--body-base-line-height);
+  font-weight: var(--font-weight-regular);
+  color: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-item--active .nav-item__label {
+  font-weight: var(--font-weight-medium);
+}
+.nav-item__sub {
+  font-size: var(--body-sm-font-size);
+  line-height: var(--body-sm-line-height);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 顶栏：TraeWork UI Kit 标准 .topbar —— 整行吸顶 + 底部细边，不再是旧的"悬浮 rounded-3xl 卡片"*/
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 80;
+  min-height: 64px;
+  padding: var(--spacer-16) var(--spacer-32);
+  background: var(--bg-base-default);
+  border-bottom: 1px solid var(--border-neutral-l1);
+  gap: var(--spacer-24);
+  align-items: stretch;
+}
+.topbar__divider {
+  width: 1px;
+  background: var(--border-neutral-l1);
+  margin: 0 var(--spacer-4);
+}
+
+/* 工作区 / 主内容区（与 UI Kit dashboard 对齐） */
+.workspace {
+  min-width: 0;
+  background: var(--bg-base-default);
+}
+.main {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding-top: var(--spacer-32);
+}
+
+/* 用户菜单入口：TraeWork 官方 .user-menu */
+.user-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacer-8);
+  min-height: 32px;
+  padding: 0 var(--spacer-8);
+  border: 0;
+  border-radius: var(--radius-8);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.user-menu:hover {
+  background: var(--bg-overlay-l1);
+  color: var(--text-default);
+}
+
+/* AppIcon 的 icon icon--NN 尺寸统一，与 TraeWork components.css 的 ds-btn .icon--NN 一致 */
+:deep(.icon) {
+  display: inline-block;
+  flex: 0 0 auto;
+  color: currentColor;
+}
+:deep(.icon--12) { width: var(--icon-size-12); height: var(--icon-size-12); }
+:deep(.icon--14) { width: var(--icon-size-14); height: var(--icon-size-14); }
+:deep(.icon--16) { width: var(--icon-size-16); height: var(--icon-size-16); }
+:deep(.icon--20) { width: var(--icon-size-20); height: var(--icon-size-20); }
+:deep(.icon--24) { width: var(--icon-size-24); height: var(--icon-size-24); }
+
+/* 让 Element Plus/Template 自带的 <summary>::marker 不显示箭头（Chrome/Safari 默认有） */
+details summary::-webkit-details-marker {
+  display: none;
+}
+</style>
